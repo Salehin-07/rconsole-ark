@@ -1193,20 +1193,243 @@ function escHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// --- language detection: extension -> rule id, plus special basenames ------
+const LANG_BY_EXT = {
+  py: "python", pyw: "python", pyi: "python", bzl: "python", sky: "python",
+  gd: "python", mojo: "python", gyp: "python", gypi: "python",
+  js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "javascript",
+  flow: "javascript", es6: "javascript", jsm: "javascript",
+  ts: "typescript", mts: "typescript", cts: "typescript", tsx: "typescript",
+  json: "json", jsonc: "json", json5: "json", webmanifest: "json",
+  geojson: "json", har: "json", jsonl: "json", map: "json", tsbuildinfo: "json",
+  ipynb: "json",
+  css: "css", scss: "css", sass: "css", less: "css", styl: "css",
+  html: "html", htm: "html", xhtml: "html", ejs: "html", hbs: "html",
+  mustache: "html", erb: "html", twig: "html", liquid: "html",
+  j2: "html", jinja: "html", jinja2: "html", vue: "html", svelte: "html",
+  astro: "html", cshtml: "html", razor: "html", jsp: "html", jspx: "html",
+  heex: "html", eex: "html",
+  xml: "xml", xsd: "xml", xsl: "xml", xslt: "xml", svg: "xml", plist: "xml",
+  config: "xml", props: "xml", targets: "xml", resx: "xml", wsdl: "xml",
+  rss: "xml", atom: "xml", opml: "xml", dtd: "xml", rng: "xml",
+  xlf: "xml", xliff: "xml", kml: "xml", gpx: "xml", tcx: "xml",
+  dita: "xml", ditamap: "xml", xaml: "xml", axml: "xml", nuspec: "xml",
+  vcxproj: "xml", csproj: "xml", vbproj: "xml", fsproj: "xml", iml: "xml",
+  wsf: "xml", wxs: "xml", wxi: "xml", jelly: "xml", ps1xml: "xml",
+  yaml: "yaml", yml: "yaml",
+  toml: "toml",
+  ini: "ini", cfg: "ini", conf: "ini", properties: "ini", inf: "ini",
+  reg: "ini", desktop: "ini", service: "ini", socket: "ini", timer: "ini",
+  mount: "ini", automount: "ini", swap: "ini", path: "ini", slice: "ini",
+  scope: "ini", mf: "ini", gitconfig: "ini", gitmodules: "ini",
+  editorconfig: "ini", gitignore: "ini", gitattributes: "ini",
+  dockerignore: "ini", npmrc: "ini", yarnrc: "ini", hgrc: "ini",
+  md: "markdown", markdown: "markdown", mdown: "markdown", mkdn: "markdown",
+  rmd: "markdown",
+  rst: "rst", rest: "rst",
+  tex: "latex", sty: "latex", cls: "latex", bib: "latex", dtx: "latex",
+  ins: "latex", ltx: "latex",
+  diff: "diff", patch: "diff", rej: "diff",
+  sql: "sql", ddl: "sql", dml: "sql", mysql: "sql", pgsql: "sql",
+  psql: "sql", sqlite: "sql", cql: "sql", hql: "sql", plsql: "sql",
+  tsql: "sql", sparksql: "sql", presto: "sql", trino: "sql",
+  gql: "graphql", graphql: "graphql",
+  sh: "bash", bash: "bash", zsh: "bash", fish: "bash", ksh: "bash",
+  csh: "bash", tcsh: "bash", ebuild: "bash", eclass: "bash",
+  pl: "perl", pm: "perl", t: "perl",
+  rb: "ruby", rbw: "ruby", rake: "ruby", gemspec: "ruby", ru: "ruby",
+  php: "php", phtml: "php", php3: "php", php4: "php", php5: "php",
+  phps: "php", module: "php",
+  lua: "lua",
+  r: "r",
+  jl: "julia",
+  ps1: "powershell", psm1: "powershell", psd1: "powershell",
+  bat: "powershell", cmd: "powershell", btm: "powershell",
+  awk: "awk",
+  tcl: "tcl",
+  vim: "vim", vimrc: "vim", gvimrc: "vim", nvimrc: "vim",
+  c: "c", h: "c", i: "c", odin: "c",
+  cpp: "cpp", hpp: "cpp", hh: "cpp", cc: "cpp", cxx: "cpp", hxx: "cpp",
+  tpp: "cpp", ipp: "cpp", ino: "cpp", pde: "cpp", cu: "cpp", cuh: "cpp",
+  hip: "cpp", mm: "cpp", cp: "cpp", cxx_: "cpp", d: "cpp",
+  "c++": "cpp", C: "cpp",
+  cs: "csharp", csx: "csharp", hx: "csharp", vala: "csharp", vapi: "csharp",
+  java: "java", jj: "java", jjt: "java",
+  kt: "kotlin", kts: "kotlin",
+  scala: "scala", sc: "scala", sbt: "scala",
+  groovy: "groovy", gradle: "groovy", gvy: "groovy",
+  go: "go",
+  rs: "rust",
+  zig: "zig", zon: "zig",
+  swift: "swift",
+  dart: "dart",
+  hs: "haskell", lhs: "haskell", elm: "haskell", purs: "haskell",
+  ml: "ocaml", mli: "ocaml", mll: "ocaml", mly: "ocaml",
+  ex: "elixir", exs: "elixir",
+  erl: "elixir", hrl: "elixir", app: "elixir", escript: "elixir",
+  clj: "clojure", cljs: "clojure", cljc: "clojure", edn: "clojure",
+  bb: "clojure",
+  lisp: "lisp", lsp: "lisp", cl: "lisp", el: "lisp",
+  scm: "lisp", ss: "lisp", rkt: "lisp",
+  fs: "fsharp", fsi: "fsharp", fsx: "fsharp",
+  vb: "vb", vbs: "vb", vba: "vb",
+  pas: "pascal", dpr: "pascal", dpk: "pascal",
+  ada: "ada", adb: "ada", ads: "ada",
+  nim: "nim", nims: "nim",
+  f: "fortran", f90: "fortran", f95: "fortran", f03: "fortran",
+  for: "fortran", fpp: "fortran",
+  v: "verilog", sv: "verilog", svh: "verilog", vh: "verilog",
+  vhd: "vhdl", vhdl: "vhdl",
+  asm: "asm", s: "asm", nasm: "asm",
+  dot: "dot", gv: "dot",
+  po: "po", pot: "po",
+  proto: "proto",
+  sol: "solidity",
+  pp: "puppet", epp: "puppet",
+  m: "matlab", sci: "matlab",
+  cmake: "cmake", dockerfile: "docker",
+  mk: "make", mak: "make", ninja: "make",
+  htaccess: "apache",
+  // Plain text: docs, data dumps and binaries (honest label, no highlight).
+  txt: "text", text: "text", log: "text", out: "text", asc: "text",
+  nfo: "text", diz: "text", csv: "text", tsv: "text", psv: "text",
+  dat: "text", bin: "text", pid: "text", lock: "text", sum: "text",
+  pem: "text", key: "text", crt: "text", cer: "text", csr: "text",
+  der: "text", p12: "text", pfx: "text", jks: "text", keystore: "text",
+  png: "text", jpg: "text", jpeg: "text", gif: "text", webp: "text",
+  ico: "text", bmp: "text", tif: "text", tiff: "text", heic: "text",
+  avif: "text", mp3: "text", wav: "text", ogg: "text", oga: "text",
+  flac: "text", aac: "text", m4a: "text", opus: "text", mid: "text",
+  midi: "text", mp4: "text", mkv: "text", avi: "text", mov: "text",
+  webm: "text", m4v: "text", ogv: "text", flv: "text", wmv: "text",
+  mpg: "text", mpeg: "text", zip: "text", tar: "text", gz: "text",
+  tgz: "text", bz2: "text", tbz2: "text", xz: "text", txz: "text",
+  "7z": "text", rar: "text", zst: "text", lz4: "text", cab: "text",
+  msi: "text", deb: "text", rpm: "text", apk: "text", ipa: "text",
+  jar: "text", war: "text", ear: "text", pdf: "text",
+  exe: "text", dll: "text", sys: "text", com: "text", scr: "text",
+  cpl: "text", so: "text", dylib: "text", o: "text", a: "text",
+  lib: "text", obj: "text", ko: "text", elf: "text", class: "text",
+  pyc: "text", pyo: "text", mo: "text",
+  ttf: "text", otf: "text", woff: "text", woff2: "text", eot: "text",
+  fnt: "text", fon: "text", sqlite3: "text", db: "text", db3: "text",
+  sdb: "text", mdb: "text", accdb: "text", fdb: "text", odb: "text",
+  h5: "text", hdf5: "text", mat: "text", rdata: "text", rda: "text",
+  pickle: "text", pkl: "text", npy: "text", npz: "text", pt: "text",
+  pth: "text", ckpt: "text", onnx: "text", parquet: "text", orc: "text",
+  avro: "text", arrow: "text", feather: "text",
+  doc: "text", docx: "text", xls: "text", xlsx: "text", ppt: "text",
+  pptx: "text", odt: "text", ods: "text", odp: "text", pages: "text",
+  numbers: "text", key: "text", epub: "text", swf: "text", psd: "text",
+  ai: "text", sketch: "text", fig: "text",
+  dmg: "text", iso: "text", img: "text", vhd: "text", vmdk: "text",
+  qcow2: "text", torrent: "text", chm: "text", wasm: "text",
+  srt: "text", vtt: "text", ssa: "text", ass: "text", sub: "text",
+  ics: "text", vcs: "text", vcf: "text", sln: "text", suo: "text",
+};
+// Exact basenames (lowercased) that imply a language without an extension.
+const LANG_BY_NAME = {
+  dockerfile: "docker", containerfile: "docker", earthfile: "docker",
+  makefile: "make", gnumakefile: "make", "makefile.am": "make",
+  justfile: "make", cmakelists: "cmake", "cmakelists.txt": "cmake",
+  jenkinsfile: "groovy", vagrantfile: "ruby", gemfile: "ruby",
+  rakefile: "ruby", podfile: "ruby", fastfile: "ruby", appfile: "ruby",
+  deliverfile: "ruby", snapfile: "ruby", scanfile: "ruby", gymfile: "ruby",
+  matchfile: "ruby", brewfile: "ruby", capfile: "ruby", guardfile: "ruby",
+  thorfile: "ruby", berksfile: "ruby", cheffile: "ruby",
+  build: "python", "build.bazel": "python", workspace: "python",
+  tiltfile: "python", sconstruct: "python", sconscript: "python",
+  buck: "python", targets: "python", snakefile: "python", wscript: "python",
+  "meson.build": "python", "conanfile.txt": "ini", pipfile: "toml",
+  "cargo.lock": "toml", "poetry.lock": "toml", "uv.lock": "toml",
+  "pipfile.lock": "toml", procfile: "yaml", pkgbuild: "bash",
+  apkbuild: "bash", "manifest.in": "ini", "citation.cff": "yaml",
+  ".babelrc": "json", ".bowerrc": "json", ".eslintrc": "json",
+  ".jshintrc": "json", ".prettierrc": "json", ".stylelintrc": "json",
+  ".firebaserc": "json", ".nycrc": "json",
+  ".npmrc": "ini", ".yarnrc": "ini", ".editorconfig": "ini",
+  ".gitconfig": "ini", ".gitmodules": "ini", ".hgrc": "ini",
+  ".inputrc": "ini", ".coveragerc": "ini", ".flake8": "ini",
+  ".pylintrc": "ini", ".wgetrc": "ini", ".nanorc": "ini",
+  ".gitignore": "ini", ".gitattributes": "ini", ".dockerignore": "ini",
+  ".gcloudignore": "ini", ".eslintignore": "ini", ".prettierignore": "ini",
+  ".npmignore": "ini", ".htaccess": "apache", "nginx.conf": "nginx",
+  ".vimrc": "vim", _vimrc: "vim", ".gvimrc": "vim",
+  ".bashrc": "bash", ".bash_profile": "bash", ".profile": "bash",
+  ".zshrc": "bash", ".zprofile": "bash", ".zshenv": "bash",
+  ".zlogin": "bash", ".zlogout": "bash", ".kshrc": "bash",
+  ".cshrc": "bash", ".tcshrc": "bash", ".login": "bash", ".logout": "bash",
+  ".tmux.conf": "bash", ".screenrc": "bash",
+  "prefs.js": "javascript", "user.js": "javascript",
+  readme: "markdown", contributing: "markdown", changelog: "markdown",
+  history: "markdown", news: "markdown",
+};
 function langFromPath(p) {
-  const ext = (p.split(".").pop() || "").toLowerCase();
-  const m = {
-    py: "python", pyw: "python", js: "javascript", mjs: "javascript",
-    cjs: "javascript", ts: "typescript", tsx: "typescript", jsx: "javascript",
-    json: "json", html: "html", htm: "html", xml: "xml", vue: "html",
-    css: "css", scss: "css", less: "css", yaml: "yaml", yml: "yaml",
-    md: "markdown", sh: "bash", bash: "bash", zsh: "bash", txt: "text",
-    csv: "text", ini: "ini", conf: "ini",
-  };
-  return m[ext] || "text";
+  const raw = ((p || "").split("/").pop() || "").split("\\").pop() || "";
+  const base = raw.trim();
+  const lower = base.toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(LANG_BY_NAME, lower)) return LANG_BY_NAME[lower];
+  if (lower === ".env" || lower.startsWith(".env.")) return "ini";
+  // Original-case extension first, so case-significant extensions (e.g. .C
+  // for C++ on case-sensitive filesystems) resolve before lowercasing.
+  const rawDot = base.lastIndexOf(".");
+  const rawExt = rawDot >= 0 ? base.slice(rawDot + 1) : "";
+  if (rawExt && Object.prototype.hasOwnProperty.call(LANG_BY_EXT, rawExt)) return LANG_BY_EXT[rawExt];
+  const dot = lower.lastIndexOf(".");
+  const ext = dot >= 0 ? lower.slice(dot + 1) : "";
+  if (ext && Object.prototype.hasOwnProperty.call(LANG_BY_EXT, ext)) return LANG_BY_EXT[ext];
+  return "text";
+}
+
+// Rule builders: keyword lists are space-separated words.
+function _k(words) { return "\\b(" + words.trim().split(/\s+/).join("|") + ")\\b"; }
+const _CSTR = ["string", "\"[^\"\\\\\\n]*\""];
+const _SSTR = ["string", "'[^'\\\\\\n]*'"];
+const _NUM = ["number", "\\b\\d[\\d_]*(\\.\\d+)?([eE][+-]?\\d+)?\\b|\\b0[xX][0-9a-fA-F_]+\\b|\\b0[oO][0-7_]+\\b|\\b0[bB][01_]+\\b"];
+const _FUNC = ["function", "([A-Za-z_$]\\w*)\\s*(?=\\()"];
+const _MOP = ["operator", "===|!==|==|!=|<=|>=|=>|->|::|&&|\\|\\||\\+\\+|--|<<|>>|\\.\\.\\."];
+// C-family: // + /* */ comments, quoted strings, numbers, keywords...
+function clike(o) {
+  const r = [["comment", "//[^\\n]*"], ["comment", "/\\*[\\s\\S]*?\\*/"], _CSTR, _SSTR];
+  if (o.template) r.push(["string", "`[^`\\\\]*`"]);
+  if (o.vars) r.push(["variable", o.vars]);
+  r.push(_NUM);
+  // bool/type before keyword: words like "string"/"true" that appear in both
+  // lists get their more specific color instead of generic keyword purple.
+  if (o.bools) r.push(["bool", _k(o.bools)]);
+  if (o.types) r.push(["type", _k(o.types)]);
+  r.push(["keyword", _k(o.kw)]);
+  if (o.decorator) r.push(["decorator", "@[A-Za-z_]\\w*"]);
+  r.push(_FUNC);
+  if (o.builtins) r.push(["builtin", _k(o.builtins)]);
+  r.push(_MOP);
+  if (o.extra) o.extra.forEach((x) => r.push(x));
+  return r;
+}
+// Hash-comment family: # comments, quoted strings, numbers, keywords...
+function hashlike(o) {
+  const r = [["comment", "#[^\\n]*"]];
+  if (o.triple) r.push(["string", "'''[\\s\\S]*?'''"], ["string", '"""[\\s\\S]*?"""']);
+  r.push(_CSTR, _SSTR);
+  if (o.vars) r.push(["variable", o.vars]);
+  r.push(_NUM);
+  if (o.bools) r.push(["bool", _k(o.bools)]);
+  if (o.types) r.push(["type", _k(o.types)]);
+  r.push(["keyword", _k(o.kw)]);
+  if (o.decorator) r.push(["decorator", "@[A-Za-z_]\\w*"]);
+  r.push(_FUNC);
+  if (o.builtins) r.push(["builtin", _k(o.builtins)]);
+  if (o.extra) o.extra.forEach((x) => r.push(x));
+  return r;
 }
 
 // Per-language token rules: [className, regexSource]. Comments/strings first.
+// Case-insensitive languages get an "i" flag via HL_FLAGS below.
+const HL_FLAGS = {
+  batch: "gi", sql: "gi", vb: "gi", pascal: "gi", ada: "gi",
+  fortran: "gi", vhdl: "gi", asm: "gi", powershell: "gi", ini: "gi",
+  cmake: "gi", docker: "gi",
+};
 const HL_RULES = {
   python: [
     ["comment", "#[^\\n]*"],
@@ -1215,8 +1438,9 @@ const HL_RULES = {
     ["string", "'[^'\\\\\\n]*'"],
     ["string", '"[^"\\\\\\n]*"'],
     ["number", "\\b\\d+(\\.\\d+)?\\b"],
-    ["keyword", "\\b(def|class|import|from|as|return|if|elif|else|for|while|break|continue|pass|with|try|except|finally|raise|lambda|yield|global|nonlocal|assert|del|in|is|not|and|or|async|await|print)\\b"],
+    ["keyword", "\\b(def|class|import|from|as|return|if|elif|else|for|while|break|continue|pass|with|try|except|finally|raise|lambda|yield|global|nonlocal|assert|del|in|is|not|and|or|async|await|print|match|case)\\b"],
     ["bool", "\\b(True|False|None)\\b"],
+    ["decorator", "@[A-Za-z_]\\w*"],
     ["function", "([A-Za-z_]\\w*)\\s*(?=\\()"],
     ["builtin", "\\b(self|cls|super|len|range|str|int|float|list|dict|set|tuple|open|enumerate|zip|map|filter|sorted|reversed|sum|min|max|abs|type|isinstance|object|Exception)\\b"],
   ],
@@ -1232,6 +1456,13 @@ const HL_RULES = {
     ["function", "([A-Za-z_$]\\w*)\\s*(?=\\()"],
     ["builtin", "\\b(console|document|window|require|module|exports|process|Math|JSON|Object|Array|String|Number|Boolean|Promise|Map|Set|Symbol)\\b"],
   ],
+  typescript: clike({
+    template: true, decorator: true,
+    kw: "abstract any as asserts async await break case catch class const constructor continue debugger declare default delete do else enum export extends false finally for from function get if implements import in infer instanceof interface is keyof let module namespace never new null number object of private protected public readonly require return satisfies set static string super switch symbol this throw true try type typeof undefined unknown var void while with yield",
+    types: "string number boolean bigint symbol void null undefined any unknown never object Array Record Map Set Promise Partial Required",
+    bools: "true false null undefined NaN",
+    builtins: "console document window require module exports process Math JSON Object Array String Number Boolean Promise Map Set Symbol parseInt parseFloat isNaN setTimeout setInterval clearTimeout clearInterval fetch",
+  }),
   json: [
     ["string", '"[^"\\\\\\n]*"(?=\\s*:)'],
     ["string", '"[^"\\\\\\n]*"'],
@@ -1259,6 +1490,26 @@ const HL_RULES = {
     ["bool", "\\b(true|false|null|yes|no|~)\\b"],
     ["number", "\\b\\d+(\\.\\d+)?\\b"],
   ],
+  toml: [
+    ["comment", "#[^\\n]*"],
+    ["string", "'''[\\s\\S]*?'''"],
+    ["string", '"""[\\s\\S]*?"""'],
+    ["string", "'[^'\\n]*'"],
+    _CSTR,
+    ["keyword", "^\\[{1,2}[^\\]\\n]*\\]{1,2}"],
+    ["attr", "^[A-Za-z0-9_.-]+(?=\\s*=)"],
+    ["number", "\\b\\d{4}-\\d{2}-\\d{2}([T ]\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:?\\d{2})?)?)?\\b"],
+    ["number", "[+-]?\\b\\d[\\d_]*(\\.\\d+)?([eE][+-]?\\d+)?\\b|\\b0[xob][0-9a-fA-F_]+\\b"],
+    ["bool", "\\b(true|false)\\b"],
+  ],
+  ini: [
+    ["comment", "[#;][^\\n]*"],
+    _CSTR, _SSTR,
+    ["keyword", "^\\[[^\\]\\n]*\\]"],
+    ["attr", "^[A-Za-z0-9_.\\- ]+(?=\\s*=)"],
+    ["bool", "\\b(true|false|yes|no|on|off)\\b"],
+    _NUM,
+  ],
   bash: [
     ["comment", "#[^\\n]*"],
     ["string", '"[^"\\\\\\n]*"|\'[^\']*\''],
@@ -1272,7 +1523,460 @@ const HL_RULES = {
     ["keyword", "^\\s*[-*+] "],
     ["bool", "^\\s*\\d+\\. "],
   ],
+  rst: [
+    ["comment", "^\\.\\. .*"],
+    ["decorator", "^\\.\\. [A-Za-z_-]+::"],
+    ["string", "``[^`]*``"],
+    ["string", "`[^`\\n]*`_?"],
+    ["attr", "\\[[^\\]]*\\]_|^[A-Za-z0-9_.~-]+(?=::?\\s*$)"],
+    ["keyword", "^[=\\-~^\"#*+]{3,}$"],
+  ],
+  latex: [
+    ["comment", "%[^\\n]*"],
+    ["keyword", "\\\\[A-Za-z]+|\\\\[^A-Za-z\\s]"],
+    ["string", "\\$[^$\\n]*\\$"],
+    ["punct", "[{}]"],
+    _NUM,
+  ],
+  diff: [
+    ["keyword", "^(\\+\\+\\+|---|diff |index | Cram ).*"],
+    ["string", "^\\+.*"],
+    ["comment", "^-.*"],
+    ["attr", "^@.*"],
+    ["number", "^\\d+(,\\d+)?[acd]\\d+.*"],
+  ],
+  sql: [
+    ["comment", "--[^\\n]*"],
+    ["comment", "/\\*[\\s\\S]*?\\*/"],
+    _SSTR, _CSTR,
+    ["string", "`[^`\\n]*`"],
+    ["string", "\\[[^\\]\\n]*\\]"],
+    _NUM,
+    ["keyword", _k("select from where group by order having limit offset join inner outer left right full cross on using union all distinct as with recursive values into insert update delete set create table view index alter drop truncate database schema column constraint primary key foreign references unique check default not null and or in is like between exists case when then else end asc all any some cast convert over partition rows range unbounded preceding following current row only with ties fetch first next percent except intersect minus merge using returning join lateral pivot unpivot")],
+    ["bool", _k("true false null unknown")],
+    ["type", _k("int integer bigint smallint tinyint decimal numeric float real double precision money char varchar nchar nvarchar text ntext binary varbinary image bit date time datetime datetime2 timestamp interval year boolean bool json jsonb xml uuid serial bigserial")],
+    ["builtin", _k("count sum avg min max coalesce nullif greatest least upper lower trim substring length cast convert row_number rank dense_rank lag lead first_value last_value now current_date current_timestamp")],
+  ],
+  graphql: [
+    ["comment", "#[^\\n]*"],
+    ["string", '"""[\\s\\S]*?"""'],
+    _CSTR,
+    ["variable", "\\$[A-Za-z_]\\w*"],
+    ["decorator", "@[A-Za-z_]\\w*"],
+    ["keyword", _k("query mutation subscription fragment on type interface union enum input scalar extend schema directive repeatable")],
+    ["type", "\\b[A-Z][A-Za-z0-9_]*\\b"],
+    ["bool", _k("true false null")],
+    _FUNC,
+  ],
+  docker: [
+    ["comment", "#[^\\n]*"],
+    _CSTR, _SSTR,
+    ["variable", "\\$[A-Za-z_][\\w]*|\\$\\{[^}]*\\}"],
+    ["keyword", "^(FROM|RUN|CMD|LABEL|MAINTAINER|EXPOSE|ENV|ADD|COPY|ENTRYPOINT|VOLUME|USER|WORKDIR|ARG|ONBUILD|STOPSIGNAL|HEALTHCHECK|SHELL)\\b"],
+    ["bool", "\\b(true|false)\\b"],
+  ],
+  make: [
+    ["comment", "#[^\\n]*"],
+    _CSTR, _SSTR,
+    ["variable", "\\$[@<^?*%|]|\\$[({][^})]*[})]|\\$[A-Za-z_]"],
+    ["function", "^[\\w%.][^:#=\\n]*::?"],
+    ["keyword", "^(include|-include|sinclude|ifeq|ifneq|ifdef|ifndef|else|endif|define|endef|undefine|override|export|unexport|private|vpath)\\b"],
+  ],
+  cmake: [
+    ["comment", "#[^\\n]*"],
+    _CSTR,
+    ["variable", "\\$\\{[^}]*\\}|\\$[A-Za-z_]+\\{[^}]*\\}"],
+    _NUM,
+    ["keyword", _k("if elseif else endif foreach endforeach while endwhile function endfunction macro endmacro return break continue")],
+    ["bool", _k("TRUE FALSE ON OFF YES NO")],
+    _FUNC,
+  ],
+  apache: [
+    ["comment", "#[^\\n]*"],
+    _CSTR, _SSTR,
+    ["variable", "\\$[A-Za-z_]+|%\\{[^}]*\\}[a-z]*"],
+    ["tag", "</?[A-Za-z][^\\s>]*"],
+    ["keyword", "^[A-Za-z][A-Za-z0-9]*"],
+  ],
+  nginx: [
+    ["comment", "#[^\\n]*"],
+    _CSTR, _SSTR,
+    ["variable", "\\$[A-Za-z_]+"],
+    ["keyword", "^[a-z_]+"],
+    ["bool", "\\b(on|off)\\b"],
+    _NUM,
+  ],
+  c: clike({
+    kw: "auto break case char const continue default do double else enum extern float for goto if inline int long register restrict return short signed sizeof static struct switch typedef union unsigned void volatile while _Bool _Complex _Imaginary alignas alignof static_assert thread_local",
+    types: "int8_t int16_t int32_t int64_t uint8_t uint16_t uint32_t uint64_t size_t ssize_t ptrdiff_t intptr_t uintptr_t wchar_t char16_t char32_t FILE DIR pid_t uid_t gid_t off_t time_t clock_t va_list jmp_buf fpos_t int char float double void bool short long signed unsigned struct union enum",
+    bools: "true false NULL",
+    builtins: "printf scanf main malloc free calloc realloc memcpy memmove memset strlen strcmp strncmp strcpy strncpy strcat fopen fclose fread fwrite fprintf fscanf sprintf snprintf sscanf exit abort atexit assert qsort bsearch abs labs rand srand time toupper tolower stdin stdout stderr errno",
+  }),
+  cpp: clike({
+    kw: "alignas alignof assert auto break case catch char class concept const consteval constinit constexpr continue co_await co_return co_yield decltype default delete do double dynamic_cast else enum explicit export extern false final float for friend goto if import inline int long module mutable namespace new noexcept nullptr operator private protected public register reinterpret_cast requires return short signed sizeof static static_assert static_cast struct switch template this thread_local throw true try typedef typeid typename union unsigned using virtual void volatile while",
+    types: "int8_t int16_t int32_t int64_t uint8_t uint16_t uint32_t uint64_t size_t string wstring vector map set unordered_map unordered_set array tuple pair optional variant string_view span int char float double void bool short long signed unsigned auto",
+    bools: "true false nullptr NULL",
+    builtins: "std cout cin cerr clog endl string vector map set move forward make_shared make_unique make_pair printf scanf malloc free new delete",
+  }),
+  csharp: clike({
+    template: true,
+    kw: "abstract as base break byte case catch char checked class const continue decimal default delegate do double else enum event explicit extern false finally fixed float for foreach goto if implicit in int interface internal is lock long namespace new null object operator out override params private protected public readonly ref return sbyte sealed short sizeof stackalloc static string struct switch this throw true try typeof uint ulong unchecked unsafe ushort using var virtual void volatile while add alias ascending async await by descending dynamic equals from get global group into join let nameof on orderby partial remove select set value when where with yield",
+    types: "int string bool object var dynamic void char byte sbyte short ushort uint long ulong float double decimal DateTime TimeSpan Guid List Dictionary IEnumerable Task Action Func",
+    bools: "true false null",
+    builtins: "Console WriteLine ReadLine Convert Math String List Dictionary Enumerable Task",
+    extra: [["string", '@"[^"]*"'], ["string", '\\$"[^"\\\\\\n]*"']],
+  }),
+  java: clike({
+    decorator: true,
+    kw: "abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try var void volatile while",
+    types: "byte short int long float double boolean char void String Object List Map Set ArrayList HashMap Integer Long Double Boolean Character Exception var",
+    bools: "true false null",
+    builtins: "System out println print String Math Object Integer List Map Arrays Collections Objects",
+    extra: [["string", '"""[\\s\\S]*?"""']],
+  }),
+  kotlin: clike({
+    template: true,
+    kw: "as break class continue do else false for fun if in interface is null object package return super this throw true try typealias typeof val var when while by catch constructor delegate dynamic field finally get import inner internal lateinit open operator out param property receiver set setparam value where actual abstract annotation companion const crossinline data enum expect external final infix inline internal noinline open operator out override private protected public reified sealed suspend tailrec vararg",
+    types: "Int Long Short Byte Float Double Boolean Char String Unit Nothing Any List Map Set Array",
+    bools: "true false null",
+    builtins: "println print listOf mapOf setOf arrayOf",
+  }),
+  scala: clike({
+    template: true,
+    kw: "abstract case catch class def do else extends false final finally for forSome if implicit import lazy match new null object override package private protected return sealed super this throw trait try true type val var while with yield",
+    types: "Int Long Short Byte Float Double Boolean Char String Unit Null Nothing Any AnyRef List Map Set Option Some None Array",
+    bools: "true false null",
+    builtins: "println print List Map Set Option Some None",
+  }),
+  groovy: clike({
+    template: true,
+    kw: "as assert break case catch class const continue def do else false finally for goto if implements import in instanceof interface new null package return super switch this throw throws trait true try while enum extends",
+    types: "def var String Object List Map Integer Boolean void",
+    bools: "true false null",
+    builtins: "println print assert",
+  }),
+  go: clike({
+    kw: "break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var",
+    types: "bool string int int8 int16 int32 int64 uint uint8 uint16 uint32 uint64 uintptr float32 float64 complex64 complex128 byte rune error any",
+    bools: "true false nil iota",
+    builtins: "make new len cap append copy delete panic recover print println close min max clear",
+  }),
+  rust: clike({
+    kw: "as break const continue crate else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while async await dyn abstract become box do final macro override priv typeof unsized virtual yield try",
+    types: "bool char str String i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 isize usize f32 f64 Option Result Vec Box Rc Arc Err Ok Some None",
+    bools: "true false",
+    builtins: "println print vec String Some None Ok Err panic assert format",
+    extra: [["decorator", "#\\[[^\\]\\n]*\\]"]],
+  }),
+  zig: clike({
+    kw: "addrspace align allowzero and anyerror anyframe anytype asm async await break catch comptime const continue defer else enum errdefer error export extern false fn for if inline linksection nakedcc noinline null or orelse packed pub resume return struct suspend switch test threadlocal true try undefined union unreachable usingnamespace var volatile while",
+    types: "void bool noreturn type i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 isize usize f16 f32 f64 f80 f128",
+    bools: "true false null undefined",
+    builtins: "unreachable",
+  }),
+  swift: clike({
+    decorator: true,
+    kw: "associatedtype break case catch class continue default defer deinit do else enum extension fallthrough false fileprivate for func guard if import in init inout internal is lazy let nil open operator override precedence private protocol public repeat required return self Self static struct subscript super switch throw throws true try typealias var where while as convenience didSet dynamic final get indirect infix lazy mutating optional postfix prefix required set unowned weak willSet",
+    types: "Int Int8 Int16 Int32 Int64 UInt Float Double Bool String Character Array Dictionary Set Optional Any AnyObject Void Never",
+    bools: "true false nil",
+    builtins: "print debugPrint String Int assertionFailure fatalError",
+  }),
+  dart: clike({
+    template: true, decorator: true,
+    kw: "abstract as assert async await break case catch class const continue covariant default deferred do dynamic else enum export extends extension external factory false final finally for get hide if implements import in late library mixin new null on operator part required rethrow return sealed set show static super switch sync this throw true try typedef var void while with yield",
+    types: "int double num bool String List Map Set dynamic void var late",
+    bools: "true false null",
+    builtins: "print assert",
+  }),
+  php: [
+    ["comment", "//[^\\n]*"],
+    ["comment", "#[^\\n]*"],
+    ["comment", "/\\*[\\s\\S]*?\\*/"],
+    _CSTR, _SSTR,
+    ["variable", "\\$[A-Za-z_]\\w*"],
+    _NUM,
+    ["keyword", _k("abstract and array as break callable case catch class clone const continue declare default do echo else elseif empty enddeclare endfor endforeach endif endswitch endwhile exit extends final finally fn for foreach function global goto if implements include include_once instanceof insteadof interface isset list namespace new or print private protected public readonly require require_once return static switch throw trait try unset use var while xor yield from")],
+    ["bool", _k("true false null")],
+    _FUNC,
+    ["builtin", _k("echo print count strlen strpos array_merge in_array isset empty unset die exit var_dump print_r")],
+    _MOP,
+  ],
+  perl: hashlike({
+    vars: "[$@%][A-Za-z_]\\w*(?:::\\w+)*",
+    kw: "BEGIN END CHECK INIT else elsif eq for foreach given gt ge lt le ne no not or and xor unless until while when default continue do goto if last next redo return sub package use require our my local state say print printf push pop shift unshift split join map grep sort reverse keys values each defined undef bless tie tied ref wantarray die warn eval",
+    bools: "undef",
+    builtins: "print say printf sprintf push pop shift unshift split join map grep sort reverse keys values each defined ref die warn eval open close chomp chop length substr index",
+  }),
+  ruby: hashlike({
+    vars: "[$@][A-Za-z_]\\w*|:[A-Za-z_][\\w?!]*",
+    kw: "alias and begin BEGIN break case class def defined do else elsif end END ensure false for if in module next nil not or redo rescue retry return self super then true undef unless until when while yield",
+    bools: "true false nil",
+    builtins: "puts print p require require_relative include extend attr_reader attr_writer attr_accessor new lambda proc raise fail loop",
+  }),
+  lua: [
+    ["comment", "--[^\\n]*"],
+    ["string", "\\[\\[[\\s\\S]*?\\]\\]"],
+    _CSTR, _SSTR,
+    _NUM,
+    ["keyword", _k("and break do else elseif end false for function goto if in local nil not or repeat return then true until while")],
+    ["bool", _k("true false nil")],
+    _FUNC,
+    ["builtin", _k("print require pairs ipairs tostring tonumber type setmetatable getmetatable rawget rawset table string io os math")],
+  ],
+  r: hashlike({
+    kw: "if else repeat while function for in next break return switch library require source stop warning message cat print paste data.frame list c invisible",
+    bools: "TRUE FALSE NULL NA Inf NaN",
+    builtins: "c list data.frame library require source print paste cat length nrow ncol dim names",
+    extra: [["operator", "<-|->|%>%|==|!=|<=|>="]],
+  }),
+  julia: hashlike({
+    kw: "baremodule begin break catch const continue do else elseif end export false finally for function global if import in isa let local macro module quote return struct true try using where while abstract type primitive type mutable struct",
+    types: "Int8 Int16 Int32 Int64 Int128 UInt8 UInt16 UInt32 UInt64 UInt128 Float16 Float32 Float64 Bool Char String Symbol Any Nothing Missing Union Tuple Array Dict",
+    bools: "true false nothing missing",
+    builtins: "println print push! pop! length size eltype typeof include",
+  }),
+  powershell: [
+    ["comment", "<#[\\s\\S]*?#>"],
+    ["comment", "#[^\\n]*"],
+    _CSTR, _SSTR,
+    ["variable", "\\$[A-Za-z_][\\w:]*|\\${[^}]*\\}|\\$\\?"],
+    _NUM,
+    ["keyword", _k("function filter foreach for if elseif else switch while do until break continue return exit throw trap try catch finally in param begin process end dynamicparam class enum using namespace hidden static")],
+    ["function", "\\b[A-Z]\\w+-[A-Z]\\w+\\b"],
+    ["bool", "\\$(true|false|null)"],
+    _FUNC,
+  ],
+  batch: [
+    ["comment", "rem\\b[^\\n]*|::[^\\n]*"],
+    ["string", '"[^"\\n]*"'],
+    ["variable", "%[A-Za-z_][\\w]*%|%\\d|%%[A-Za-z]|![A-Za-z_][\\w]*!"],
+    ["function", "^:[^\\n]*"],
+    ["keyword", _k("echo off on setlocal endlocal enabledelayedexpansion if else for in do goto call exit pause cls cd dir del copy move ren type rem set shift title color prompt path defined exist errorlevel")],
+  ],
+  awk: [
+    ["comment", "#[^\\n]*"],
+    _CSTR, _SSTR,
+    ["variable", "\\$\\d+"],
+    _NUM,
+    ["keyword", _k("BEGIN END function return if else for in while do break continue next exit print printf getline delete split substr length")],
+    _FUNC,
+    ["builtin", _k("print printf getline length substr split")],
+  ],
+  tcl: [
+    ["comment", "#[^\\n]*"],
+    _CSTR, _SSTR,
+    ["string", "\\{[^{}]*\\}"],
+    ["variable", "\\$[A-Za-z_][\\w:()]*|\\${[^}]*}"],
+    _NUM,
+    ["keyword", _k("proc return if then else elseif for foreach while break continue switch default case set append lappend unset global upvar variable namespace package require source eval exec exit error info puts gets open close read write after update vwait")],
+    _FUNC,
+    ["builtin", _k("puts gets set proc return")],
+  ],
+  vim: [
+    ["comment", "^\\s*\".*"],
+    _CSTR, _SSTR,
+    ["variable", "\\$[A-Za-z_]\\w*"],
+    _NUM,
+    ["keyword", _k("set setlocal let unlet function endfunction return if else elseif endif for endfor while endwhile break continue try catch finally endtry map nmap imap vmap nnoremap inoremap vnoremap autocmd augroup highlight syntax runtime source edit call execute normal echo echomsg finish abort delcommand command filetype plugin indent on off only bdelete buffer buffers quit q w qa wq")],
+    _FUNC,
+    ["builtin", _k("expand executable filereadable has exists")],
+  ],
+  haskell: [
+    ["comment", "\\{-[\\s\\S]*?-\\}"],
+    ["comment", "--[^\\n]*"],
+    _CSTR,
+    ["string", "'[^'\\\\\\n]'"],
+    _NUM,
+    ["keyword", _k("case class data deriving do else if import in infix infixl infixr instance let module of then type where as hiding qualified mdo proc rec forall family role stock any via newtype")],
+    ["type", "\\b[A-Z][A-Za-z0-9_']*\\b"],
+    ["bool", _k("True False")],
+    ["builtin", _k("putStrLn print map filter foldr foldl show read return")],
+    _FUNC,
+  ],
+  ocaml: [
+    ["comment", "\\(\\*[\\s\\S]*?\\*\\)"],
+    _CSTR,
+    ["string", "'[^'\\\\\\n]'"],
+    _NUM,
+    ["keyword", _k("and as assert begin class constraint do done downto else end exception external false for fun function functor if in include inherit initializer land lazy let lor lsl lsr lxor match method mod module mutable new object of open or private rec sig struct then to true try type val virtual when while with")],
+    ["type", "\\b[A-Z][A-Za-z0-9_']*\\b"],
+    ["bool", _k("true false")],
+    ["builtin", _k("print_string print_endline failwith invalid_arg raise exit")],
+    _FUNC,
+  ],
+  elixir: hashlike({
+    triple: true, decorator: true,
+    kw: "alias and case catch cond def defimpl defmodule defp defprotocol defstruct do else end false fn for if import in not or quote raise receive require rescue return super throw true try unquote unless use when with",
+    bools: "true false nil",
+    builtins: "IO Enum Map List String Kernel puts inspect",
+  }),
+  erlang: [
+    ["comment", "%[^\\n]*"],
+    _CSTR,
+    _NUM,
+    ["keyword", _k("after and andalso band begin bnot bor bsl bsr bxor case catch cond div end fun if let of or orelse query receive rem try when xor")],
+    ["bool", _k("true false")],
+    _FUNC,
+    ["builtin", _k("io lists maps")],
+  ],
+  clojure: [
+    ["comment", ";[^\\n]*"],
+    _CSTR,
+    ["variable", ":[\\w?!*+\\-/]+"],
+    _NUM,
+    ["keyword", _k("def defn defmacro defmethod defmulti defonce defprotocol defrecord defstruct deftype fn let letfn if when when-not when-let cond condp case doseq dotimes for loop recur do comment declare ns in-ns refer use require import quote var deref atom swap! reset! future promise delay lazy-seq cons first rest apply map filter reduce")],
+    ["bool", _k("true false nil")],
+    _FUNC,
+    ["builtin", _k("println print str")],
+  ],
+  lisp: [
+    ["comment", ";[^\\n]*"],
+    _CSTR,
+    _NUM,
+    ["keyword", _k("defun defmacro defvar defparameter defconstant let flet labels lambda if when unless cond case progn prog1 prog2 quote quasiquote unquote eval apply funcall loop do dolist dotimes return return-from block tagbody go setf setq incf decf push pop defstruct defclass defmethod defgeneric")],
+    ["bool", _k("t nil")],
+    _FUNC,
+    ["builtin", _k("car cdr cons list append length reverse print format")],
+  ],
+  fsharp: [
+    ["comment", "//[^\\n]*"],
+    ["comment", "\\(\\*[\\s\\S]*?\\*\\)"],
+    ["string", '"""[\\s\\S]*?"""'],
+    _CSTR,
+    _NUM,
+    ["keyword", _k("abstract and as assert base begin class default delegate do done downcast downto else end exception extern false finally fixed for fun function global if in inherit inline interface lazy let match member module mutable namespace new null of open or override private public rec return sig static struct then to true try type upcast use val void when while with yield")],
+    ["type", "\\b[A-Z][A-Za-z0-9_]*\\b"],
+    ["bool", _k("true false null")],
+    _FUNC,
+    ["builtin", _k("printf printfn failwith")],
+  ],
+  vb: [
+    ["comment", "'[^\\n]*"],
+    ["comment", "\\bREM\\b[^\\n]*"],
+    _CSTR,
+    ["number", "&H[0-9a-fA-F]+"],
+    _NUM,
+    ["keyword", _k("AddHandler AddressOf Alias And AndAlso As Boolean ByRef Byte ByVal Call Case Catch Class Const Continue Declare Default Delegate Dim DirectCast Do Double Each Else ElseIf End EndIf Enum Erase Error Event Exit For Friend Function Get GetType Global GoTo Handles If Implements Imports In Inherits Integer Interface Is IsNot Let Lib Like Long Loop Me Mod Module MustInherit MustOverride MyBase MyClass Namespace New Next Not Nothing Object Of Off On Operator Option Optional Or OrElse Overloads Overridable Overrides ParamArray Partial Private Property Protected Public RaiseEvent ReadOnly ReDim RemoveHandler Resume Return Select Set Shadows Shared Short Single Static Step Stop String Structure Sub SyncLock Then Throw To Try TryCast TypeOf Using Variant Wend When While Widening With WithEvents WriteOnly Xor")],
+    ["type", _k("Integer String Boolean Double Object Date Decimal Long Short Byte Char Variant")],
+    ["bool", _k("True False Nothing")],
+    _FUNC,
+    ["builtin", _k("MsgBox InputBox Print Debug Console WriteLine")],
+  ],
+  pascal: [
+    ["comment", "//[^\\n]*"],
+    ["comment", "\\{[^$}][^\\n]*\\}"],
+    ["comment", "\\(\\*[\\s\\S]*?\\*\\)"],
+    ["string", "'([^']|'')*'"],
+    ["number", "\\$[0-9a-fA-F]+"],
+    _NUM,
+    ["keyword", _k("and array as asm begin case class const constructor destructor div do downto else end except exports file finally for function goto if implementation in inherited inline interface is label library mod nil not object of on operator or out packed procedure program property raise record repeat set shl shr string then threadvar to try type unit until uses var while with xor")],
+    ["type", _k("Integer String Boolean Char Real Byte Word LongInt Cardinal Pointer TObject")],
+    ["bool", _k("True False nil")],
+    _FUNC,
+    ["builtin", _k("Write WriteLn Read ReadLn")],
+  ],
+  ada: [
+    ["comment", "--[^\\n]*"],
+    _CSTR,
+    _NUM,
+    ["keyword", _k("abort abs abstract accept access aliased all and array at begin body case constant declare delay delta digits do else elsif end entry exception exit for function generic goto if in interface is limited loop mod new not null of or others out overriding package pragma private procedure protected raise range record rem renames requeue return reverse select separate subtype synchronized tagged task terminate then type until use when while with xor")],
+    ["type", _k("Integer Float Boolean Character String Natural Positive")],
+    ["bool", _k("True False")],
+    _FUNC,
+    ["builtin", _k("Put_Line Put Get_Line Get")],
+  ],
+  nim: hashlike({
+    triple: true,
+    kw: "addr and as asm bind block break case cast concept const continue converter defer discard distinct div do elif else end enum except export finally for from func if import in include inherit interface is isnot iterator let macro method mixin mod nil not notin object of or out proc pure quote raise ref return shl shr static template try tuple type using var when while with without yield",
+    types: "int int8 int16 int32 int64 uint uint8 uint16 uint32 uint64 float float32 float64 bool char string seq array",
+    bools: "true false nil",
+    builtins: "echo result",
+  }),
+  fortran: [
+    ["comment", "![^\\n]*"],
+    _SSTR, _CSTR,
+    ["number", "\\b\\d[\\d.]*(d[+-]?\\d+)?\\b"],
+    _NUM,
+    ["keyword", _k("program end module subroutine function contains use implicit none integer real double precision complex character logical parameter dimension allocatable allocate deallocate intent optional save data common block equivalence external intrinsic public private pointer target print write read format open close stop call continue cycle exit where elsewhere forall interface operator assignment if then else elseif endif do while select case default return goto")],
+    ["bool", "\\.(true|false)\\."],
+    ["builtin", _k("print write read")],
+  ],
+  verilog: [
+    ["comment", "//[^\\n]*"],
+    ["comment", "/\\*[\\s\\S]*?\\*/"],
+    _CSTR,
+    ["number", "\\b\\d+'[bhd][0-9a-fA-F_xz?]+\\b"],
+    _NUM,
+    ["keyword", _k("module endmodule input output inout wire reg logic bit integer int real time realtime parameter localparam assign always initial begin end if else for while repeat forever case endcase casex casez default function endfunction task endtask generate endgenerate genvar posedge negedge edge specify endspecify fork join disable defparam tri supply0 supply1 and or not nand nor xor xnor buf primitive endprimitive table endtable automatic static const ref extern pure virtual extends implements import export package endpackage program endprogram clocking endclocking property endproperty sequence assert assume cover expect before bind constraint random rand randc randcase unique unique0 priority with inside dist foreach return break continue do while typedef struct union enum class endclass new super this null void string byte shortint longint char shortreal chandle event signed unsigned")],
+    ["type", _k("wire reg logic bit int integer byte string void")],
+    ["decorator", "`[A-Za-z_]\\w*"],
+    _FUNC,
+  ],
+  vhdl: [
+    ["comment", "--[^\\n]*"],
+    _CSTR,
+    _NUM,
+    ["keyword", _k("abs access after alias all and architecture array assert assume attribute begin block body buffer bus case component configuration constant context cover disconnect downto else elsif end entity exit fair file for force generate generic group guarded if impure in inertial inout is label library linkage literal loop map mod nand new next nor not null of on open or others out package parameter port postponed procedure process property protected pure range record register reject release rem report restrict rol ror select sequence severity shared signal sla sll sra srl strong subtype then to transport type unaffected units until use variable wait when while with xnor xor")],
+    ["type", _k("bit bit_vector std_logic std_ulogic std_logic_vector integer natural positive boolean character string time signed unsigned")],
+    ["bool", _k("true false")],
+    _FUNC,
+  ],
+  asm: [
+    ["comment", ";[^\\n]*"],
+    ["comment", "#[^\\n]*"],
+    ["comment", "//[^\\n]*"],
+    _CSTR, _SSTR,
+    ["number", "\\b[0-9a-fA-F]+[hH]\\b|\\$[0-9a-fA-F]+\\b|%[01]+\\b"],
+    _NUM,
+    ["keyword", _k("mov push pop lea call ret jmp je jne jz jnz ja jb jae jbe jg jl jge jle jo jno js jns jp jnp jcxz loop nop hlt int iret cli sti cld std pushf popf pusha popa movs stos lods cmps scas add sub mul imul div idiv inc dec neg not and or xor shl shr sal sar rol ror rcl rcr test cmp xchg xadd bswap in out ins outs enter leave bound into arpl lar lsl verr verw sgdt sidt lgdt lidt smsw lmsw lldt ltr clts lock rep repe repz repne repnz pause mfence lfence sfence syscall sysret sysenter sysexit cpuid rdtsc rdmsr wrmsr fxsave fxrstor global extern section text data bss rodata align bits org equ db dw dd dq dt resb resw resd resq times macro endmacro struc endstruc proc endp segment ends assume end model stack code option include includelib public extrn ldr str ldm stm b bl bx blx svc mrs msr adr nop wfi ldc stc mla mul mls smull umull smlal umlal movt movw movs bfc bfi ubfx sbfx rbit rev rev16 clz")],
+    ["type", "\\b(rax|rbx|rcx|rdx|rsi|rdi|rsp|rbp|r8|r9|r10|r11|r12|r13|r14|r15|eax|ebx|ecx|edx|esi|edi|esp|ebp|xmm[0-9]+|ymm[0-9]+|r0|r1|r2|r3|r4|r5|r6|r7|sp|lr|pc)\\b"],
+    ["decorator", "^\\s*\\.[A-Za-z]+"],
+    ["function", "^[A-Za-z_.][\\w.$]*:"],
+  ],
+  dot: [
+    ["comment", "//[^\\n]*"],
+    ["comment", "#[^\\n]*"],
+    _CSTR,
+    ["keyword", _k("strict digraph graph subgraph node edge")],
+    ["attr", "[A-Za-z_][\\w]*(?=\\s*=)"],
+    ["bool", _k("true false")],
+  ],
+  po: [
+    ["comment", "#[^\\n]*"],
+    _CSTR,
+    ["keyword", _k("msgid msgstr msgid_plural msgctxt domain")],
+  ],
+  proto: clike({
+    kw: "syntax package import option message enum service rpc returns stream optional repeated required oneof map reserved to max extend extensions",
+    types: "double float int32 int64 uint32 uint64 sint32 sint64 fixed32 fixed64 sfixed32 sfixed64 bool string bytes",
+    bools: "true false",
+  }),
+  solidity: clike({
+    kw: "pragma solidity contract interface library is abstract constructor modifier function returns return var if else for while do break continue assembly using struct enum mapping address payable public private internal external pure view virtual override immutable constant event emit error revert require assert new delete type using for",
+    types: "uint uint8 uint16 uint32 uint64 uint128 uint256 int int8 int16 int32 int64 int128 int256 bytes bytes1 bytes4 bytes8 bytes16 bytes32 byte address bool string mapping",
+    bools: "true false",
+    builtins: "require assert revert msg block tx gasleft",
+  }),
+  puppet: hashlike({
+    vars: "\\$[A-Za-z_][\\w:]*|\\${[^}]*}",
+    kw: "class define node if else elsif unless case default in and or not true false undef application consumes produces environment site",
+    bools: "true false undef",
+    types: "file package service exec notify cron user group mount yumrepo schedule stage",
+    builtins: "include require contain notice fail",
+  }),
+  matlab: [
+    ["comment", "%[^\\n]*"],
+    _CSTR, _SSTR,
+    _NUM,
+    ["keyword", _k("break case catch classdef continue else elseif end for function global if otherwise parfor persistent return spmd switch try while methods properties events enumeration")],
+    ["bool", _k("true false")],
+    _FUNC,
+    ["builtin", _k("disp fprintf plot length size zeros ones eye rand linspace")],
+  ],
 };
+
+// XML shares the HTML tag/attribute rules (elements, quoted attrs, comments).
+HL_RULES.xml = HL_RULES.html;
 
 // Build a compiled highlighter per language (cached).
 const _hlCache = {};
@@ -1281,7 +1985,12 @@ function getHighlighter(lang) {
   if (_hlCache[lang]) return _hlCache[lang];
   const rules = HL_RULES[lang];
   const parts = rules.map((r, i) => `(?<g${i}>${r[1]})`);
-  const re = new RegExp(parts.join("|"), "g");
+  // "m" so ^-anchored rules (yaml keys, markdown headings, make targets,
+  // asm labels, ...) match on every line, not just the first. Case-insensitive
+  // languages (SQL, batch, VB, ...) add "i" via HL_FLAGS.
+  let flags = HL_FLAGS[lang] || "g";
+  if (!flags.includes("m")) flags += "m";
+  const re = new RegExp(parts.join("|"), flags);
   const fn = function (code) {
     let out = "", last = 0, m;
     re.lastIndex = 0;
@@ -1452,6 +2161,302 @@ elEditorGutter.addEventListener("click", (e) => {
 });
 document.getElementById("editor-save").addEventListener("click", saveCodeEditor);
 document.getElementById("editor-close").addEventListener("click", closeCodeEditor);
+
+// ---------------------------------------------------------------------------
+// Visual file navigator (drawer). Browse directories, open files in the
+// editor, create/rename/delete files and folders — all through /api/dir and
+// /api/fs, so it works with touch + soft keyboard where a PTY is fragile.
+// ---------------------------------------------------------------------------
+const elFiles = document.getElementById("files");
+const elFilesCrumb = document.getElementById("files-crumb");
+const elFilesPath = document.getElementById("files-path");
+const elFilesList = document.getElementById("files-list");
+const elFilesStatus = document.getElementById("files-status");
+const filesState = { open: false, cwd: null, parent: null, entries: [], creating: null, renaming: null };
+
+const FILE_ICONS = {
+  "🖼": ["png", "jpg", "jpeg", "gif", "webp", "ico", "bmp", "tif", "tiff", "heic", "avif", "svg"],
+  "🎵": ["mp3", "wav", "ogg", "oga", "flac", "aac", "m4a", "opus", "mid", "midi"],
+  "🎬": ["mp4", "mkv", "avi", "mov", "webm", "m4v", "ogv", "flv", "wmv", "mpg", "mpeg"],
+  "📦": ["zip", "tar", "gz", "tgz", "bz2", "tbz2", "xz", "txz", "7z", "rar", "zst", "lz4", "cab", "deb", "rpm", "apk", "jar", "war", "ear"],
+  "📕": ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "epub"],
+  "🔤": ["ttf", "otf", "woff", "woff2", "eot"],
+};
+function fileIcon(name, isDir) {
+  if (isDir) return "📁";
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  for (const icon of Object.keys(FILE_ICONS)) {
+    if (FILE_ICONS[icon].includes(ext)) return icon;
+  }
+  return langFromPath(name) !== "text" ? "📝" : "📄";
+}
+function fmtSize(n) {
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+  if (n < 1073741824) return (n / 1048576).toFixed(1) + " MB";
+  return (n / 1073741824).toFixed(2) + " GB";
+}
+function joinPath(dir, name) {
+  const sep = (dir || "").includes("\\") ? "\\" : "/";
+  return (dir || "").replace(/[/\\]+$/, "") + sep + name;
+}
+function parentDir(p) {
+  const i = Math.max((p || "").lastIndexOf("/"), (p || "").lastIndexOf("\\"));
+  if (i <= 0) return p;
+  return p.slice(0, i);
+}
+function pathSegments(p) {
+  const sep = (p || "").includes("\\") ? "\\" : "/";
+  const parts = (p || "").split(sep);
+  const segs = [];
+  let acc = "";
+  parts.forEach((part, i) => {
+    if (i === 0 && part === "") { segs.push({ name: sep, path: sep }); return; }
+    acc = acc ? acc + sep + part : part;
+    segs.push({ name: part === "" ? sep : part, path: acc });
+  });
+  return segs;
+}
+async function fsApi(action, payload) {
+  try {
+    const r = await fetch("/api/fs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ action }, payload)),
+    });
+    return await r.json();
+  } catch (e) { return { ok: false, error: String(e) }; }
+}
+async function loadDir(path) {
+  elFilesStatus.textContent = "Loading…";
+  try {
+    const r = await fetch("/api/dir?path=" + encodeURIComponent(path || ""));
+    const j = await r.json();
+    if (!r.ok || j.error) {
+      elFilesStatus.textContent = "Error: " + (j.error || ("HTTP " + r.status));
+      return;
+    }
+    filesState.cwd = j.path;
+    filesState.parent = j.parent;
+    filesState.entries = j.entries || [];
+    filesState.creating = null;
+    filesState.renaming = null;
+    elFilesStatus.textContent = "";
+    renderFiles();
+  } catch (e) { elFilesStatus.textContent = "Error: " + e; }
+}
+function fileRow(e) {
+  const row = document.createElement("div");
+  row.className = "files-row";
+  row.dataset.dir = e.is_dir ? "1" : "0";
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "files-name";
+  open.title = e.path;
+  const ic = document.createElement("span");
+  ic.className = "files-icon";
+  ic.textContent = fileIcon(e.name, e.is_dir);
+  open.appendChild(ic);
+  const nm = document.createElement("span");
+  nm.className = "files-label";
+  nm.textContent = e.name + (e.is_dir ? "/" : "");
+  open.appendChild(nm);
+  open.onclick = () => {
+    if (e.is_dir) loadDir(e.path);
+    else { openCodeEditor(e.path); hideFiles(); }
+  };
+  row.appendChild(open);
+  const meta = document.createElement("span");
+  meta.className = "files-meta";
+  meta.textContent = e.is_dir ? "—" : fmtSize(e.size);
+  row.appendChild(meta);
+  const rn = document.createElement("button");
+  rn.type = "button";
+  rn.className = "files-act";
+  rn.textContent = "✎";
+  rn.title = "Rename";
+  rn.onclick = (ev) => { ev.stopPropagation(); filesState.renaming = e.path; renderFiles(); };
+  row.appendChild(rn);
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "files-act files-del";
+  del.textContent = "🗑";
+  del.title = "Delete";
+  del.onclick = (ev) => { ev.stopPropagation(); deleteEntry(e); };
+  row.appendChild(del);
+  return row;
+}
+function inlineRow(initial, placeholder, onCommit) {
+  const row = document.createElement("div");
+  row.className = "files-row files-inline";
+  const inp = document.createElement("input");
+  inp.type = "text";
+  inp.value = initial || "";
+  inp.placeholder = placeholder || "name";
+  inp.setAttribute("autocomplete", "off");
+  inp.setAttribute("autocorrect", "off");
+  inp.setAttribute("autocapitalize", "off");
+  inp.setAttribute("spellcheck", "false");
+  const commit = () => {
+    const v = inp.value.trim();
+    filesState.creating = null;
+    filesState.renaming = null;
+    if (v) onCommit(v);
+    else renderFiles();
+  };
+  const ok = document.createElement("button");
+  ok.type = "button";
+  ok.textContent = "✓";
+  ok.title = "Confirm";
+  ok.onclick = commit;
+  inp.onkeydown = (ev) => {
+    if (ev.key === "Enter") { ev.preventDefault(); commit(); }
+    else if (ev.key === "Escape") {
+      ev.stopPropagation();
+      filesState.creating = null;
+      filesState.renaming = null;
+      renderFiles();
+    }
+  };
+  row.appendChild(inp);
+  row.appendChild(ok);
+  setTimeout(() => { inp.focus(); if (initial) inp.select(); }, 30);
+  return row;
+}
+function renderFiles() {
+  elFilesCrumb.innerHTML = "";
+  pathSegments(filesState.cwd || "").forEach((s, i, arr) => {
+    if (i > 0) elFilesCrumb.appendChild(document.createTextNode(" / "));
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "crumb";
+    b.textContent = s.name;
+    b.title = s.path;
+    if (i === arr.length - 1) b.disabled = true;
+    else b.onclick = () => loadDir(s.path);
+    elFilesCrumb.appendChild(b);
+  });
+  if (document.activeElement !== elFilesPath) elFilesPath.value = filesState.cwd || "";
+  elFilesList.innerHTML = "";
+  if (filesState.creating) {
+    const kind = filesState.creating;
+    elFilesList.appendChild(inlineRow("", kind === "dir" ? "folder name" : "file name", (name) => {
+      createEntry(kind, name);
+    }));
+  }
+  if (!filesState.entries.length && !filesState.creating) {
+    const d = document.createElement("div");
+    d.className = "files-empty";
+    d.textContent = "(empty folder)";
+    elFilesList.appendChild(d);
+  }
+  filesState.entries.forEach((e) => {
+    if (filesState.renaming === e.path) {
+      elFilesList.appendChild(inlineRow(e.name, "new name", (name) => renameEntry(e, name)));
+    } else {
+      elFilesList.appendChild(fileRow(e));
+    }
+  });
+}
+async function createEntry(kind, name) {
+  if (/[/\\]/.test(name)) {
+    elFilesStatus.textContent = "Name can't contain path separators.";
+    renderFiles();
+    return;
+  }
+  elFilesStatus.textContent = "Creating…";
+  const r = await fsApi(kind === "dir" ? "mkdir" : "touch", { path: joinPath(filesState.cwd, name) });
+  if (!r.ok) {
+    elFilesStatus.textContent = "Create failed: " + (r.error || "unknown");
+    renderFiles();
+    return;
+  }
+  if (kind === "file") {
+    openCodeEditor(r.path);
+    hideFiles();
+    return;
+  }
+  loadDir(filesState.cwd);
+}
+async function renameEntry(e, name) {
+  if (name === e.name) { renderFiles(); return; }
+  if (/[/\\]/.test(name)) {
+    elFilesStatus.textContent = "Name can't contain path separators.";
+    renderFiles();
+    return;
+  }
+  elFilesStatus.textContent = "Renaming…";
+  const dst = joinPath(parentDir(e.path), name);
+  const r = await fsApi("rename", { src: e.path, dst });
+  if (!r.ok) {
+    elFilesStatus.textContent = "Rename failed: " + (r.error || "unknown");
+    renderFiles();
+    return;
+  }
+  // Keep the editor pointed at the file if it was open.
+  if (editorState && editorState.path === e.path) {
+    editorState.path = r.path;
+    elEditorFile.textContent = name;
+  }
+  loadDir(filesState.cwd);
+}
+async function deleteEntry(e) {
+  if (!confirm("Delete " + e.path + "?")) return;
+  elFilesStatus.textContent = "Deleting…";
+  let r = await fsApi("rm", { path: e.path });
+  if (!r.ok && e.is_dir && /not empty|directory not empty/i.test(r.error || "")) {
+    if (confirm("Folder is not empty. Delete everything inside it?")) {
+      r = await fsApi("rmtree", { path: e.path });
+    } else {
+      elFilesStatus.textContent = "";
+      return;
+    }
+  }
+  if (!r.ok) {
+    elFilesStatus.textContent = "Delete failed: " + (r.error || "unknown");
+    return;
+  }
+  loadDir(filesState.cwd);
+}
+function hideFiles() {
+  elFiles.setAttribute("hidden", "");
+  filesState.open = false;
+  filesState.creating = null;
+  filesState.renaming = null;
+}
+function toggleFiles(force) {
+  const show = typeof force === "boolean" ? force : elFiles.hasAttribute("hidden");
+  if (!show) { hideFiles(); return; }
+  const t = (typeof activeTab === "function") ? activeTab() : null;
+  elFiles.removeAttribute("hidden");
+  filesState.open = true;
+  loadDir(filesState.cwd || (t && t.cwd) || "");
+  setTimeout(() => elFilesPath.focus({ preventScroll: true }), 60);
+}
+document.getElementById("filesbtn").addEventListener("click", () => toggleFiles());
+document.getElementById("files-close").addEventListener("click", () => hideFiles());
+document.getElementById("files-up").addEventListener("click", () => {
+  if (filesState.cwd && filesState.parent && filesState.parent !== filesState.cwd) loadDir(filesState.parent);
+  else if (filesState.cwd) loadDir(parentDir(filesState.cwd));
+});
+document.getElementById("files-reload").addEventListener("click", () => loadDir(filesState.cwd || ""));
+document.getElementById("files-newfile").addEventListener("click", () => {
+  filesState.creating = "file";
+  filesState.renaming = null;
+  renderFiles();
+});
+document.getElementById("files-newdir").addEventListener("click", () => {
+  filesState.creating = "dir";
+  filesState.renaming = null;
+  renderFiles();
+});
+document.getElementById("files-goto").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  loadDir(elFilesPath.value.trim());
+});
+elFiles.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") { ev.stopPropagation(); hideFiles(); }
+});
 
 // On load, rebuild tabs from the server so persistent terminal sessions
 // (e.g. a long-running bot) survive a page refresh and can be re-attached.

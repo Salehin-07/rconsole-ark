@@ -8,53 +8,22 @@ user re-attach to see where they left off.
 """
 import json
 import os
+import signal
 import sys
 import threading
 import time
-from pathlib import Path
+
+import shellutil
 
 BUFFER_MAX = 200 * 1024  # characters kept per session
+REPLAY_MAX = 32 * 1024   # characters replayed to a (re)attaching client
 
 SESSIONS = {}              # (sid, tab_id) -> TermSession
 SESSIONS_LOCK = threading.Lock()
 
 
 def _build_env(sid=None):
-    env = os.environ.copy()
-    venv_dir = Path(sys.executable).parent
-    path = env.get("PATH", "")
-    if str(venv_dir) not in path.split(os.pathsep):
-        env["PATH"] = str(venv_dir) + os.pathsep + path
-    # The server is usually started by a process manager / container without a
-    # controlling TTY, so os.environ has no TERM. Modern TUIs (opencode, lazygit,
-    # yazi, ...) need a real terminal type or they fail to render / spin forever
-    # (which can flood the PTY and trip a host health-check restart). Default to
-    # a 256-color xterm; callers may override via the real environment.
-    env.setdefault("TERM", "xterm-256color")
-    env.setdefault("COLORTERM", "truecolor")
-    env.setdefault("LANG", "C.UTF-8")
-    env.setdefault("LC_ALL", "C.UTF-8")
-    env.setdefault("CLICOLOR", "1")
-    env.setdefault("FORCE_COLOR", "1")
-    # Some TUIs (opencode among them) spawn a sub-shell or read $SHELL; the server
-    # often has no SHELL set, which can make them bail out. Default to a real one.
-    if not env.get("SHELL"):
-        for _c in ("/bin/bash", "/usr/bin/bash", "/bin/sh", "/usr/bin/sh"):
-            if os.path.exists(_c):
-                env["SHELL"] = _c
-                break
-        else:
-            env.setdefault("SHELL", "/bin/sh")
-    # Per-user custom environment (e.g. API keys set via `sudo env`) is exported
-    # into every session so tools like opencode pick the keys up automatically.
-    if sid:
-        try:
-            import state as _state
-            for k, v in (_state.get_env(sid) or {}).items():
-                env[k] = v
-        except Exception:
-            pass
-    return env
+    return shellutil.build_env(sid)
 
 
 def get(sid, tab_id):
@@ -64,11 +33,11 @@ def get(sid, tab_id):
 def kill_all_for(sid):
     with SESSIONS_LOCK:
         keys = [k for k in SESSIONS if k[0] == sid]
-        for k in keys:
-            SESSIONS.pop(k, None)
-    for k in keys:
+        sessions = [SESSIONS.pop(k, None) for k in keys]
+    for s in sessions:
         try:
-            SESSIONS[k].kill()
+            if s is not None:
+                s.kill()
         except Exception:
             pass
 
@@ -100,8 +69,7 @@ class TermSession:
 
     def _spawn_win(self):
         from winpty import PTY
-        from interp import _detect_shell
-        shell_exe, flag = _detect_shell()
+        shell_exe, flag = shellutil.detect_shell()
         cmdline = f'{flag} "{self.cmd.replace(chr(34), "\\" + chr(34))}"' if self.cmd else None
         env = _build_env(self.sid)
         env_str = "\0".join(f"{k}={v}" for k, v in env.items()) + "\0"
@@ -115,12 +83,10 @@ class TermSession:
         import fcntl
         import pty as pty_mod
         import select
-        import signal
         import struct
         import subprocess
         import termios
-        from interp import _detect_shell
-        shell_exe, flag = _detect_shell()
+        shell_exe, flag = shellutil.detect_shell()
         argv = [shell_exe, flag, self.cmd] if self.cmd else [shell_exe]
         master_fd, slave_fd = pty_mod.openpty()
         try:
@@ -256,9 +222,10 @@ class TermSession:
 
     # ------------------------------------------------------------- lifecycle
     def _append(self, s):
-        self.buffer += s
-        if len(self.buffer) > BUFFER_MAX:
-            self.buffer = self.buffer[-BUFFER_MAX:]
+        with self.lock:
+            self.buffer += s
+            if len(self.buffer) > BUFFER_MAX:
+                self.buffer = self.buffer[-BUFFER_MAX:]
 
     def _broadcast(self, data):
         with self.lock:
@@ -275,7 +242,9 @@ class TermSession:
         with self.lock:
             if self.buffer:
                 try:
-                    ws.send(self.buffer)
+                    # Replay only the tail: the full buffer (up to BUFFER_MAX)
+                    # is pointlessly heavy on every tab switch / refresh.
+                    ws.send(self.buffer[-REPLAY_MAX:])
                 except Exception:
                     pass
             if ws not in self.clients:

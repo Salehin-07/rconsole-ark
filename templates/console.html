@@ -12,6 +12,7 @@
     <div id="tabbar">
       <div id="tabs"></div>
       <button id="newtab" title="new tab">+</button>
+      <button id="filesbtn" type="button" title="File navigator">📁</button>
       <button id="themebtn" type="button" title="Cycle console theme">theme</button>
     </div>
     <div id="screen">
@@ -25,6 +26,24 @@
       </form>
     </div>
     <div id="terms"></div>
+    <div id="files" hidden>
+      <div id="files-bar">
+        <span id="files-crumb" title="current directory"></span>
+        <span class="editor-spacer"></span>
+        <button id="files-up" type="button" title="Up one directory">⬆</button>
+        <button id="files-newfile" type="button" title="New file">＋📄</button>
+        <button id="files-newdir" type="button" title="New folder">＋📁</button>
+        <button id="files-reload" type="button" title="Refresh">⟳</button>
+        <button id="files-close" type="button" title="Close">×</button>
+      </div>
+      <form id="files-goto" autocomplete="off">
+        <input id="files-path" type="text" autocomplete="off" autocorrect="off"
+               autocapitalize="off" spellcheck="false" placeholder="/absolute/path or ~/…">
+        <button id="files-go" type="submit" title="Go to path">Go</button>
+      </form>
+      <div id="files-list"></div>
+      <div id="files-status"></div>
+    </div>
     <div id="editor" hidden>
       <div id="editor-bar">
         <span id="editor-file" title="file"></span>

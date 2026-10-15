@@ -22,6 +22,12 @@ STATE = {}  # username -> {"tabs": {...}, "hosts": {...}, "aliases": {...}, "the
 # background flush thread can't iterate STATE while a request mutates it.
 STATE_LOCK = threading.RLock()
 
+# Global registry of live hosted apps so the proxy route can forward traffic.
+# Keyed by (folder, port) -> {"url": ..., "proc": Popen, "sid": username}.
+ACTIVE_HOSTS = {}
+
+DEFAULT_THEME = "github"
+
 # Persistence is debounced: per-command writes (history/cwd) only mark a user
 # dirty and a background thread flushes them at most every few seconds, so a
 # request thread never blocks on disk I/O. Structural changes call save_now().
@@ -53,7 +59,7 @@ def _write(username):
             data = {
                 "tabs": {tid: _tab_persist(t) for tid, t in sess["tabs"].items()},
                 "aliases": dict(sess.get("aliases", {}) or {}),
-                "theme": sess.get("theme", "github"),
+                "theme": sess.get("theme", DEFAULT_THEME),
                 "env": dict(sess.get("env", {}) or {}),
             }
         with open(_state_path(username), "w", encoding="utf-8") as f:
@@ -146,7 +152,7 @@ def _load(username):
         "tabs": tabs,
         "hosts": {},
         "aliases": data.get("aliases", {}) or {},
-        "theme": data.get("theme", "github") or "github",
+        "theme": data.get("theme", DEFAULT_THEME) or DEFAULT_THEME,
         "env": data.get("env", {}) or {},
     }
 
@@ -225,9 +231,9 @@ def new_session(username):
     with STATE_LOCK:
         if username in STATE:
             return STATE[username]
-        sess = _load(username) or {"tabs": {}, "hosts": {}, "aliases": {}, "theme": "github"}
+        sess = _load(username) or {"tabs": {}, "hosts": {}, "aliases": {}, "theme": DEFAULT_THEME}
         sess.setdefault("aliases", {})
-        sess.setdefault("theme", "default")
+        sess.setdefault("theme", DEFAULT_THEME)
         sess.setdefault("env", {})
         STATE[username] = sess
         return sess
@@ -289,6 +295,14 @@ def kill_all_hosts(username):
         kill_host(username, folder, port)
 
 
+def kill_all_hosts_all():
+    """Kill every hosted app across all users (factory reset)."""
+    with STATE_LOCK:
+        users = list(STATE.keys())
+    for u in users:
+        kill_all_hosts(u)
+
+
 def register_host(username, folder, port, proc):
     key = (folder, port)
     with STATE_LOCK:
@@ -301,12 +315,6 @@ def register_host(username, folder, port, proc):
             "sid": username,
         }
     return key
-
-
-# Global registry of live hosted apps so the proxy route can forward traffic.
-ACTIVE_HOSTS = {}
-
-HOST_LOCK = threading.Lock()
 
 
 def _terminate(proc):

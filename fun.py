@@ -14,6 +14,7 @@ import sys
 import time
 
 import commands
+import editor
 import state
 
 ESC = "\x1b["
@@ -474,7 +475,7 @@ def cmd_rev(ctx, args):
         return "rev: usage: rev <text>   or   rev <file> [file ...]"
     out = []
     for a in args:
-        p = commands._resolve_path(ctx, a)
+        p = editor._resolve_path(ctx, a)
         if p.is_file():
             try:
                 data = p.read_text(encoding="utf-8", errors="replace")
@@ -499,7 +500,7 @@ def cmd_wc(ctx, args):
         return "wc: usage: wc <text>   or   wc <file> [file ...]"
     files, text_parts = [], []
     for a in args:
-        p = commands._resolve_path(ctx, a)
+        p = editor._resolve_path(ctx, a)
         if p.is_file():
             files.append(p)
         else:

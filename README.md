@@ -22,6 +22,10 @@ through rconsole's built-in reverse proxy — no extra port-forwarding required.
 - Tabs, each owning its own terminal session that keeps running in the
   background and reappears when you switch back.
 - Native, stateful console commands plus a real host-shell passthrough.
+- Visual file navigator (📁 button in the tab bar): browse directories,
+  open files, create/rename/delete files and folders — no terminal needed.
+- Built-in code editor with syntax highlighting for ~65 languages
+  (300+ extensions plus special basenames like `Dockerfile`/`Makefile`).
 - Hosted web apps (static sites and WSGI apps) reachable through the same
   domain via a path-based proxy.
 - User accounts with admin/non-admin roles, session timeout, and a
@@ -267,11 +271,14 @@ Browser (xterm.js)
 Flask app (app.py)
    ├── console.html / console.js   (UI, tabs, terminal rendering)
    ├── /api/run  → interp.py       (command routing & dispatch)
-   │                 ├── commands.py   (native/sudo commands + hosting)
+   │                 ├── commands.py   (thin registry; logic lives in
+   │                 │    cmd_basic/hosting/users/jobs/env/tooling,
+   │                 │    editor.py, fun.py, agent.py)
+   │                 ├── jobs.py       (background `cmd &` jobs)
    │                 └── real host shell passthrough (subprocess)
-   ├── /ws       → ptyhost.py       (WebSocket ⇄ PTY stream)
-   │                 ├── Windows : winpty / ConPTY  (_run_pty_win)
-   │                 └── Linux/mac: os pty + select (_run_pty_posix)
+   ├── /ws       → ptyhost.py       (WebSocket ⇄ terminal-session bridge)
+   │                 └── termsess.py   (persistent PTY: ConPTY on Windows,
+   │                                    `pty`/`select` on Linux/macOS)
    └── /<folder>/<port>/…  → proxy (_do_proxy) → hosted app process
 ```
 
@@ -306,17 +313,17 @@ arguments were swapped — both are fixed in `ptyhost.py`.)
   For production, run rconsole behind a real WSGI server (e.g. `gunicorn
   app:app`) and a reverse proxy (nginx / Caddy) terminating TLS on your domain.
 - Set strong `RCONSOLE_SECRET` and `RCONSOLE_PEPPER` values.
-- Sessions auto-expire after **6 hours** of inactivity (`SESSION_TIMEOUT`).
+- Sessions auto-expire after **30 days** of inactivity (`SESSION_TIMEOUT`).
 - Hosted apps are bound to localhost and only exposed via the in-app proxy.
 
 ---
 
 ## Security model
 
-- Passwords are hashed with `sha256(password + PEPPER)` and stored in
+- Passwords are hashed with PBKDF2-HMAC-SHA256 (per-user salt + pepper) and stored in
   `data/users.json` (gitignored — do not commit).
 - Protected (sudo) commands require an admin account.
-- A 6-hour inactivity timeout forces re-login.
+- A 30-day inactivity timeout forces re-login.
 - The dev server prints a "do not use in production" warning; use a production
   WSGI server + reverse proxy for real deployments.
 

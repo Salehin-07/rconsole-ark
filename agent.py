@@ -631,7 +631,7 @@ def agent_routine(ctx, initial=None):
         + ("  " + GREEN + "[resumed session]" + R if resumed else "")
         + "\nType a task, or '/help' for commands. 'exit'/'quit' to leave."
     )
-    total_tokens = 0
+    total_tokens = int(store.get("total_tokens") or 0)
     first_yield = True
     line = initial
     while True:
@@ -735,6 +735,7 @@ def agent_routine(ctx, initial=None):
                        f"(use /clear to reset context)." + R)
 
         total_tokens += turn_tokens
+        store["total_tokens"] = total_tokens
         foot = DIM + (f"\n— {steps} step(s), ~{turn_tokens} tokens this turn "
                       f"(session ~{total_tokens}) —" + R)
         out_block = "\n".join(out) + foot
@@ -751,6 +752,7 @@ def _slash(cmd, ctx, provider, cfg, store):
         return {"prompt": "agent> ", "output": AGENT_HELP}
     if name in ("/clear", "/reset"):
         store["messages"] = [{"role": "system", "content": _build_system(ctx)}]
+        store["total_tokens"] = 0
         return {"prompt": "agent> ", "output": GREEN + "Conversation cleared." + R}
     if name == "/model":
         if not arg:

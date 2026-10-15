@@ -1,10 +1,9 @@
 """rconsole — a Flask-powered simulated Linux console with hosted apps."""
 import gzip
-import io
 import os
 import secrets
+import shutil
 import time
-import uuid
 from datetime import timedelta
 
 import requests
@@ -108,14 +107,14 @@ def guard():
     if request.endpoint in ("login", "static"):
         return
     if "username" not in session:
-        if request.endpoint in ("console_page", "run", "proxy"):
-            if request.endpoint == "run" or request.path.startswith("/api"):
+        endpoint = request.endpoint or ""
+        if endpoint in ("console_page", "run") or endpoint.startswith("proxy"):
+            if endpoint == "run" or request.path.startswith("/api"):
                 return {"error": "unauthorized"}, 401
             return redirect(url_for("login"))
         return
     # Enforce inactivity timeout (only forces a re-login; user state persists).
     last = session.get("last_activity", 0)
-    import time
     if time.time() - float(last) > SESSION_TIMEOUT:
         session.clear()
         return redirect(url_for("login"))
@@ -143,8 +142,8 @@ def login():
         if auth.verify(username, password):
             session.clear()
             session["username"] = username
-            session["login_time"] = __import__("time").time()
-            session["last_activity"] = __import__("time").time()
+            session["login_time"] = time.time()
+            session["last_activity"] = time.time()
             session.permanent = True
             # Keyed by username: a returning user is restored to their old state.
             state.new_session(username)
@@ -160,7 +159,7 @@ def console_page():
     if "username" not in session:
         return redirect(url_for("login"))
     sess = state.get_session(session["username"])
-    theme = sess.get("theme", "github") if sess else "github"
+    theme = sess.get("theme", state.DEFAULT_THEME) if sess else state.DEFAULT_THEME
     # Cache-bust static assets so the browser always picks up new JS/CSS.
     js_path = os.path.join(os.path.dirname(__file__), "static", "console.js")
     try:
@@ -212,19 +211,6 @@ def run():
         # and deliberately kept alive so the user can log back in and resume.
         session.clear()
         result["redirect"] = url_for("login")
-    elif isinstance(result, dict) and result.get("action") == "rboot":
-        termsess.kill_all_for(username)
-        # A global reboot wipes every session (commands.py clears STATE), so
-        # tear down all terminal sessions across users as well.
-        with termsess.SESSIONS_LOCK:
-            all_keys = list(termsess.SESSIONS.keys())
-        for k in all_keys:
-            try:
-                termsess.SESSIONS[k].kill()
-            except Exception:
-                pass
-        with termsess.SESSIONS_LOCK:
-            termsess.SESSIONS.clear()
 
     return result
 
@@ -394,6 +380,106 @@ def api_file_save():
     return {"ok": True, "path": p}
 
 
+# ---------------------------------------------------------------------------
+# Visual file navigator: list a directory and mutate the filesystem
+# (mkdir / touch / rm / rmtree / rename). Same trust model as /api/file —
+# any logged-in user may browse and edit; paths are normalized to absolute.
+# ---------------------------------------------------------------------------
+def _fs_abspath(path):
+    return os.path.abspath(path or state.default_cwd())
+
+
+@app.route("/api/dir")
+def api_dir():
+    if "username" not in session:
+        return {"error": "unauthorized"}, 401
+    p = _fs_abspath(request.args.get("path", ""))
+    if not os.path.isdir(p):
+        return {"error": f"not a directory: {p}"}, 400
+    try:
+        names = os.listdir(p)
+    except Exception as e:
+        return {"error": str(e)}, 500
+    entries = []
+    for name in names:
+        full = os.path.join(p, name)
+        try:
+            is_dir = os.path.isdir(full)
+            st = os.stat(full)
+            entries.append({
+                "name": name,
+                "path": full,
+                "is_dir": is_dir,
+                "size": 0 if is_dir else st.st_size,
+                "mtime": int(st.st_mtime),
+            })
+        except OSError:
+            continue
+    entries.sort(key=lambda e: (not e["is_dir"], e["name"].lower()))
+    parent = os.path.dirname(p)
+    if not parent or parent == p:
+        parent = p
+    return {"path": p, "parent": parent, "entries": entries}
+
+
+@app.route("/api/fs", methods=["POST"])
+def api_fs():
+    if "username" not in session:
+        return {"ok": False, "error": "unauthorized"}, 401
+    data = request.get_json(silent=True) or {}
+    action = (data.get("action") or "").strip().lower()
+    try:
+        if action == "mkdir":
+            p = _fs_abspath(data.get("path", ""))
+            if not data.get("path"):
+                return {"ok": False, "error": "missing path"}, 400
+            os.makedirs(p, exist_ok=True)
+            return {"ok": True, "path": p}
+        if action == "touch":
+            p = _fs_abspath(data.get("path", ""))
+            if not data.get("path"):
+                return {"ok": False, "error": "missing path"}, 400
+            parent = os.path.dirname(p)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            open(p, "a").close()
+            return {"ok": True, "path": p}
+        if action == "rm":
+            p = _fs_abspath(data.get("path", ""))
+            if not data.get("path"):
+                return {"ok": False, "error": "missing path"}, 400
+            if os.path.isdir(p) and not os.path.islink(p):
+                os.rmdir(p)  # only empty dirs; use rmtree for trees
+            else:
+                os.remove(p)
+            return {"ok": True, "path": p}
+        if action == "rmtree":
+            p = _fs_abspath(data.get("path", ""))
+            if not data.get("path"):
+                return {"ok": False, "error": "missing path"}, 400
+            if not os.path.isdir(p) or os.path.islink(p):
+                return {"ok": False, "error": "not a directory"}, 400
+            parent = os.path.dirname(p)
+            if not parent or parent == p:
+                return {"ok": False, "error": "refusing to delete a filesystem root"}, 400
+            shutil.rmtree(p)
+            return {"ok": True, "path": p}
+        if action in ("rename", "mv", "move"):
+            src = _fs_abspath(data.get("src", "") or data.get("path", ""))
+            dst = _fs_abspath(data.get("dst", "") or data.get("name", ""))
+            if not data.get("src", data.get("path")) or not data.get("dst", data.get("name")):
+                return {"ok": False, "error": "missing src/dst"}, 400
+            if not os.path.exists(src):
+                return {"ok": False, "error": f"no such file: {src}"}, 404
+            os.rename(src, dst)
+            return {"ok": True, "path": dst}
+        return {"ok": False, "error": f"unknown action: {action}"}, 400
+    except FileNotFoundError as e:
+        return {"ok": False, "error": str(e)}, 404
+    except OSError as e:
+        return {"ok": False, "error": str(e)}, 500
+
+
 @sock.route("/ws")
 def ws_terminal(ws):
     if "username" not in session:
@@ -407,8 +493,14 @@ def ws_terminal(ws):
     cmd = request.args.get("cmd") or ""
     if cmd:
         state.set_terminal(sess, username, tab_id, cmd, tab["cwd"])
-    cols = int(request.args.get("cols", 80))
-    rows = int(request.args.get("rows", 24))
+    try:
+        cols = int(request.args.get("cols", 80))
+    except (TypeError, ValueError):
+        cols = 80
+    try:
+        rows = int(request.args.get("rows", 24))
+    except (TypeError, ValueError):
+        rows = 24
     ptyhost.attach(ws, username, tab_id, cmd, tab["cwd"], cols, rows)
 
 

@@ -1,7 +1,7 @@
 [project]
 name = "rconsole"
 version = "0.1.0"
-description = "Add your description here"
+description = "Simulated Linux console in the browser with hosted web apps"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
@@ -11,3 +11,17 @@ dependencies = [
     "pywinpty>=3.0.5; sys_platform == 'win32'",
     "requests>=2.34.2",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.17.0",
+]
+
+[tool.ruff]
+target-version = "py314"
+
+[tool.ruff.lint]
+# Stable, low-noise gate: dead code (unused imports/vars) + runtime
+# syntax errors. Style rules (formatting, % vs .format, blind-except in
+# resilience paths) are intentionally left to reviewer judgment.
+select = ["F", "E9"]

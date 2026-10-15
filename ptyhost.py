@@ -9,7 +9,6 @@ as a Discord bot keep running until the user really wants them gone.
 import json
 
 import state
-import termsess
 from termsess import SESSIONS, SESSIONS_LOCK, TermSession
 
 

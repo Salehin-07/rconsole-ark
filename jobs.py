@@ -7,67 +7,27 @@ with ``kill %n``. Jobs are tracked per user so ``%n`` is stable within a session
 """
 import os
 import re
-import shlex
-import shutil
 import subprocess
-import sys
 import threading
 import time
-from pathlib import Path
 
-import state
+import shellutil
 
 JOBS = {}                 # (sid, jid) -> Job
 JOBS_LOCK = threading.Lock()
 _NEXT = {}                # sid -> int (last issued job id)
 
 BUFFER_MAX = 256 * 1024   # bytes of output kept per job
+MAX_JOBS_PER_USER = 50    # finished jobs beyond this are pruned on start
 
 
 def _detect_shell():
     """Mirror interp._detect_shell: prefer a POSIX shell, fall back to cmd.exe."""
-    candidates = [
-        "sh", "bash",
-        r"C:\Program Files\Git\bin\sh.exe",
-        r"C:\Program Files\Git\bin\bash.exe",
-        r"C:\Program Files (x86)\Git\bin\sh.exe",
-        r"C:\Program Files\Git\usr\bin\bash.exe",
-    ]
-    for c in candidates:
-        c_p = Path(c)
-        if c_p.is_absolute():
-            if c_p.exists():
-                return str(c_p), "-c"
-        elif shutil.which(c):
-            return shutil.which(c), "-c"
-    if os.name == "nt":
-        return "cmd.exe", "/c"
-    return "sh", "-c"
+    return shellutil.detect_shell()
 
 
 def _build_env(sid=None):
-    env = os.environ.copy()
-    venv_dir = Path(sys.executable).parent
-    path = env.get("PATH", "")
-    if str(venv_dir) not in path.split(os.pathsep):
-        env["PATH"] = str(venv_dir) + os.pathsep + path
-    # Same terminal environment as the interactive PTY (see termsess._build_env):
-    # a real TERM lets TUIs render instead of hanging.
-    env.setdefault("TERM", "xterm-256color")
-    env.setdefault("COLORTERM", "truecolor")
-    env.setdefault("LANG", "C.UTF-8")
-    env.setdefault("LC_ALL", "C.UTF-8")
-    env.setdefault("CLICOLOR", "1")
-    env.setdefault("FORCE_COLOR", "1")
-    # Per-user custom environment (e.g. API keys set via `sudo env`).
-    if sid:
-        try:
-            import state as _state
-            for k, v in (_state.get_env(sid) or {}).items():
-                env[k] = v
-        except Exception:
-            pass
-    return env
+    return shellutil.build_env(sid)
 
 
 class Job:
@@ -189,10 +149,9 @@ class Job:
 
         if self.proc.poll() is None:
             threading.Thread(target=_force, daemon=True).start()
-        try:
-            self.proc.wait(timeout=3)
-        except Exception:
-            pass
+        # Non-blocking: the reader thread reaps the process and appends the
+        # final "[job finished, exit ...]" line on its own. (The old blocking
+        # wait(timeout=3) stalled the request thread, e.g. on taskkill lag.)
         self.alive = False
         self.end = time.time()
         self._append("\r\n[job %d killed]\r\n" % self.jid)
@@ -210,7 +169,24 @@ def start_job(sid, cmd, cwd):
         jid = _next_jid(sid)
         job = Job(sid, jid, cmd, cwd)
         JOBS[(sid, jid)] = job
+    _prune_finished(sid)
     return jid, job
+
+
+def _prune_finished(sid):
+    """Drop oldest finished jobs so the registry can't grow without bound."""
+    with JOBS_LOCK:
+        mine = sorted(k for (s, k) in JOBS if s == sid)
+        if len(mine) <= MAX_JOBS_PER_USER:
+            return
+        overflow = len(mine) - MAX_JOBS_PER_USER
+        dropped = 0
+        for k in mine:
+            if dropped >= overflow:
+                break
+            if not JOBS[(sid, k)].alive:
+                JOBS.pop((sid, k), None)
+                dropped += 1
 
 
 def list_jobs(sid):

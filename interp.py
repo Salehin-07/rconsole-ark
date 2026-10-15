@@ -3,15 +3,12 @@
 Built-in console commands are handled in commands.py. Anything else is executed
 on the REAL host via a shell subprocess (real cwd, timeout, venv on PATH).
 """
-import os
 import shlex
-import shutil
 import subprocess
-import sys
-from pathlib import Path
 
 import commands
 import jobs
+import shellutil
 import state
 
 PASS_THROUGH_TIMEOUT = 60
@@ -26,7 +23,7 @@ INTERACTIVE = {
     "python", "python3", "pip", "py", "ipython", "node", "npm", "npx", "opencode", "irb", "lua", "php",
     "bash", "sh", "zsh", "fish", "powershell", "pwsh", "cmd", "cmd.exe",
     "ssh", "telnet", "tmux", "screen", "lynx", "w3m", "mutt", "irssi",
-    "htop", "fzf", "ranger", "nnn", "mc", "git",
+    "fzf", "ranger", "nnn", "mc",
 }
 
 
@@ -72,43 +69,12 @@ def _detect_shell():
     """Prefer a POSIX shell (sh/bash) for a real Linux-console feel, then
     common Git Bash locations, then fall back to cmd.exe on Windows.
     The shell is invoked explicitly (we never use shell=True)."""
-    candidates = [
-        "sh", "bash",
-        r"C:\Program Files\Git\bin\sh.exe",
-        r"C:\Program Files\Git\bin\bash.exe",
-        r"C:\Program Files (x86)\Git\bin\sh.exe",
-        r"C:\Program Files\Git\usr\bin\bash.exe",
-    ]
-    for c in candidates:
-        c_p = Path(c)
-        if c_p.is_absolute():
-            if c_p.exists():
-                return str(c_p), "-c"
-        elif shutil.which(c):
-            return shutil.which(c), "-c"
-    if os.name == "nt":
-        return "cmd.exe", "/c"
-    return "sh", "-c"
+    return shellutil.detect_shell()
 
 
 def _passthrough(ctx, host_cmd):
     """Run a command string on the host using an explicit shell."""
-    env = os.environ.copy()
-    venv_dir = Path(sys.executable).parent
-    path = env.get("PATH", "")
-    if str(venv_dir) not in path.split(os.pathsep):
-        env["PATH"] = str(venv_dir) + os.pathsep + path
-    # Same terminal environment as the interactive PTY (see termsess._build_env):
-    # a server started without a TTY has no TERM, which breaks TUIs.
-    env.setdefault("TERM", "xterm-256color")
-    env.setdefault("COLORTERM", "truecolor")
-    env.setdefault("LANG", "C.UTF-8")
-    env.setdefault("LC_ALL", "C.UTF-8")
-    env.setdefault("CLICOLOR", "1")
-    env.setdefault("FORCE_COLOR", "1")
-    # Per-user custom environment (e.g. API keys set via `sudo env`).
-    for k, v in (state.get_env(ctx["sid"]) or {}).items():
-        env[k] = v
+    env = shellutil.build_env(ctx["sid"])
 
     shell_exe, flag = _detect_shell()
     cwd = ctx["tab"]["cwd"]
@@ -168,17 +134,25 @@ def process(tab, username, is_admin, sid, raw):
             return {"output": "usage: sudo <command>"}
 
     # Background job? A trailing '&' detaches the command from the console.
+    # Besides the spaced form (`sleep 30 &`), accept the glued form
+    # (`sleep 30&`) — but never treat `&&` as a background marker.
     bg = False
     if tokens and tokens[-1] == "&":
         bg = True
         tokens = tokens[:-1]
-        if not tokens:
-            return {"output": "syntax error near unexpected token `&'"}
+    elif (tokens and tokens[-1].endswith("&")
+            and not tokens[-1].endswith("&&")):
+        bg = True
+        tokens[-1] = tokens[-1][:-1]
+        if not tokens[-1]:
+            tokens.pop()
+    if bg and not tokens:
+        return {"output": "syntax error near unexpected token `&'"}
 
     # Expand a user alias on the (post-sudo) command.
     aliases = state.get_aliases(sid)
     tokens = _expand_alias(tokens, aliases)
-    host_cmd = " ".join(tokens)
+    host_cmd = shlex.join(tokens)
 
     name = tokens[0]
     args = tokens[1:]
