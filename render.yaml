@@ -1,0 +1,24 @@
+# Render Blueprint — deploy with "New > Blueprint" and point it at this repo.
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: rconsole
+    runtime: docker            # use the Dockerfile (installs proot, git, ... )
+    plan: starter              # persistent disks need a paid plan
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: RCONSOLE_DATA_DIR
+        value: /data           # the disk below: users, state, VMs survive deploys
+      - key: RCONSOLE_SECRET
+        generateValue: true    # session signing key (random, stable across deploys)
+      - key: RCONSOLE_PEPPER
+        generateValue: true    # password-hash pepper
+      - key: RCONSOLE_ADMIN_PASSWORD
+        sync: false            # you are prompted for it; sets the first `ark` password
+      - key: RCONSOLE_DEFAULT_MODE
+        value: host            # admins start on the container shell; `vm mode vm` to switch
+    disk:
+      name: rconsole-data
+      mountPath: /data
+      sizeGB: 5                # VMs are ~10 MB each, plus anything users install

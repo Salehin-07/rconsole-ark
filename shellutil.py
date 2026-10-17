@@ -16,6 +16,8 @@ import shutil
 import sys
 from pathlib import Path
 
+import config
+
 
 def detect_shell():
     """Return ``(executable, flag)`` for running ``exe flag <cmd>``."""
@@ -41,6 +43,9 @@ def detect_shell():
 def build_env(sid=None):
     """Build the environment dict for a host command / PTY session."""
     env = os.environ.copy()
+    # Server secrets must never be inherited by user commands or hosted apps.
+    for name in config.SECRET_ENV_VARS:
+        env.pop(name, None)
     venv_dir = Path(sys.executable).parent
     path = env.get("PATH", "")
     if str(venv_dir) not in path.split(os.pathsep):

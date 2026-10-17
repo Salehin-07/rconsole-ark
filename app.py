@@ -1,50 +1,93 @@
-"""rconsole — a Flask-powered simulated Linux console with hosted apps."""
+"""rconsole — a Flask-powered simulated Linux console with hosted apps.
+
+Request flow: ``before_request`` runs an Origin (CSRF) check, then ``guard``
+(authentication, inactivity timeout, forced password change). Command and file
+access is authorized by :mod:`sandbox`, never by this module, so every entry
+point — the line console, the terminal websocket and the file APIs — enforces
+the same rules.
+"""
 import gzip
+import logging
 import os
-import secrets
+import posixpath
 import shutil
+import threading
 import time
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 import requests
 from flask import (Flask, Response, abort, jsonify, redirect, render_template,
                    request, session, url_for)
 from flask_sock import Sock
+from requests.adapters import HTTPAdapter
 from werkzeug.exceptions import HTTPException
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import auth
+import config
 import interp
 import jobs
 import ptyhost
+import sandbox
 import state
 import termsess
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("RCONSOLE_SECRET", secrets.token_hex(32))
+app.secret_key = config.persistent_secret("RCONSOLE_SECRET", "secret.key")
+app.config.update(
+    # A distinct cookie name: hosted Flask apps proxied under this origin also
+    # default to a cookie called "session", and the two would collide.
+    SESSION_COOKIE_NAME="rconsole_session",
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=config.COOKIE_SECURE,
+    # Static assets change only on deploy; let browsers cache them for a week.
+    SEND_FILE_MAX_AGE_DEFAULT=7 * 24 * 3600,
+    # Bounds request bodies (editor saves, proxied uploads).
+    MAX_CONTENT_LENGTH=64 * 1024 * 1024,
+)
 # Long-lived sessions: a user should be able to return days later and log back
 # in to the exact same state. Forced logout only clears the cookie; server-side
 # state is keyed by username and survives it.
 app.permanent_session_lifetime = timedelta(days=360)
-
-# Static assets (xterm.js, console.js, css) change only on deploy, so let the
-# browser cache them for a long time. They're not content-hashed, so a week is
-# a safe compromise between repeat-visit speed and not serving stale bundles.
-app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 7 * 24 * 3600
+if config.TRUST_PROXY:
+    # Behind Render/nginx: trust one proxy hop so request.remote_addr, the
+    # scheme and the host reflect the real client (needed for login throttling
+    # and the Origin check).
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 SESSION_TIMEOUT = 30 * 24 * 3600  # seconds of inactivity before forced re-login
+MAX_EDIT_BYTES = 5 * 1024 * 1024  # largest file the browser editor will open
+MAX_DIR_ENTRIES = 5000
 HOSTS = state.ACTIVE_HOSTS
 sock = Sock(app)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+
+# Per-(ip, username) throttle, plus a looser per-ip one against username spraying.
+USER_THROTTLE = auth.THROTTLE
+IP_THROTTLE = auth.LoginThrottle(max_attempts=config.LOGIN_MAX_ATTEMPTS * 4)
+
+_SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
+# Endpoints a user may reach while they still have to change the default password.
+_MUST_CHANGE_OK = {"run", "console_page", "static", "login", "api_tabs", "healthz"}
+_MUST_CHANGE_CMDS = {"cpass", "logout", "help", "clear", "cls", "rwhoami", "history"}
 
 
 # ---------------------------------------------------------------------------
 # Response optimizations: gzip compress text responses (HTML/JS/CSS/JSON) and
 # add basic security/optimization headers. Skips websocket upgrades and
 # responses that are already encoded (e.g. proxied gzip from a hosted app).
+# Compressed static assets are cached (keyed by path + ETag) so a repeat
+# request costs a dict lookup instead of re-running gzip.
 # ---------------------------------------------------------------------------
 _GZIP_TYPES = (
     "text/", "javascript", "json", "css", "html", "svg", "xml", "font",
 )
 _GZIP_THRESHOLD = 1024
+_GZ_CACHE = {}
+_GZ_CACHE_MAX = 64
+_GZ_LOCK = threading.Lock()
 
 
 @app.after_request
@@ -52,6 +95,12 @@ def optimize_response(resp):
     # Basic hardening headers (cheap, helps caching/proxy behaviour).
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    # The console is never meant to be framed by another site (clickjacking).
+    # Hosted apps may set their own value; setdefault leaves theirs alone.
+    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if config.COOKIE_SECURE:
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
 
     # Never touch the websocket upgrade or already-compressed payloads.
     if resp.status_code == 101 or resp.headers.get("Content-Encoding"):
@@ -65,17 +114,29 @@ def optimize_response(resp):
     if not any(t in ctype for t in _GZIP_TYPES):
         return resp
 
-    try:
-        # Flask serves static files with direct_passthrough; flip it so we can
-        # read (and replace) the body for compression.
-        resp.direct_passthrough = False
-        data = resp.get_data()
-    except Exception:
-        return resp
-    if data is None or len(data) < _GZIP_THRESHOLD:
-        return resp
-
-    compressed = gzip.compress(data, 6)
+    etag = resp.headers.get("ETag") if request.endpoint == "static" else None
+    cache_key = (request.path, etag) if etag else None
+    compressed = None
+    if cache_key:
+        with _GZ_LOCK:
+            compressed = _GZ_CACHE.get(cache_key)
+    if compressed is None:
+        try:
+            # Flask serves static files with direct_passthrough; flip it so we
+            # can read (and replace) the body for compression.
+            resp.direct_passthrough = False
+            data = resp.get_data()
+        except Exception:
+            return resp
+        if data is None or len(data) < _GZIP_THRESHOLD:
+            return resp
+        compressed = gzip.compress(data, 6)
+        if cache_key:
+            with _GZ_LOCK:
+                if len(_GZ_CACHE) >= _GZ_CACHE_MAX:
+                    _GZ_CACHE.clear()
+                _GZ_CACHE[cache_key] = compressed
+    resp.direct_passthrough = False
     resp.set_data(compressed)
     resp.headers["Content-Encoding"] = "gzip"
     resp.headers["Content-Length"] = str(len(compressed))
@@ -90,7 +151,7 @@ def restore_terminal_sessions(username):
     sess = state.get_session(username)
     if not sess:
         return
-    for tid, t in sess["tabs"].items():
+    for tid, t in list(sess["tabs"].items()):
         if t.get("isTerminal") and t.get("cmd"):
             if termsess.get(username, tid) is None:
                 try:
@@ -98,13 +159,48 @@ def restore_terminal_sessions(username):
                     with termsess.SESSIONS_LOCK:
                         termsess.SESSIONS[(username, tid)] = s
                 except Exception:
+                    # Not permitted any more (e.g. admin revoked) or the VM is
+                    # gone: leave the tab dormant rather than failing the request.
                     pass
+
+
+# ---------------------------------------------------------------------------
+# Request guards
+# ---------------------------------------------------------------------------
+def _json_error(msg, code):
+    return {"error": msg, "code": code}, code
+
+
+@app.before_request
+def origin_check():
+    """CSRF defence: reject cross-site state-changing requests and websockets.
+
+    Browsers always attach ``Origin`` (or ``Sec-Fetch-Site``) to cross-site
+    POSTs and websocket handshakes. Combined with ``SameSite=Lax`` cookies this
+    stops a malicious page from driving a logged-in console. Requests with no
+    such headers (curl, server-to-server) are not browser-forgeable and pass.
+    Proxied hosted apps do their own CSRF handling and are exempt.
+    """
+    if (request.endpoint or "").startswith("proxy"):
+        return None
+    is_ws = request.headers.get("Upgrade", "").lower() == "websocket"
+    if request.method in _SAFE_METHODS and not is_ws:
+        return None
+    if request.headers.get("Sec-Fetch-Site") == "cross-site":
+        return _json_error("cross-site request blocked", 403)
+    origin = request.headers.get("Origin")
+    if origin and origin != "null":
+        if urlsplit(origin).netloc.lower() != request.host.lower():
+            return _json_error("cross-origin request blocked", 403)
+    elif origin == "null":
+        return _json_error("cross-origin request blocked", 403)
+    return None
 
 
 @app.before_request
 def guard():
-    # Allow login page and static assets without a session.
-    if request.endpoint in ("login", "static"):
+    # Allow login page, health probe and static assets without a session.
+    if request.endpoint in ("login", "static", "healthz"):
         return
     if "username" not in session:
         endpoint = request.endpoint or ""
@@ -125,32 +221,62 @@ def guard():
         session.clear()
         return redirect(url_for("login"))
 
+    # The factory password must be replaced before anything else is usable.
+    if session.get("must_change") and request.endpoint not in _MUST_CHANGE_OK:
+        return _json_error("password change required: run `sudo cpass`", 403)
+
     # Ensure server-side session state exists, then bring any persisted terminal
     # sessions (that aren't already running) back to life.
     username = session["username"]
     if username not in state.STATE:
         state.new_session(username)
-    restore_terminal_sessions(username)
+    if request.endpoint in ("console_page", "run", "api_tabs"):
+        restore_terminal_sessions(username)
+
+
+@app.get("/healthz")
+def healthz():
+    """Unauthenticated liveness probe (Render health checks)."""
+    return {"ok": True}
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
+    status = 200
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
-        if auth.verify(username, password):
+        ip = request.remote_addr or "?"
+        user_key, ip_key = (ip, username.lower()), (ip, "*")
+        wait = max(USER_THROTTLE.retry_after(user_key), IP_THROTTLE.retry_after(ip_key))
+        if wait:
+            error = f"Too many failed attempts. Try again in {wait}s."
+            status = 429
+        elif auth.verify(username, password):
+            USER_THROTTLE.success(user_key)
+            IP_THROTTLE.success(ip_key)
             session.clear()
             session["username"] = username
             session["login_time"] = time.time()
             session["last_activity"] = time.time()
+            session["must_change"] = auth.is_default_credential(username, password)
             session.permanent = True
+            app.logger.info("login ok user=%s ip=%s", username, ip)
             # Keyed by username: a returning user is restored to their old state.
             state.new_session(username)
             restore_terminal_sessions(username)
             return redirect(url_for("console_page"))
-        error = "Invalid username or password."
-    return render_template("login.html", error=error, default_user="ark")
+        else:
+            USER_THROTTLE.failure(user_key)
+            IP_THROTTLE.failure(ip_key)
+            app.logger.warning("login failed user=%r ip=%s", username[:32], ip)
+            error = "Invalid username or password."
+            status = 401
+    resp = Response(render_template("login.html", error=error, default_user="ark"), status=status)
+    if status == 429:
+        resp.headers["Retry-After"] = str(wait)
+    return resp
 
 
 @app.route("/")
@@ -171,6 +297,13 @@ def console_page():
     )
 
 
+def _first_word(raw):
+    parts = (raw or "").split()
+    if parts and parts[0] == "sudo":
+        parts = parts[1:]
+    return parts[0] if parts else ""
+
+
 @app.route("/api/run", methods=["POST"])
 def run():
     if "username" not in session:
@@ -178,12 +311,22 @@ def run():
     data = request.get_json(silent=True) or {}
     raw = data.get("cmd", "")
     tab_id = data.get("tab", "main")
+    if not isinstance(raw, str) or not isinstance(tab_id, str) or len(tab_id) > 64:
+        return {"error": "bad request"}, 400
 
     username = session["username"]
-    sess = state.get_session(username)
+    sess = state.get_session(username) or state.new_session(username)
     tab = state.ensure_tab(sess, username, tab_id)
-    u = auth.get_user(username)
-    is_admin = bool(u and u.get("is_admin"))
+    is_admin = auth.is_admin(username)
+
+    # Until the default password is replaced only a few commands may run (a
+    # pending interactive prompt, e.g. cpass asking for the new password, must
+    # still receive its answers).
+    if session.get("must_change") and tab.get("gen") is None:
+        if _first_word(raw) not in _MUST_CHANGE_CMDS:
+            return {"output": "You are using the default password. "
+                              "Run `sudo cpass` to set a new one first.",
+                    "cwd": tab["cwd"]}
 
     # Record history only for real commands (not interactive prompt replies).
     # Mutating tab state under STATE_LOCK so the background flush thread can't
@@ -201,12 +344,12 @@ def run():
     else:
         result = {"output": result, "cwd": tab["cwd"]}
 
-    # Apply session updates requested by a command (e.g. cuser).
-    if isinstance(result, dict) and result.get("update_session"):
+    # Apply session updates requested by a command (e.g. cuser, cpass).
+    if result.get("update_session"):
         for k, v in result["update_session"].items():
             session[k] = v
 
-    if isinstance(result, dict) and result.get("action") == "logout":
+    if result.get("action") == "logout":
         # Logout only clears the cookie. Terminal sessions are keyed by username
         # and deliberately kept alive so the user can log back in and resume.
         session.clear()
@@ -218,54 +361,73 @@ def run():
 # ---------------------------------------------------------------------------
 # Hosted-app proxy:  /<folder>/<port>/...  ->  http://127.0.0.1:<port>/...
 # ---------------------------------------------------------------------------
+_tls = threading.local()
+_HOP_BY_HOP = {"host", "content-length", "connection", "keep-alive", "te",
+               "trailers", "transfer-encoding", "upgrade", "proxy-authorization",
+               "proxy-authenticate", "cookie"}
+
+
+def _upstream():
+    """A per-thread pooled HTTP session (avoids a new TCP connect per request)."""
+    s = getattr(_tls, "session", None)
+    if s is None:
+        s = requests.Session()
+        adapter = HTTPAdapter(pool_connections=8, pool_maxsize=16)
+        s.mount("http://", adapter)
+        _tls.session = s
+    return s
+
+
+def _forward_cookies():
+    """Cookies for the hosted app: everything except rconsole's own session."""
+    return {k: v for k, v in request.cookies.items()
+            if k != app.config["SESSION_COOKIE_NAME"]}
+
+
 def _do_proxy(folder, port, rest=""):
     key = (folder, port)
     if key not in HOSTS:
         abort(404)
     url = f"http://127.0.0.1:{port}/{rest}"
-    headers = {
-        k: v for k, v in request.headers.items()
-        if k.lower() not in ("host", "content-length", "connection", "cookie")
-    }
-    try:
-        last_err = None
-        resp = None
-        for _ in range(10):
-            try:
-                resp = requests.request(
-                    request.method,
-                    url,
-                    params=request.args,
-                    data=request.get_data(),
-                    headers=headers,
-                    cookies=request.cookies,
-                    timeout=30,
-                    allow_redirects=False,
-                )
-                break
-            except requests.RequestException as e:
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in _HOP_BY_HOP}
+    body = request.get_data()
+    # Connection-refused means nothing was processed, so retrying is always
+    # safe (a freshly launched app needs a moment to bind its port). Timeouts
+    # and other errors are not retried: the request may have run.
+    resp = None
+    last_err = None
+    for _ in range(8):
+        try:
+            resp = _upstream().request(
+                request.method, url, params=request.args, data=body,
+                headers=headers, cookies=_forward_cookies(), timeout=30,
+                allow_redirects=False,
+            )
+            break
+        except requests.ConnectionError as e:
+            if isinstance(e, requests.ReadTimeout):
                 last_err = e
-                time.sleep(0.3)
-        if resp is None:
-            raise last_err
-    except requests.RequestException:
+                break
+            last_err = e
+            time.sleep(0.25)
+        except requests.RequestException as e:
+            last_err = e
+            break
+    if resp is None:
+        app.logger.warning("proxy %s:%s failed: %s", folder, port, last_err)
         abort(502)
-    excluded = ("content-length", "content-encoding", "transfer-encoding",
-                "connection", "server")
-    out_headers = [
-        (k, v) for k, v in resp.headers.items()
-        if k.lower() not in excluded
-    ]
+    excluded = {"content-length", "content-encoding", "transfer-encoding",
+                "connection", "server", "keep-alive"}
+    out_headers = [(k, v) for k, v in resp.raw.headers.items() if k.lower() not in excluded]
     return Response(resp.content, status=resp.status_code, headers=out_headers)
 
 
+_PROXY_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"]
 app.add_url_rule("/<folder>/<int:port>", "proxy_noslash",
-                  lambda folder, port: _do_proxy(folder, port, ""),
-                  methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"])
-app.add_url_rule("/<folder>/<int:port>/", "proxy_slash", _do_proxy,
-                  methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"])
+                 lambda folder, port: _do_proxy(folder, port, ""), methods=_PROXY_METHODS)
+app.add_url_rule("/<folder>/<int:port>/", "proxy_slash", _do_proxy, methods=_PROXY_METHODS)
 app.add_url_rule("/<folder>/<int:port>/<path:rest>", "proxy_rest", _do_proxy,
-                  methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"])
+                 methods=_PROXY_METHODS)
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +454,7 @@ def api_jobtail():
 
 
 # ---------------------------------------------------------------------------
-# Interactive terminal: stream a real PTY over a websocket.
+# Tabs
 # ---------------------------------------------------------------------------
 @app.route("/api/tabs")
 def api_tabs():
@@ -333,10 +495,25 @@ def api_close_tab():
 
 
 # ---------------------------------------------------------------------------
-# Client-side code editor: read / write a single file. Editing (and syntax
-# highlighting) happens entirely in the browser, so it stays smooth on mobile;
-# only Save touches the server.
+# File APIs (editor + visual file navigator).
+#
+# Every path is resolved through ``sandbox.fs``: admins in host mode see the
+# whole machine, everyone else is confined to their VM root (symlinks and ``..``
+# cannot escape it). Paths returned to the client are the user's own view.
 # ---------------------------------------------------------------------------
+def _fs_view():
+    """Return ``(view, None)`` or ``(None, error_response)``."""
+    try:
+        return sandbox.fs(session["username"]), None
+    except sandbox.SandboxError as e:
+        return None, ({"ok": False, "error": str(e)}, 409)
+
+
+def _map(view, path, follow_last=True):
+    """Map a client path to a host path (relative paths use the view's home)."""
+    return view.host(path or view.default_cwd(), view.default_cwd(), follow_last)
+
+
 @app.route("/api/file")
 def api_file():
     if "username" not in session:
@@ -344,19 +521,24 @@ def api_file():
     path = request.args.get("path", "")
     if not path:
         return {"error": "missing path"}, 400
-    p = os.path.abspath(path)
-    if os.path.isdir(p):
-        return {"error": "is a directory"}, 400
+    view, err = _fs_view()
+    if err:
+        return err
     try:
-        if os.path.exists(p):
+        p = _map(view, path)
+        if p.is_dir():
+            return {"error": "is a directory"}, 400
+        exists = p.exists()
+        content = ""
+        if exists:
+            if p.stat().st_size > MAX_EDIT_BYTES:
+                return {"error": "file too large for the editor "
+                                 f"(limit {MAX_EDIT_BYTES // (1024 * 1024)} MB)"}, 413
             with open(p, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
-            exists = True
-        else:
-            content, exists = "", False
-    except Exception as e:
+        return {"path": view.virt(p), "content": content, "exists": exists}
+    except (OSError, sandbox.SandboxError) as e:
         return {"error": str(e)}, 500
-    return {"path": p, "content": content, "exists": exists}
 
 
 @app.route("/api/file", methods=["POST"])
@@ -368,58 +550,64 @@ def api_file_save():
     content = data.get("content", "")
     if not path:
         return {"ok": False, "error": "missing path"}, 400
-    p = os.path.abspath(path)
+    if not isinstance(content, str):
+        return {"ok": False, "error": "content must be text"}, 400
+    view, err = _fs_view()
+    if err:
+        return err
     try:
-        parent = os.path.dirname(p)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
+        p = _map(view, path)
+        p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
             f.write(content)
-    except Exception as e:
+        return {"ok": True, "path": view.virt(p)}
+    except (OSError, sandbox.SandboxError) as e:
         return {"ok": False, "error": str(e)}, 500
-    return {"ok": True, "path": p}
-
-
-# ---------------------------------------------------------------------------
-# Visual file navigator: list a directory and mutate the filesystem
-# (mkdir / touch / rm / rmtree / rename). Same trust model as /api/file —
-# any logged-in user may browse and edit; paths are normalized to absolute.
-# ---------------------------------------------------------------------------
-def _fs_abspath(path):
-    return os.path.abspath(path or state.default_cwd())
 
 
 @app.route("/api/dir")
 def api_dir():
     if "username" not in session:
         return {"error": "unauthorized"}, 401
-    p = _fs_abspath(request.args.get("path", ""))
-    if not os.path.isdir(p):
-        return {"error": f"not a directory: {p}"}, 400
+    view, err = _fs_view()
+    if err:
+        return err
     try:
-        names = os.listdir(p)
-    except Exception as e:
-        return {"error": str(e)}, 500
+        p = _map(view, request.args.get("path", ""))
+        vpath = view.virt(p)
+    except (OSError, sandbox.SandboxError) as e:
+        return {"error": str(e)}, 400
+    if not p.is_dir():
+        return {"error": f"not a directory: {vpath}"}, 400
     entries = []
-    for name in names:
-        full = os.path.join(p, name)
-        try:
-            is_dir = os.path.isdir(full)
-            st = os.stat(full)
-            entries.append({
-                "name": name,
-                "path": full,
-                "is_dir": is_dir,
-                "size": 0 if is_dir else st.st_size,
-                "mtime": int(st.st_mtime),
-            })
-        except OSError:
-            continue
+    truncated = False
+    try:
+        # scandir hands back cached type/stat info: one syscall per entry
+        # instead of listdir + isdir + stat (3x), noticeable on big folders.
+        with os.scandir(p) as it:
+            for e in it:
+                if len(entries) >= MAX_DIR_ENTRIES:
+                    truncated = True
+                    break
+                try:
+                    is_dir = e.is_dir()
+                    st = e.stat()
+                except OSError:
+                    continue
+                entries.append({
+                    "name": e.name,
+                    "path": view.child_virt(vpath, e.name),
+                    "is_dir": is_dir,
+                    "size": 0 if is_dir else st.st_size,
+                    "mtime": int(st.st_mtime),
+                })
+    except OSError as e:
+        return {"error": str(e)}, 500
     entries.sort(key=lambda e: (not e["is_dir"], e["name"].lower()))
-    parent = os.path.dirname(p)
-    if not parent or parent == p:
-        parent = p
-    return {"path": p, "parent": parent, "entries": entries}
+    parent = posixpath.dirname(vpath) if not view.unrestricted else os.path.dirname(vpath)
+    if not parent or parent == vpath:
+        parent = vpath
+    return {"path": vpath, "parent": parent, "entries": entries, "truncated": truncated}
 
 
 @app.route("/api/fs", methods=["POST"])
@@ -428,56 +616,70 @@ def api_fs():
         return {"ok": False, "error": "unauthorized"}, 401
     data = request.get_json(silent=True) or {}
     action = (data.get("action") or "").strip().lower()
+    view, err = _fs_view()
+    if err:
+        return err
+
+    def need(field):
+        val = data.get(field)
+        if not val:
+            raise ValueError(f"missing {field}")
+        return val
+
     try:
         if action == "mkdir":
-            p = _fs_abspath(data.get("path", ""))
-            if not data.get("path"):
-                return {"ok": False, "error": "missing path"}, 400
+            p = _map(view, need("path"))
             os.makedirs(p, exist_ok=True)
-            return {"ok": True, "path": p}
+            return {"ok": True, "path": view.virt(p)}
         if action == "touch":
-            p = _fs_abspath(data.get("path", ""))
-            if not data.get("path"):
-                return {"ok": False, "error": "missing path"}, 400
-            parent = os.path.dirname(p)
-            if parent:
-                os.makedirs(parent, exist_ok=True)
-            open(p, "a").close()
-            return {"ok": True, "path": p}
+            p = _map(view, need("path"))
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.touch()
+            return {"ok": True, "path": view.virt(p)}
         if action == "rm":
-            p = _fs_abspath(data.get("path", ""))
-            if not data.get("path"):
-                return {"ok": False, "error": "missing path"}, 400
-            if os.path.isdir(p) and not os.path.islink(p):
+            # Don't follow a final symlink: remove the link, never its target.
+            p = _map(view, need("path"), follow_last=False)
+            if p.is_dir() and not p.is_symlink():
                 os.rmdir(p)  # only empty dirs; use rmtree for trees
             else:
                 os.remove(p)
-            return {"ok": True, "path": p}
+            return {"ok": True, "path": view.virt(p)}
         if action == "rmtree":
-            p = _fs_abspath(data.get("path", ""))
-            if not data.get("path"):
-                return {"ok": False, "error": "missing path"}, 400
-            if not os.path.isdir(p) or os.path.islink(p):
+            p = _map(view, need("path"), follow_last=False)
+            if not p.is_dir() or p.is_symlink():
                 return {"ok": False, "error": "not a directory"}, 400
-            parent = os.path.dirname(p)
-            if not parent or parent == p:
+            if p.parent == p or (view.root is not None and p == view.host("/")):
                 return {"ok": False, "error": "refusing to delete a filesystem root"}, 400
             shutil.rmtree(p)
-            return {"ok": True, "path": p}
+            return {"ok": True, "path": view.virt(p)}
         if action in ("rename", "mv", "move"):
-            src = _fs_abspath(data.get("src", "") or data.get("path", ""))
-            dst = _fs_abspath(data.get("dst", "") or data.get("name", ""))
-            if not data.get("src", data.get("path")) or not data.get("dst", data.get("name")):
+            src_in = data.get("src") or data.get("path")
+            dst_in = data.get("dst") or data.get("name")
+            if not src_in or not dst_in:
                 return {"ok": False, "error": "missing src/dst"}, 400
-            if not os.path.exists(src):
-                return {"ok": False, "error": f"no such file: {src}"}, 404
+            src = _map(view, src_in, follow_last=False)
+            dst = _map(view, dst_in, follow_last=False)
+            if not os.path.lexists(src):
+                return {"ok": False, "error": f"no such file: {view.virt(src)}"}, 404
             os.rename(src, dst)
-            return {"ok": True, "path": dst}
+            return {"ok": True, "path": view.virt(dst)}
         return {"ok": False, "error": f"unknown action: {action}"}, 400
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}, 400
     except FileNotFoundError as e:
         return {"ok": False, "error": str(e)}, 404
-    except OSError as e:
+    except (OSError, sandbox.SandboxError) as e:
         return {"ok": False, "error": str(e)}, 500
+
+
+# ---------------------------------------------------------------------------
+# Interactive terminal: stream a real PTY over a websocket.
+# ---------------------------------------------------------------------------
+def _ws_notice(ws, text):
+    try:
+        ws.send(f"\r\n\x1b[31m[rconsole] {text}\x1b[0m\r\n")
+    except Exception:
+        pass
 
 
 @sock.route("/ws")
@@ -485,13 +687,24 @@ def ws_terminal(ws):
     if "username" not in session:
         return
     username = session["username"]
+    if session.get("must_change"):
+        return _ws_notice(ws, "change the default password first: sudo cpass")
     sess = state.get_session(username)
     if not sess:
         return
     tab_id = request.args.get("tab", "main")
     tab = state.ensure_tab(sess, username, tab_id)
     cmd = request.args.get("cmd") or ""
+    if len(cmd) > 4096 or len(tab_id) > 64:
+        return
     if cmd:
+        # The command comes straight from the query string, so it is untrusted:
+        # authorize it BEFORE persisting it or spawning anything.
+        forced, _ = sandbox.parse_target(cmd)
+        try:
+            sandbox.resolve_target(username, forced)
+        except sandbox.SandboxError as e:
+            return _ws_notice(ws, str(e))
         state.set_terminal(sess, username, tab_id, cmd, tab["cwd"])
     try:
         cols = int(request.args.get("cols", 80))
@@ -501,7 +714,12 @@ def ws_terminal(ws):
         rows = int(request.args.get("rows", 24))
     except (TypeError, ValueError):
         rows = 24
-    ptyhost.attach(ws, username, tab_id, cmd, tab["cwd"], cols, rows)
+    try:
+        ptyhost.attach(ws, username, tab_id, cmd, tab["cwd"], cols, rows)
+    except sandbox.SandboxError as e:
+        _ws_notice(ws, str(e))
+    except OSError as e:
+        _ws_notice(ws, f"could not start: {e}")
 
 
 # ---------------------------------------------------------------------------

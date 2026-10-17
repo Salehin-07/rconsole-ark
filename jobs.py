@@ -11,7 +11,7 @@ import subprocess
 import threading
 import time
 
-import shellutil
+import sandbox
 
 JOBS = {}                 # (sid, jid) -> Job
 JOBS_LOCK = threading.Lock()
@@ -19,15 +19,6 @@ _NEXT = {}                # sid -> int (last issued job id)
 
 BUFFER_MAX = 256 * 1024   # bytes of output kept per job
 MAX_JOBS_PER_USER = 50    # finished jobs beyond this are pruned on start
-
-
-def _detect_shell():
-    """Mirror interp._detect_shell: prefer a POSIX shell, fall back to cmd.exe."""
-    return shellutil.detect_shell()
-
-
-def _build_env(sid=None):
-    return shellutil.build_env(sid)
 
 
 class Job:
@@ -42,15 +33,12 @@ class Job:
         self.end = None
         self.pid = None
         self._lock = threading.Lock()
-        shell_exe, flag = _detect_shell()
         popen_kwargs = dict(
-            cwd=cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
             shell=False,
-            env=_build_env(self.sid),
         )
         # On POSIX, give the job its own session/process group so we can kill
         # the whole tree (shell + children) with killpg without affecting the
@@ -58,7 +46,10 @@ class Job:
         if os.name != "nt":
             popen_kwargs["start_new_session"] = True
         try:
-            self.proc = subprocess.Popen([shell_exe, flag, cmd], **popen_kwargs)
+            # sandbox.spec authorizes the launch and picks host vs VM.
+            sp = sandbox.spec(self.sid, cmd, cwd)
+            self.proc = subprocess.Popen(
+                sp.argv, cwd=sp.cwd, env=sp.env, **popen_kwargs)
             self.pid = self.proc.pid
         except Exception as e:
             self.alive = False
@@ -72,7 +63,8 @@ class Job:
         with self._lock:
             self.buffer += s
             if len(self.buffer) > BUFFER_MAX:
-                self.buffer = self.buffer[-BUFFER_MAX:]
+                # Trim with hysteresis so we don't re-copy on every append.
+                self.buffer = self.buffer[-(BUFFER_MAX * 3 // 4):]
 
     def _reader(self):
         try:

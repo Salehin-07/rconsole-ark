@@ -1,11 +1,15 @@
 """Hosting commands (serve / gunicorn) plus hosted-process management."""
+import functools
 import os
+import re
 import signal
 import subprocess
 import sys
 from pathlib import Path
 
 import commands
+import config
+import sandbox
 import state
 
 HERE = Path(__file__).resolve().parent
@@ -64,6 +68,7 @@ def _parse_port(args):
     return None
 
 
+@functools.lru_cache(maxsize=1)
 def _use_gunicorn():
     """Return True only if the real gunicorn module can actually run here.
 
@@ -82,56 +87,108 @@ def _use_gunicorn():
         return False
 
 
+def _log_path(folder, port):
+    config.ensure_private_dir(config.LOG_DIR)
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", folder) or "root"
+    return config.LOG_DIR / f"{safe}-{port}.log"
+
+
+def _tail(path, lines=15):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return "".join(f.readlines()[-lines:]).rstrip()
+    except OSError:
+        return ""
+
+
+def _build_argv(sid, mode, host_dir, guest_dir, port, wsgi_spec, prefix):
+    """Return ``(Spec, backend)`` for the hosted process in the given mode."""
+    if wsgi_spec is None:
+        # Static files are always served by the server's own Python (nothing
+        # needs to be installed in the VM); VM dirs are symlink-confined.
+        import shellutil
+        argv = [sys.executable, str(HERE / "_static_host.py"), str(port), str(host_dir)]
+        if mode == sandbox.VM:
+            argv.append("--confine")
+        return sandbox.Spec(argv, str(host_dir), shellutil.build_env(sid), sandbox.HOST), "http.server"
+
+    env = {"RCONSOLE_SPEC": wsgi_spec, "RCONSOLE_PREFIX": prefix}
+    if mode == sandbox.VM:
+        env.update(RCONSOLE_CWD=guest_dir, PYTHONPATH="/opt/rconsole")
+        argv = ["python3", "-m", "gunicorn", "_wsgi_host:application",
+                "-b", f"127.0.0.1:{port}", "--chdir", guest_dir]
+        sp = sandbox.argv_spec(sid, argv, guest_dir, forced=sandbox.VM, extra_env=env,
+                               extra_binds=[(str(HERE), "/opt/rconsole")])
+        return sp, "gunicorn (in VM)"
+
+    env["RCONSOLE_CWD"] = str(host_dir)
+    env["PYTHONPATH"] = (str(HERE) + os.pathsep + os.environ.get("PYTHONPATH", "")).rstrip(os.pathsep)
+    if _use_gunicorn():
+        argv = [sys.executable, "-m", "gunicorn", "_wsgi_host:application",
+                "-b", f"127.0.0.1:{port}", "--chdir", str(host_dir)]
+        backend = "gunicorn"
+    else:
+        # Fallback: lightweight wsgiref server (same prefix-aware wrapper).
+        argv = [sys.executable, str(HERE / "_wsgi_host.py"),
+                wsgi_spec, str(port), str(host_dir), prefix]
+        backend = "wsgiref"
+    return sandbox.argv_spec(sid, argv, str(host_dir), forced=sandbox.HOST, extra_env=env), backend
+
+
 def _launch(ctx, port, wsgi_spec=None):
+    sid = ctx["sid"]
     if not (1024 <= port <= 65535):
         return f"Port must be between 1024 and 65535 (got {port})"
-    real_cwd = ctx["tab"]["cwd"]
-    if not Path(real_cwd).is_dir():
-        return f"serve: {real_cwd}: not a directory"
-    folder = _folder_name(real_cwd)
+    try:
+        view = sandbox.fs(sid)
+        mode = sandbox.effective_mode(sid)
+        guest_dir = ctx["tab"]["cwd"]
+        host_dir = view.host(guest_dir, guest_dir)
+    except (sandbox.SandboxError, OSError) as e:
+        return f"serve: {e}"
+    if not host_dir.is_dir():
+        return f"serve: {guest_dir}: not a directory"
+    folder = _folder_name(guest_dir)
     key = (folder, port)
     if key in state.ACTIVE_HOSTS:
         old = state.ACTIVE_HOSTS[key]
         state.kill_host(old["sid"], folder, port)
 
-    if wsgi_spec:
-        prefix = f"/{folder}/{port}"
-        if _use_gunicorn():
-            # Prefer the real gunicorn WSGI server. We launch our own bootstrap
-            # module as the WSGI app so the user's app is mounted under the
-            # proxy prefix (SCRIPT_NAME) — otherwise its absolute routes/links
-            # (e.g. Flask's url_for) would collide with the main rconsole site.
-            env = dict(os.environ)
-            env["RCONSOLE_SPEC"] = wsgi_spec
-            env["RCONSOLE_CWD"] = real_cwd
-            env["RCONSOLE_PREFIX"] = prefix
-            # Ensure the bootstrap module is importable wherever gunicorn runs.
-            existing_pp = env.get("PYTHONPATH", "")
-            env["PYTHONPATH"] = (str(HERE) + os.pathsep + existing_pp).rstrip(os.pathsep)
-            proc = subprocess.Popen(
-                [sys.executable, "-m", "gunicorn", "_wsgi_host:application",
-                 "-b", f"127.0.0.1:{port}", "--chdir", real_cwd],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env,
-            )
-            backend = "gunicorn"
-        else:
-            # Fallback: lightweight wsgiref server (same prefix-aware wrapper).
-            proc = subprocess.Popen(
-                [sys.executable, str(HERE / "_wsgi_host.py"),
-                 wsgi_spec, str(port), real_cwd, prefix],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-            backend = "wsgiref"
-    else:
-        proc = subprocess.Popen(
-            [sys.executable, str(HERE / "_static_host.py"), str(port), real_cwd],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        backend = "http.server"
+    prefix = f"/{folder}/{port}"
+    try:
+        sp, backend = _build_argv(sid, mode, host_dir, guest_dir, port, wsgi_spec, prefix)
+    except sandbox.SandboxError as e:
+        return f"serve: {e}"
 
-    state.register_host(ctx["sid"], folder, port, proc)
-    return (f"Hosting '{real_cwd}' at /{folder}/{port}/\n"
-            f"Open: /{folder}/{port}/  (process pid {proc.pid}, backend: {backend})")
+    # Output goes to a per-app log (not DEVNULL) so failures are diagnosable.
+    log = _log_path(folder, port)
+    try:
+        with open(log, "ab") as logf:
+            proc = subprocess.Popen(
+                sp.argv, cwd=sp.cwd, env=sp.env, stdin=subprocess.DEVNULL,
+                stdout=logf, stderr=subprocess.STDOUT)
+    except OSError as e:
+        return f"serve: could not start: {e}"
+
+    # A process that dies immediately (missing module, bad spec, no gunicorn in
+    # the VM, ...) is far more useful reported now than discovered as a 502.
+    try:
+        proc.wait(timeout=1.0)
+    except subprocess.TimeoutExpired:
+        pass
+    if proc.poll() is not None:
+        hint = ""
+        if mode == sandbox.VM and wsgi_spec:
+            hint = ("\nHint: install it in your VM:  "
+                    "vm run apk add python3 py3-pip && vm run pip install gunicorn --break-system-packages")
+        return (f"serve: process exited immediately (code {proc.returncode}).\n"
+                f"--- {log.name} ---\n{_tail(log)}{hint}")
+
+    state.register_host(sid, folder, port, proc)
+    where = "VM" if mode == sandbox.VM else "host"
+    return (f"Hosting '{guest_dir}' ({where}) at /{folder}/{port}/\n"
+            f"Open: /{folder}/{port}/  (pid {proc.pid}, backend: {backend})\n"
+            f"Logs: sudo sprocess {port}")
 
 
 @commands.command("serve")
@@ -173,9 +230,16 @@ def cmd_gunicorn(ctx, args):
 
 @commands.command("sprocess")
 def cmd_sprocess(ctx, args):
-    """List the running hosted processes (serve/gunicorn) with their PIDs."""
+    """List hosted processes, or `sprocess <port>` to show an app's log tail."""
     sid = ctx["sid"]
     sess = state.get_session(sid)
+    if args and args[0].isdigit():
+        port = int(args[0])
+        for (folder, p) in (sess or {}).get("hosts", {}):
+            if p == port:
+                log = _log_path(folder, port)
+                return f"--- {log.name} ---\n{_tail(log, 40) or '(empty)'}"
+        return f"sprocess: no hosted process on port {port}."
     hosts = sess.get("hosts", {}) if sess else {}
     if not hosts:
         return "No hosted processes are running (use: sudo serve <port> / sudo gunicorn <spec> -b :<port>)."
@@ -215,7 +279,10 @@ def cmd_kprocess(ctx, args):
         if target:
             state.kill_host(sid, target[0], target[1])
             return f"Killed hosted process {pid} (port {target[1]})."
-        # Not a tracked host: attempt a direct OS kill as a fallback.
+        # Not a tracked host: attempt a direct OS kill as a fallback — but never
+        # the server itself (or its supervisor), which would take everyone down.
+        if pid <= 1 or pid in (os.getpid(), os.getppid()):
+            return f"kprocess: refusing to kill pid {pid} (the rconsole server)."
         try:
             os.kill(pid, signal.SIGTERM)
             return f"Sent SIGTERM to process {pid}."

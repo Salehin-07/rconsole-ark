@@ -1,14 +1,15 @@
 """Command line parsing and execution dispatcher.
 
 Built-in console commands are handled in commands.py. Anything else is executed
-on the REAL host via a shell subprocess (real cwd, timeout, venv on PATH).
+through :mod:`sandbox` — on the real host (admins) or inside the user's VM —
+via an explicit shell subprocess (real cwd, timeout, venv on PATH).
 """
 import shlex
 import subprocess
 
 import commands
 import jobs
-import shellutil
+import sandbox
 import state
 
 PASS_THROUGH_TIMEOUT = 60
@@ -44,6 +45,23 @@ def _is_interactive(tokens):
     return False
 
 
+# Console-native novelty commands that shadow a real Unix tool. When the line
+# uses shell operators (pipes, redirects, &&, ;) the real tool must run in the
+# shell, otherwise e.g. `echo hi | tr a-z A-Z` would just print its own text.
+SHELL_PREFERRED = {"echo", "cal", "wc", "rev", "date", "uptime"}
+
+
+def has_shell_ops(line):
+    """True if ``line`` contains an unquoted pipe/redirect/``&&``/``;`` operator."""
+    try:
+        lex = shlex.shlex(line, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        toks = list(lex)
+    except ValueError:
+        return False
+    return any(t and all(c in "();<>|&" for c in t) for t in toks)
+
+
 def tokenize(line):
     try:
         return shlex.split(line)
@@ -65,31 +83,26 @@ def _expand_alias(tokens, aliases):
     return tokens
 
 
-def _detect_shell():
-    """Prefer a POSIX shell (sh/bash) for a real Linux-console feel, then
-    common Git Bash locations, then fall back to cmd.exe on Windows.
-    The shell is invoked explicitly (we never use shell=True)."""
-    return shellutil.detect_shell()
-
-
 def _passthrough(ctx, host_cmd):
-    """Run a command string on the host using an explicit shell."""
-    env = shellutil.build_env(ctx["sid"])
-
-    shell_exe, flag = _detect_shell()
+    """Run a command string via the user's target (host or VM) and capture it."""
     cwd = ctx["tab"]["cwd"]
     try:
+        sp = sandbox.spec(ctx["sid"], host_cmd, cwd)
         proc = subprocess.run(
-            [shell_exe, flag, host_cmd],
-            cwd=cwd,
+            sp.argv,
+            cwd=sp.cwd,
             capture_output=True,
             text=True,
             timeout=PASS_THROUGH_TIMEOUT,
             shell=False,
-            env=env,
+            env=sp.env,
+            stdin=subprocess.DEVNULL,
         )
+    except sandbox.SandboxError as e:
+        return f"rconsole: {e}"
     except subprocess.TimeoutExpired:
-        return f"command timed out after {PASS_THROUGH_TIMEOUT}s"
+        return (f"command timed out after {PASS_THROUGH_TIMEOUT}s "
+                "(append ' &' to run it as a background job)")
     except Exception as e:
         return f"error: {e}"
     out = proc.stdout or ""
@@ -123,12 +136,12 @@ def process(tab, username, is_admin, sid, raw):
         return {}
 
     sudo = False
+    # ``host_cmd`` is the text handed to the shell. It is edited as *text*
+    # (never rebuilt with shlex.join) so pipes, redirects and && survive.
     host_cmd = line.strip()
     if tokens[0] == "sudo":
         sudo = True
-        # remove the leading "sudo " for the host command
-        if host_cmd.lower().startswith("sudo "):
-            host_cmd = host_cmd[5:].lstrip()
+        host_cmd = host_cmd[4:].lstrip()  # drop the leading "sudo"
         tokens = tokens[1:]
         if not tokens:
             return {"output": "usage: sudo <command>"}
@@ -148,11 +161,17 @@ def process(tab, username, is_admin, sid, raw):
             tokens.pop()
     if bg and not tokens:
         return {"output": "syntax error near unexpected token `&'"}
+    if bg:
+        host_cmd = host_cmd.rstrip()[:-1].rstrip()  # drop the trailing '&'
 
     # Expand a user alias on the (post-sudo) command.
     aliases = state.get_aliases(sid)
-    tokens = _expand_alias(tokens, aliases)
-    host_cmd = shlex.join(tokens)
+    expanded = _expand_alias(tokens, aliases)
+    if expanded is not tokens and tokens and tokens[0] in aliases:
+        # Substitute the alias in the text, keeping the rest verbatim.
+        first = host_cmd.split(None, 1)
+        host_cmd = aliases[tokens[0]] + (" " + first[1] if len(first) > 1 else "")
+    tokens = expanded
 
     name = tokens[0]
     args = tokens[1:]
@@ -166,12 +185,16 @@ def process(tab, username, is_admin, sid, raw):
         "raw": raw,
     }
 
-    # Console-native built-in?
-    if name in commands.COMMANDS:
+    if sudo and not is_admin:
+        return {"output": f"{username} is not in the sudoers file. This incident will be reported."}
+
+    # Console-native built-in? (shell-operator lines go to the real shell when
+    # the built-in merely shadows a Unix tool — see SHELL_PREFERRED.)
+    native = name in commands.COMMANDS and not (
+        name in SHELL_PREFERRED and has_shell_ops(host_cmd))
+    if native:
         if name in commands.PROTECTED and not sudo:
             return {"output": f"Permission denied: '{name}' requires sudo. Try: sudo {name}"}
-        if sudo and not is_admin:
-            return {"output": f"{username} is not in the sudoers file. This incident will be reported."}
         fn = commands.COMMANDS[name]
         try:
             result = fn(ctx, args)
@@ -193,7 +216,9 @@ def process(tab, username, is_admin, sid, raw):
         # vim, ...) should be detached rather than opened in a PTY.
         jid, _ = jobs.start_job(sid, host_cmd, ctx["tab"]["cwd"])
         return {"output": f"[job {jid}] {host_cmd} &   (jobs: list | jobout %{jid}: output | kill %{jid}: stop)"}
-    if _is_interactive(tokens):
+    # `@vm vim x` / `@host top`: judge interactivity by the real command.
+    probe = tokens[1:] if tokens and tokens[0] in ("@vm", "@host") else tokens
+    if _is_interactive(probe):
         # Hand off to a real PTY so interactive programs work.
         return {"pty": True, "cmd": host_cmd}
     return {"output": _passthrough(ctx, host_cmd)}

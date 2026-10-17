@@ -7,6 +7,7 @@ focused modules and register themselves here with :func:`command`:
 
 - ``cmd_basic``    help, clear, history, rwhoami, cd, alias, theme
 - ``cmd_hosting``  serve, gunicorn, sprocess, kprocess
+- ``cmd_vm``       vm (per-user Linux VM: install, shell, run, mode)
 - ``cmd_users``    logout, suser/auser/nauser/ruser, muser/cpass/cuser, rboot
 - ``cmd_jobs``     jobs, jobout, jobtail, fg, kill
 - ``cmd_env``      sudo env (per-user environment variables)
@@ -46,6 +47,7 @@ import cmd_hosting  # noqa: E402,F401
 import cmd_jobs  # noqa: E402,F401
 import cmd_tooling  # noqa: E402,F401
 import cmd_users  # noqa: E402,F401
+import cmd_vm  # noqa: E402,F401
 import editor  # noqa: E402,F401
 
 # Register the fun/novelty commands (cowsay, fortune, figlet, ...).

@@ -8,13 +8,17 @@ login when their process is no longer alive.
 """
 import atexit
 import json
+import os
+import re
+import secrets
 import threading
 import time
-from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-DATA = HERE / "data"
-STATE_DIR = DATA / "state"
+import config
+
+HERE = config.HERE
+DATA = config.DATA_DIR
+STATE_DIR = config.STATE_DIR
 
 STATE = {}  # username -> {"tabs": {...}, "hosts": {...}, "aliases": {...}, "theme": str}
 # Reentrant so a mutating helper (e.g. ensure_tab) can call save_now() without
@@ -43,8 +47,9 @@ def default_cwd():
 
 # --------------------------------------------------------------------------- io
 def _state_path(username):
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    safe = "".join(c for c in username if c.isalnum() or c in "._-")
+    """Per-user state file; the name is sanitized so it can't escape STATE_DIR."""
+    config.ensure_private_dir(STATE_DIR)
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", str(username)).lstrip(".") or "_"
     return STATE_DIR / f"{safe}.json"
 
 
@@ -61,9 +66,16 @@ def _write(username):
                 "aliases": dict(sess.get("aliases", {}) or {}),
                 "theme": sess.get("theme", DEFAULT_THEME),
                 "env": dict(sess.get("env", {}) or {}),
+                "mode": sess.get("mode"),
             }
-        with open(_state_path(username), "w", encoding="utf-8") as f:
+        # Atomic + private: the file can hold API keys set via `sudo env`, and a
+        # crash mid-write must never leave a truncated state file behind.
+        path = _state_path(username)
+        tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f)
+        os.replace(tmp, path)
     except Exception:
         pass
 
@@ -154,6 +166,7 @@ def _load(username):
         "aliases": data.get("aliases", {}) or {},
         "theme": data.get("theme", DEFAULT_THEME) or DEFAULT_THEME,
         "env": data.get("env", {}) or {},
+        "mode": data.get("mode") if data.get("mode") in ("host", "vm") else None,
     }
 
 
@@ -216,6 +229,53 @@ def remove_env(username, key):
             save_now(username)
             return True
     return False
+
+
+def rename_user(old, new):
+    """Move a user's saved state to a new username (used by `cuser`)."""
+    with STATE_LOCK:
+        sess = STATE.pop(old, None)
+        if sess is not None:
+            sess["hosts"] = {}
+            STATE[new] = sess
+        try:
+            src = _state_path(old)
+            if src.exists():
+                os.replace(src, _state_path(new))
+        except OSError:
+            pass
+    with _flush_lock:
+        _dirty.discard(old)
+    if sess is not None:
+        save_now(new)
+
+
+def drop_user(username):
+    """Forget a deleted user's in-memory and on-disk state."""
+    with STATE_LOCK:
+        STATE.pop(username, None)
+    with _flush_lock:
+        _dirty.discard(username)
+    try:
+        _state_path(username).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+# ----------------------------------------------------------------- exec target
+def get_mode(username):
+    """Preferred execution target (``host``/``vm``) or ``None`` for the default."""
+    sess = STATE.get(username)
+    return (sess or {}).get("mode") if sess else None
+
+
+def set_mode(username, mode):
+    with STATE_LOCK:
+        sess = STATE.get(username)
+        if not sess:
+            sess = new_session(username)
+        sess["mode"] = mode
+        save_now(username)
 
 
 def set_theme(username, theme):

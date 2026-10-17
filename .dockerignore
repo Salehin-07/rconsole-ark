@@ -1,0 +1,9 @@
+.git
+.venv
+.ruff_cache
+__pycache__
+*.pyc
+data
+*.log
+tests
+.DS_Store

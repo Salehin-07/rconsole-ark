@@ -4,17 +4,45 @@ Fully interactive through the normal line console, so they are smooth and
 reliable on mobile phones where xterm + a soft keyboard is fragile.
 """
 import os
+import posixpath
 from pathlib import Path
 
 import commands
+import sandbox
+
+
+_INVALID = Path(os.devnull) / "invalid"   # any operation on it fails (ENOTDIR)
 
 
 def _resolve_path(ctx, target):
-    target = (target or "").strip()
-    p = Path(target)
-    if not p.is_absolute():
-        p = Path(ctx["tab"]["cwd"]) / target
-    return p.resolve()
+    """Map a user-typed path to a real host path, confined to the user's view.
+
+    Admins in host mode see the whole machine; VM users are confined to their
+    root filesystem. Anything unresolvable maps to a path that cannot exist, so
+    callers' normal "not found"/error handling applies.
+    """
+    try:
+        view = sandbox.fs(ctx["sid"])
+        p = view.host((target or "").strip(), ctx["tab"]["cwd"])
+        return p.resolve() if view.unrestricted else p
+    except (OSError, sandbox.SandboxError):
+        return _INVALID
+
+
+def _virt(ctx, host_path):
+    """Path as the user sees it (VM paths are relative to the VM root)."""
+    try:
+        return sandbox.fs(ctx["sid"]).virt(host_path)
+    except (OSError, sandbox.SandboxError):
+        return str(host_path)
+
+
+def _parent(ctx, host_path):
+    """Parent directory that can never climb above the VM root."""
+    view = sandbox.fs(ctx["sid"])
+    if view.unrestricted:
+        return Path(host_path).parent
+    return view.host(posixpath.dirname(view.virt(host_path)) or "/", "/")
 
 
 def _raw_arg(ctx):
@@ -239,10 +267,14 @@ def cmd_edit(ctx, args):
     if not args:
         return "Usage: edit <file>   (opens the code editor)"
     target = _raw_arg(ctx) or args[0]
+    try:
+        sandbox.fs(ctx["sid"])
+    except sandbox.SandboxError as e:
+        return f"edit: {e}"
     path = _resolve_path(ctx, target)
     if path.is_dir():
-        return f"edit: {path}: Is a directory"
-    return {"editor": str(path)}
+        return f"edit: {_virt(ctx, path)}: Is a directory"
+    return {"editor": _virt(ctx, path)}
 
 
 # --- file manager -----------------------------------------------------------
@@ -250,9 +282,9 @@ def cmd_edit(ctx, args):
 DIR_TAG = "[D]"
 
 
-def _fm_listing(cwd):
+def _fm_listing(cwd, shown=None):
     out = []
-    out.append(f"File manager: {cwd}")
+    out.append(f"File manager: {shown or cwd}")
     out.append("-" * 60)
     try:
         entries = sorted(
@@ -298,11 +330,11 @@ FM_HELP = (
 def fm_routine(start, ctx):
     cwd = _resolve_path(ctx, start)
     if not cwd.is_dir():
-        cwd = Path(ctx["tab"]["cwd"])
+        cwd = _resolve_path(ctx, ctx["tab"]["cwd"])
     status = ""
     pending = None
     while True:
-        listing = _fm_listing(cwd)
+        listing = _fm_listing(cwd, _virt(ctx, cwd))
         if pending is not None:
             listing += "\n" + pending
             pending = None
@@ -317,24 +349,24 @@ def fm_routine(start, ctx):
             status = FM_HELP
             continue
         if cmd in ("q", "quit", "exit"):
-            ctx["tab"]["cwd"] = str(cwd)
-            return {"output": f"File manager closed. cwd is now {cwd}."}
+            ctx["tab"]["cwd"] = _virt(ctx, cwd)
+            return {"output": f"File manager closed. cwd is now {_virt(ctx, cwd)}."}
         if cmd in ("up", ".."):
-            cwd = cwd.parent
+            cwd = _parent(ctx, cwd)
             status = ""
             continue
         if cmd == "ls":
             status = ""
             continue
         if cmd == "pwd":
-            status = f"cwd: {cwd}"
+            status = f"cwd: {_virt(ctx, cwd)}"
             continue
         if cmd.startswith("cd "):
             target = cmd[3:].strip()
             nc = _resolve_path(ctx, target)
             if nc.is_dir():
                 cwd = nc
-                ctx["tab"]["cwd"] = str(cwd)
+                ctx["tab"]["cwd"] = _virt(ctx, cwd)
                 status = ""
             else:
                 status = f"Not a directory: {target}"
@@ -412,5 +444,9 @@ def cmd_fm(ctx, args):
     Usage:  fm [path]
     Browse directories and open files in the Python editor without a PTY.
     """
+    try:
+        sandbox.fs(ctx["sid"])
+    except sandbox.SandboxError as e:
+        return f"fm: {e}"
     start = _raw_arg(ctx) or (args[0] if args else ctx["tab"]["cwd"])
     return fm_routine(start, ctx)

@@ -1,13 +1,21 @@
-# rconsole — simulated Linux console with hosted web apps
+# rconsole — a Linux console in your browser, with a private VM per user
 
-rconsole is a Flask web application that exposes a **simulated Linux console**
-in the browser. It blends two modes:
+rconsole is a Flask web application that exposes a **Linux console** in the
+browser. It blends two modes:
 
-1. **Line-mode console** — a stateful, simulated shell (`cd`, `help`, hosted-app
-   management, user administration) implemented natively in Python.
+1. **Line-mode console** — a stateful shell (`cd`, `help`, hosted-app
+   management, user administration, background jobs, an AI agent) implemented
+   natively in Python.
 2. **Real interactive terminal** — full-screen, real programs (`nano`, `vim`,
    `python`, `bash`, `less`, `top`, `git`, `ssh`, ...) streamed over a
-   WebSocket-backed PTY. This is a *genuine* host shell, not an emulation.
+   WebSocket-backed PTY.
+
+Commands run on one of two **targets**:
+
+| Target | What it is | Who |
+|--------|------------|-----|
+| `host` | The machine rconsole runs on, with the server's privileges | admins |
+| `vm`   | **Your own Linux system** (Alpine) where you are `root` and can `apk add` anything — works even on locked-down hosts such as Render | everyone |
 
 On top of that, rconsole can **host real web apps**: run `sudo serve 8000` (or
 `sudo gunicorn …`) and the app is served at `https://your-domain/<folder>/<port>/`
@@ -19,180 +27,199 @@ through rconsole's built-in reverse proxy — no extra port-forwarding required.
 
 - Browser terminal powered by **xterm.js** + a real PTY (ConPTY on Windows,
   `pty`/`select` on Linux/macOS).
+- **Per-user virtual machine** (`vm`): root inside, any package, persistent
+  `/root`, no host privileges needed (see [The VM](#the-vm-vm)).
 - Tabs, each owning its own terminal session that keeps running in the
   background and reappears when you switch back.
-- Native, stateful console commands plus a real host-shell passthrough.
-- Visual file navigator (📁 button in the tab bar): browse directories,
-  open files, create/rename/delete files and folders — no terminal needed.
-- Built-in code editor with syntax highlighting for ~65 languages
-  (300+ extensions plus special basenames like `Dockerfile`/`Makefile`).
-- Hosted web apps (static sites and WSGI apps) reachable through the same
-  domain via a path-based proxy.
-- User accounts with admin/non-admin roles, session timeout, and a
-  factory-reset command.
+- Native, stateful console commands plus a real shell passthrough (pipes,
+  redirects and `&&` work as in any shell).
+- Visual file navigator (📁 button): browse, open, create/rename/delete — in the
+  host filesystem (admins) or confined to your VM.
+- Built-in code editor with syntax highlighting for ~65 languages.
+- Hosted web apps (static sites and WSGI apps) behind a path-based proxy, with
+  per-app logs and fast failure reports.
+- Accounts with admin/non-admin roles, brute-force protection, forced
+  replacement of the factory password, session timeout, and factory reset.
+- Native **AI agent** (`sudo agent`) with file and shell tools.
 
 ---
 
 ## Requirements
 
-- Python **>= 3.14** (see `.python-version`).
-- [`uv`](https://docs.astral.sh/uv/) for dependency/ environment management.
-- On **Windows**: `pywinpty` (ConPTY) is installed automatically and used.
-- On **Linux/macOS**: the standard library `pty` module is used; no extra
-  native dependency.
-
-> `pywinpty` is declared as `pywinpty>=3.0.5; sys_platform == 'win32'` in
-> `pyproject.toml`, so it is never installed or imported off Windows.
+- Python **>= 3.14** (see `.python-version`). The test-suite also passes on 3.12.
+- [`uv`](https://docs.astral.sh/uv/) for dependency management (or `pip install -r requirements.txt`).
+- **VM**: Linux. `proot` is fetched automatically on x86-64 (checksum-verified);
+  on other CPUs install it (`apt install proot` / `apk add proot`).
+- **Windows**: `pywinpty` (ConPTY) is installed automatically; the VM is unavailable there.
 
 ---
 
-## Installation & running
+## Quick start
 
 ```bash
-# 1. Create / sync the environment (also installs dependencies)
-uv sync
-
-# 2. Run the server
-uv run python main.py
-#    (equivalently: uv run python app.py)
-
-# 3. Open the console
-#    http://127.0.0.1:5000   (default port 5000; override with PORT)
+uv sync                      # create the environment
+uv run python main.py        # http://127.0.0.1:5000
 ```
 
-First launch seeds a default admin account (see **Default credentials**).
+Log in as **`ark` / `ark`**. rconsole immediately asks you to replace that
+password (`sudo cpass`) before anything else works. To skip the default
+entirely, set `RCONSOLE_ADMIN_PASSWORD` before the first start.
 
-### Configuration (environment variables)
-
-| Variable            | Purpose                                                        | Default                       |
-|---------------------|----------------------------------------------------------------|-------------------------------|
-| `PORT`              | TCP port the Flask app listens on                              | `5000`                        |
-| `RCONSOLE_SECRET`  | Flask `SECRET_KEY` (session signing). **Set in production.**  | random 32-byte hex            |
-| `RCONSOLE_PEPPER`  | Static pepper mixed into password hashes                      | `rconsole-static-pepper-change-me` |
-
-Example:
+Production (single worker + threads — see [Deployment](#deployment)):
 
 ```bash
-export PORT=8000
-export RCONSOLE_SECRET="$(python -c 'import secrets;print(secrets.token_hex(32))')"
-export RCONSOLE_PEPPER="some-long-random-string"
-uv run python main.py
+uv run gunicorn -c gunicorn.conf.py app:app
 ```
 
 ---
 
-## Default credentials
+## Configuration
 
-On first start `auth.seed_defaults()` creates:
+Everything is configured through environment variables (see `config.py`).
 
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `PORT` | Listen port | `5000` |
+| `RCONSOLE_DATA_DIR` | Users, state, secrets, VMs, logs. **Point at a persistent disk** (`/data` on Render) | `./data` |
+| `RCONSOLE_SECRET` | Session signing key | random, **persisted** in the data dir |
+| `RCONSOLE_PEPPER` | Password-hash pepper | random, **persisted** in the data dir |
+| `RCONSOLE_ADMIN_PASSWORD` | Initial password for `ark` | `ark` (forces a change) |
+| `RCONSOLE_MIN_PASSWORD` | Minimum password length | `8` |
+| `RCONSOLE_VM` | Enable the VM feature | `1` |
+| `RCONSOLE_DEFAULT_MODE` | Where admins' plain commands run: `host` or `vm` | `host` |
+| `RCONSOLE_ALLOW_USER_HOST` | Let **non-admins** use the real host shell (full RCE — leave off) | `0` |
+| `RCONSOLE_USER_VM_PROC` | Expose host `/proc` to non-admin VMs (`ps`/`top` work, but see Security) | `0` |
+| `RCONSOLE_TRUST_PROXY` | Trust `X-Forwarded-*` (one proxy hop) | on when `RENDER` is set |
+| `RCONSOLE_COOKIE_SECURE` | `Secure` session cookie (HTTPS only) | on when `RENDER` is set |
+| `RCONSOLE_LOGIN_ATTEMPTS` / `RCONSOLE_LOGIN_LOCKOUT` | Failed logins before lockout / base lockout seconds (doubles per repeat, max 15 min) | `5` / `30` |
+| `RCONSOLE_THREADS` | gunicorn threads (≈ open terminals) | `64` |
+| `RCONSOLE_VM_ROOTFS_URL` / `RCONSOLE_VM_ROOTFS_SHA256` | Use your own root filesystem tarball (e.g. Debian) | Alpine latest-stable |
+| `RCONSOLE_VM_PROOT` | Path to a `proot` binary | auto-detect / download |
+
+Secrets that rconsole generates are stored `0600` in the data dir, so sessions
+and password hashes survive restarts and are shared by every process. They are
+**never** passed to user commands or hosted apps.
+
+---
+
+## The VM (`vm`)
+
+Every user can have a private Linux system. Inside it you are `root`, you can
+install packages with `apk`, and your home (`/root`) persists. It needs **no
+host privileges** — that is the point: on Render (or any container that gives
+you no `sudo`) the VM still gives you a fully permissive machine.
+
+```text
+vm                 show status                       vm mode [host|vm]  choose where plain commands run
+vm install         set up your VM (one time, ~30s)   vm reset --yes     recreate system files (keeps /root)
+vm shell           open an interactive shell in it   vm remove --yes    delete the VM and /root
+vm run <command>   run one command in it
 ```
-username: ark
-password: ark
-role:     admin
+
+```text
+$ vm install
+$ vm shell                       # a root shell in your own Alpine
+/ # apk add git python3 py3-pip nodejs
+/ # pip install --break-system-packages gunicorn flask
+$ vm mode vm                     # now plain commands (ls, python, git ...) run in the VM
+$ cd /root/site && sudo serve 8000     # hosts a directory from inside the VM
 ```
 
-Change the password immediately with `sudo cpass`, or create new users with
-`sudo muser`.
+How it works: a per-user Alpine root filesystem is run under
+[proot](https://proot-me.github.io/) (user-space `chroot` + fake root, no
+kernel privileges). The file navigator, editor, `fm`, `cd` and the agent are all
+confined to the VM's filesystem in `vm` mode — `..` and symlinks cannot escape
+it. The first install downloads proot (x86-64, pinned and checksum-verified) and
+the Alpine mini root filesystem (checksum from Alpine's release index); both
+are cached for later users.
+
+Things to know:
+
+- **It is not a hard security boundary.** proot is a compatibility layer:
+  guest processes share the server's uid and PID namespace. Only create
+  accounts for people you trust. (`/proc` is hidden from non-admin guests by
+  default for this reason.)
+- No `systemd`, no mounting, no raw sockets/kernel features; some syscalls are
+  emulated and a few programs misbehave. If something needs a real kernel, use a
+  VPS or QEMU — see [Deployment](#deployment).
+- **proot needs `ptrace`.** If your host blocks it, `vm install` reports why and
+  removes the half-built VM instead of leaving it broken.
+- Other CPU architectures: install `proot` yourself (the Dockerfile does this).
+- Hosted apps in VM mode: static sites are served by the server (nothing needed
+  in the VM); `sudo gunicorn app:app` runs `python3 -m gunicorn` **inside** the
+  VM (`apk add python3 py3-pip && pip install gunicorn`). Startup failures are
+  reported immediately with the app's log.
+
+### Choosing the target
+
+| | host | vm |
+|---|---|---|
+| Admin default | ✅ (`RCONSOLE_DEFAULT_MODE=host`) | `vm mode vm` |
+| Non-admin | ❌ always refused | ✅ the only option |
+| Prefix a single command | `@host cmd` (admins) | `@vm cmd` |
+
+All of this is enforced in one place (`sandbox.py`), so it cannot be bypassed by
+calling the terminal websocket or the file APIs directly.
 
 ---
 
 ## Using the console
 
-### Line-mode commands (native / simulated)
+### Line-mode commands
 
-These run in the simulated shell and are stateful:
+| Command | Description |
+|---------|-------------|
+| `help` | List commands. |
+| `clear` / `cls` | Clear the screen. |
+| `cd <dir>` | Change directory (stateful; `~` supported; confined to the VM in `vm` mode). |
+| `history`, `rwhoami`, `alias`, `unalias`, `theme` | Console helpers. |
+| `edit <file>` / `fm [path]` | Built-in editor / file manager (mobile friendly). |
+| `vm …` | Your VM — see above. Available to everyone. |
+| `<cmd> &`, `jobs`, `jobout %n`, `jobtail %n`, `fg %n`, `kill %n` | Background jobs. |
+| `logout` | Log out (anyone). |
+| `sudo cpass` / `cuser` | Change a password / rename a user (state and VM move with the name). |
+| `sudo muser` / `ruser` | Create / delete a user (their VM and state are removed too). |
+| `sudo suser` / `auser <u>` / `nauser <u>` | List users / grant / revoke admin. |
+| `sudo rboot` | Factory reset: kill apps, wipe state and VMs, reset users. |
+| `sudo serve <port>` | Host the **current directory** as a static site. |
+| `sudo gunicorn <module:app> -b :<port>` | Host a WSGI app (gunicorn, or wsgiref fallback). |
+| `sudo sprocess [port]` | List hosted processes, or show one app's log tail. |
+| `sudo kprocess [pid]` | Stop a hosted process (or all). Refuses to kill the server itself. |
+| `sudo env …`, `sudo agent`, `sudo opencode` | Per-user env vars, AI agent, opencode launcher. |
 
-| Command            | Description                                                        |
-|--------------------|--------------------------------------------------------------------|
-| `help`             | List console-native and sudo-protected commands.                   |
-| `clear` / `cls`    | Clear the screen.                                                  |
-| `cd <dir>`         | Change the simulated working directory (stateful).                 |
-| `history`          | Show command history for the tab.                                  |
-| `rwhoami`          | Print the current username.                                        |
-| `sudo cuser`       | Rename the current user.                                           |
-| `sudo cpass`       | Change a password.                                                 |
-| `sudo muser`       | Create a new user (interactive prompts).                           |
-| `logout`           | Log out (**anyone** may run this, admin or not).                   |
-| `sudo suser`       | List all users and their role (admin/user).                        |
-| `sudo auser <user>`| Grant admin rights to a user.                                      |
-| `sudo nauser <user>`| Revoke admin rights from a user.                                   |
-| `sudo ruser <user>`| Delete a user.                                                     |
-| `sudo rboot`       | Factory reset: kill hosted apps, reset tabs, reset users to `ark`. |
-| `sudo serve <port>`| Host the **current directory** as a static site.                   |
-| `sudo gunicorn <module:app> -b :<port>` | Host a WSGI app via the real **gunicorn** server (falls back to wsgiref if gunicorn is unavailable). |
-| `sudo sprocess`    | List running hosted processes (serve/gunicorn) with their PIDs.    |
-| `sudo kprocess [pid]` | Kill a hosted process by PID, or **all** if no PID is given.     |
+Commands prefixed with `sudo` require an **admin** account; a non-admin who types
+`sudo anything` is refused.
 
-Commands prefixed with `sudo` require an **admin** account. The `logout`
-command is the exception — any user (admin or not) may run it to end their
-session.
+### Real commands
 
-### Interactive / real commands (real PTY)
+Anything that isn't a built-in runs in your current target through a real shell,
+so pipes, redirects, `&&`, globbing and quoting behave as in any shell:
 
-Anything not natively handled is run on the **real host shell**. A curated
-set is detected as "interactive" and launched inside a real PTY so
-full-screen TUIs and REPLs work:
-
-```
-nano  vim  vi  emacs  nvim
-less  more  man  most
-top  htop  btm  glances  watch
-python  python3  py  ipython  node  irb  lua  php
-bash  sh  zsh  fish  powershell  pwsh  cmd
-ssh  telnet  tmux  screen  lynx  w3m  mutt  irssi
-ranger  nnn  mc  fzf  git (+ log/diff/show/status/blame/branch)
+```text
+$ ls -la | grep py > files.txt && wc -l files.txt
 ```
 
-Example:
-
-```
-ark@rconsole:/home/user$ nano app.py
-```
-
-The editor opens in the terminal. When you quit (`^X`), the PTY session ends
-and you are returned to the line-mode console. Resize the browser window and
-the terminal refits automatically.
-
-While any interactive PTY session (e.g. `python`, `vim`, `top`) is running,
-press **`Esc`** (or the keybar `Esc` button) to detach immediately and drop
-back to the line-mode console — the underlying process is terminated. `Ctrl+C`
-(`^C` on the keybar) still sends a normal interrupt into the program.
-
-Everything else (e.g. `ls`, `pwd`, `mkdir`, `cat`, `rm`, `echo`, `git status`,
-`pip`, `apt`) is executed on the real host and its output captured and returned
-(in a 60-second timeout sandbox).
+Interactive programs (`nano vim less top python bash ssh git log …`) open in a
+real PTY; press **Esc** to detach. Other commands have a 60-second timeout —
+append ` &` to run longer ones as a job.
 
 ---
 
-## Hosting web apps & accessing them
+## Hosting web apps
 
-`serve` / `gunicorn` register a long-running server process and rconsole
-proxies traffic to it:
-
-```
-# in the directory you want to publish
+```text
 ark@rconsole:/srv/mysite$ sudo serve 8000
-Hosting '/srv/mysite' at /mysite/8000/
-Open: /mysite/8000/
+Hosting '/srv/mysite' (host) at /mysite/8000/
+Open: /mysite/8000/  (pid 1234, backend: http.server)
+Logs: sudo sprocess 8000
 ```
 
-- The **folder name** is the basename of the current working directory
-  (`/srv/mysite` → `mysite`).
-- The sub-server binds to `127.0.0.1:<port>` and is **only** reachable
-  through rconsole's proxy at `https://<your-domain>/<folder>/<port>/…`.
-- `sudo sprocess` shows the running hosts and PIDs; `sudo kprocess` stops them.
-
-### In production (with a domain)
-
-Deploy rconsole behind a normal web server / reverse proxy on your domain
-(see **Production notes**). Then hosted apps are simply available at:
-
-```
-https://your-domain.com/mysite/8000/
-https://your-domain.com/myapi/9000/
-```
-
-No raw ports need to be exposed to the internet.
+- The **folder name** is the basename of the current directory.
+- Apps bind `127.0.0.1:<port>` and are reachable only through the proxy at
+  `https://<your-domain>/<folder>/<port>/…`, and only by logged-in users.
+- The proxy never forwards rconsole's own session cookie to your app, and
+  passes multiple `Set-Cookie` headers through intact (Django's `csrftoken` +
+  `sessionid` work).
 
 ---
 
@@ -201,7 +228,7 @@ No raw ports need to be exposed to the internet.
 rconsole ships a **native, line-mode AI coding agent** so you get tool-using
 AI assistance without fighting a browser-hostile PTY TUI. It calls an
 OpenAI-compatible (or Anthropic) API directly and can run tools **inside
-rconsole's own host environment** — `bash`, `read_file`, `write_file`,
+your current target (host or VM — see `vm mode`)** — `bash`, `read_file`, `write_file`,
 `list_dir` — all rendered through the normal line console.
 
 ### Providers (first match wins)
@@ -256,9 +283,10 @@ Inside a session, slash commands are available:
 - **Context compaction** — older turns are summarised automatically when the
   transcript grows large, to cap token usage and cost.
 - **Token usage report** per turn and per session.
-- **Safety guard** — the `bash` tool refuses obviously destructive commands
-  (`rm -rf /`, `mkfs`, `dd` on disks, `shutdown`, …); run those directly in the
-  console if you truly intend them.
+- **Safety guard** — on the *host*, the `bash` tool refuses obviously destructive
+  commands (`rm -rf /`, `mkfs`, `dd` on disks, `shutdown`, …); run those directly
+  in the console if you truly intend them. Inside your **VM** the guard is off:
+  it is your sandbox, and `vm reset` rebuilds it.
 
 ---
 
@@ -268,80 +296,135 @@ Inside a session, slash commands are available:
 Browser (xterm.js)
    │  HTTP(S)            REST /api/run  (line-mode commands)
    ▼
-Flask app (app.py)
-   ├── console.html / console.js   (UI, tabs, terminal rendering)
-   ├── /api/run  → interp.py       (command routing & dispatch)
-   │                 ├── commands.py   (thin registry; logic lives in
-   │                 │    cmd_basic/hosting/users/jobs/env/tooling,
-   │                 │    editor.py, fun.py, agent.py)
-   │                 ├── jobs.py       (background `cmd &` jobs)
-   │                 └── real host shell passthrough (subprocess)
-   ├── /ws       → ptyhost.py       (WebSocket ⇄ terminal-session bridge)
-   │                 └── termsess.py   (persistent PTY: ConPTY on Windows,
-   │                                    `pty`/`select` on Linux/macOS)
-   └── /<folder>/<port>/…  → proxy (_do_proxy) → hosted app process
+Flask app (app.py)   ── before_request: Origin/CSRF check → auth guard
+   ├── /api/run  → interp.py ──┬─ commands.py (built-ins: cmd_*.py, editor, agent, fun)
+   │                           ├─ jobs.py      (background `cmd &`)
+   │                           └─ shell passthrough
+   ├── /ws       → ptyhost.py → termsess.py (persistent PTY)
+   ├── /api/file|dir|fs  (editor + file navigator)
+   └── /<folder>/<port>/…  → proxy → hosted app process
+                │
+   every launch and every file access goes through
+                ▼
+        sandbox.py  ── authorizes (admin? mode?) and picks the target
+            ├── host: the server's shell/filesystem (admins)
+            └── vm:   proot + per-user Alpine rootfs, path-confined FsView
 ```
 
 Key points:
 
-- **Line mode** parses input in `interp.py`. Built-ins live in `commands.py`;
-  everything else is executed on the host shell (real `cwd`, venv on `PATH`).
-- **Interactive commands** return `{ "pty": true, "cmd": … }`; the client then
-  opens a WebSocket to `/ws`, and `ptyhost.py` spawns a shell (`sh -c "<cmd>"`
-  on Linux, `cmd.exe /c "<cmd>"` or a POSIX shell on Windows) inside a PTY and
-  streams raw bytes both ways.
-- **Hosting** launches a real server process (`_static_host.py` for static,
-  `_wsgi_host.py` for WSGI) registered in `state.ACTIVE_HOSTS`; the Flask
-  proxy forwards matching paths to `http://127.0.0.1:<port>/…`.
-- Server state (sessions, tabs, hosted apps) lives in `state.py`; users in
-  `data/users.json` (gitignored).
-
-### WebSocket / PTY lifecycle (important)
-
-The one-shot PTY session (`bash -c "nano app.py"`) ends when the child program
-exits. The watchdog detects the child's exit and the receive loop stops, the
-WebSocket closes, and the client tears the terminal down and returns to the
-line console. (This previously left a blank screen on Windows because the
-receive loop never noticed the child had exited and the ConPTY `set_size`
-arguments were swapped — both are fixed in `ptyhost.py`.)
+- **`sandbox.py` is the single choke point.** `sandbox.spec()` turns a command
+  into argv/cwd/env for the right target *and* enforces permissions;
+  `sandbox.fs()` returns the path namespace for file access. The interpreter,
+  jobs, PTY sessions, hosted apps, the editor, the file APIs and the AI agent all
+  use them, so there is exactly one place to audit.
+- Server state lives in `state.py`; users in `data/users.json` (atomic, `0600`).
+- Everything is in-process memory, so run **one worker with threads**.
 
 ---
 
-## Production notes
+## Deployment
 
-- The built-in server is **Flask's development server** (`app.run(debug=False)`).
-  For production, run rconsole behind a real WSGI server (e.g. `gunicorn
-  app:app`) and a reverse proxy (nginx / Caddy) terminating TLS on your domain.
-- Set strong `RCONSOLE_SECRET` and `RCONSOLE_PEPPER` values.
-- Sessions auto-expire after **30 days** of inactivity (`SESSION_TIMEOUT`).
-- Hosted apps are bound to localhost and only exposed via the in-app proxy.
+### Render (recommended: Docker + disk)
+
+1. Push this repo to GitHub and create a **Blueprint** from `render.yaml`
+   (or a *Web Service* with *Runtime: Docker*).
+2. Give it a **persistent disk** mounted at `/data` and set
+   `RCONSOLE_DATA_DIR=/data`, so users, secrets and VMs survive deploys.
+3. Set `RCONSOLE_ADMIN_PASSWORD` (the blueprint prompts for it).
+4. Open the site, log in as `ark`, then run `vm install` and `vm shell`.
+
+Without a disk (free plan) everything works but is reset on every deploy; the
+VM re-downloads (~10 MB) each time. For the native Python runtime use start
+command `gunicorn -c gunicorn.conf.py app:app` — you lose `apt`, but the VM
+still works because proot is fetched at runtime.
+
+### Docker / VPS
+
+```bash
+docker build -t rconsole . && docker run -p 5000:5000 -v rconsole-data:/data \
+  -e RCONSOLE_ADMIN_PASSWORD='choose-a-strong-one' rconsole
+```
+
+On a VPS you can also run it behind Caddy/nginx. Terminate TLS there and set
+`RCONSOLE_TRUST_PROXY=1` and `RCONSOLE_COOKIE_SECURE=1`.
+
+**Need a real kernel** (Docker-in-Docker, systemd, raw networking)? proot can't
+provide that and neither can Render. Use a VPS and QEMU/KVM (or just a VPS).
 
 ---
 
 ## Security model
 
-- Passwords are hashed with PBKDF2-HMAC-SHA256 (per-user salt + pepper) and stored in
-  `data/users.json` (gitignored — do not commit).
-- Protected (sudo) commands require an admin account.
-- A 30-day inactivity timeout forces re-login.
-- The dev server prints a "do not use in production" warning; use a production
-  WSGI server + reverse proxy for real deployments.
+What rconsole enforces, and what it does not.
+
+**Authentication**
+- PBKDF2-HMAC-SHA256 (210k rounds), per-user salt + a random pepper that is
+  persisted (never a constant in the source). Old hashes are upgraded on login.
+- Failed logins are throttled per (IP, username) and per IP with exponential
+  lockout; the response never reveals whether a username exists.
+- The factory `ark`/`ark` login works only to set a new password.
+- Minimum password length 8; usernames can't be `.`/`..` or contain path characters.
+- Users file: atomic writes, `0600`, mtime-cached, and **quarantined** (not
+  silently reset) if it is ever corrupt.
+
+**Web**
+- Cross-site POSTs and websocket handshakes are rejected (Origin /
+  `Sec-Fetch-Site` check) on top of `SameSite=Lax`, `HttpOnly`, and `Secure`
+  cookies; `X-Frame-Options`, `nosniff` and HSTS (over HTTPS) are set.
+- The session cookie is named `rconsole_session` so hosted Flask apps' own
+  `session` cookie can't collide with or clobber it.
+
+**Authorization**
+- Host access is admin-only and enforced in `sandbox.spec()`, which runs for the
+  line console, jobs, hosted apps **and the terminal websocket** (whose command
+  arrives from the browser and is untrusted). File APIs are confined by
+  `sandbox.fs()`; a non-admin can reach only their own VM filesystem.
+- Server secrets are stripped from the environment of every user process.
+
+**Not covered** — be honest with yourself about these:
+- The VM is not a hardened sandbox (shared uid/PID namespace). Treat every
+  account as trusted, or run one container per tenant.
+- Admins are root-equivalent on the server's container by design.
+- Hosted apps run as the server's user and are not isolated from each other.
+- API keys saved with `sudo env` are stored in `data/state/*.json` (`0600`,
+  plaintext). Use disk encryption if that matters.
+- No TLS in-process: terminate HTTPS at the platform/proxy.
+
+---
+
+## Testing
+
+```bash
+uv run python -m unittest discover -s tests          # ~60 tests
+RCONSOLE_VM_PROOT=/path/to/proot RCONSOLE_TEST_BUSYBOX=/path/to/busybox \
+  uv run python -m unittest discover -s tests -v     # include real-VM end-to-end tests
+uv run ruff check .
+```
+
+The suite covers hashing/migration, throttling, path-confinement (symlink and
+`..` escapes), authorization of every entry point, CSRF, the file APIs, the
+proxy, and — when proot and a static busybox are present — a real VM built from
+a locally served root filesystem (download → checksum → extract → run).
 
 ---
 
 ## Troubleshooting
 
-| Symptom                                                        | Cause / Fix |
-|----------------------------------------------------------------|-------------|
-| Blank screen after quitting `nano`/`vim`                        | Fixed: receive loop now stops when the child exits; WebSocket closes and the client returns to the console. |
-| Terminal text fixed at ~80 columns regardless of window size   | Fixed: ConPTY `set_size(cols, rows)` had swapped args. |
-| Hosted app not reachable                                       | Ensure you used `sudo serve`/`sudo gunicorn` (registers the proxy); access `/<folder>/<port>/`. |
-| `permission denied` on `serve`/`cpass`/…                       | Prefix with `sudo` and use an admin account (`ark` by default). |
-| Changes not taking effect                                      | `debug=False` means no auto-reload — restart the server. For static assets, hard-refresh the browser. |
+| Symptom | Cause / Fix |
+|---------|-------------|
+| "Password change required" / commands refused after login | You used the default password. Run `sudo cpass`. |
+| `host access is restricted to admins` | Non-admins use the VM: `vm install`, then `vm shell`. |
+| `vm install` fails: "proot cannot run" | The platform blocks `ptrace` (rconsole already retries without seccomp acceleration). Use a VPS instead. |
+| `vm install` fails to download | Server has no outbound HTTPS, or the mirror is blocked. Set `RCONSOLE_VM_ROOTFS_URL` to a reachable tarball. |
+| Logged out after every deploy | No persistent disk / `RCONSOLE_DATA_DIR`; the generated secrets were lost. Mount a disk or set `RCONSOLE_SECRET`. |
+| "Too many failed attempts" | Login lockout; wait the stated seconds. |
+| Hosted app exits immediately | The error shows the app's log; in VM mode install `python3`/`gunicorn` in the VM. `sudo sprocess <port>` shows logs. |
+| Hosted app not reachable | Ensure you used `sudo serve`/`sudo gunicorn`; access `/<folder>/<port>/`. |
+| Changes not taking effect | No auto-reload; restart the server. Hard-refresh for static assets. |
 
 ---
 
 ## File reference
 
-See [`structure.md`](./structure.md) for the full file tree and a description
-of every module.
+See [`structure.md`](structure.md) for every module and what it does.

@@ -1,6 +1,6 @@
 [project]
 name = "rconsole"
-version = "0.1.0"
+version = "0.2.0"
 description = "Simulated Linux console in the browser with hosted web apps"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -25,3 +25,7 @@ target-version = "py314"
 # syntax errors. Style rules (formatting, % vs .format, blind-except in
 # resilience paths) are intentionally left to reviewer judgment.
 select = ["F", "E9"]
+
+# Run the suite with:  uv run python -m unittest discover -s tests
+# The VM end-to-end tests need `proot` and a static `busybox` (PATH, or the
+# RCONSOLE_VM_PROOT / RCONSOLE_TEST_BUSYBOX variables); they skip otherwise.

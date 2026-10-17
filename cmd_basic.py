@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import commands
+import sandbox
 import state
 
 
@@ -15,6 +16,7 @@ def cmd_help(ctx, args):
         ("rwhoami", "print the current user"),
         ("edit <file>", "built-in code editor (great on phones)"),
         ("fm [path]", "in-console file manager + editor"),
+        ("vm [install|shell|run|mode]", "your personal Linux VM (root, apk add anything)"),
     ]
     sudo = [
         ("sudo serve <port>", "host cwd as a static site"),
@@ -59,9 +61,10 @@ def cmd_help(ctx, args):
     out.append("  Inside `sudo agent`:")
     out.append("    /help /clear /model <name> /provider /keys /models /compact /system /exit")
     out.append("")
-    out.append("Any other command runs on the REAL host shell:")
+    out.append("Any other command runs in your current mode (see `vm mode`):")
+    out.append("  host = the server's real shell (admins), vm = your own Linux VM")
     out.append("  ls  pwd  mkdir  cat  rm  cp  mv  echo  whoami  id")
-    out.append("  python  pip  git  apt  ...    (cd is native & stateful)")
+    out.append("  python  pip  git  apk/apt  ...    (cd is native & stateful)")
     out.append("")
     out.append("Hosting is served at /<folder>/<port>/ through rconsole's proxy,")
     out.append("so no extra port-forwarding is needed.")
@@ -91,16 +94,26 @@ def cmd_rwhoami(ctx, args):
 
 @commands.command("cd")
 def cmd_cd(ctx, args):
-    target = args[0] if args else state.default_cwd()
-    cwd = Path(ctx["tab"]["cwd"])
-    p = Path(target) if Path(target).is_absolute() else cwd / target
-    p = p.resolve()
+    """Change the tab's working directory (host path, or a path inside the VM)."""
+    try:
+        view = sandbox.fs(ctx["sid"])
+    except sandbox.SandboxError as e:
+        return f"cd: {e}"
+    target = args[0] if args else "~"
+    home = view.default_cwd() if not view.unrestricted else str(Path.home())
+    if target == "~" or target.startswith("~/"):
+        target = home + target[1:]
+    try:
+        p = view.host(target, ctx["tab"]["cwd"])
+        p = p.resolve() if view.unrestricted else p
+    except (OSError, sandbox.SandboxError) as e:
+        return f"cd: {target}: {e}"
     if p.is_dir():
-        ctx["tab"]["cwd"] = str(p)
+        ctx["tab"]["cwd"] = view.virt(p)
         return ""
     if p.exists():
-        return f"cd: {args[0]}: Not a directory"
-    return f"cd: {args[0]}: No such file or directory"
+        return f"cd: {target}: Not a directory"
+    return f"cd: {target}: No such file or directory"
 
 
 # ---------------------------------------------------------------------------

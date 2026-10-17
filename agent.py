@@ -27,6 +27,8 @@ from pathlib import Path
 
 import requests
 
+import sandbox
+
 try:
     from urllib3.util.retry import Retry
 except Exception:  # pragma: no cover
@@ -163,11 +165,14 @@ def _clip(text, n=TOOL_CLIP):
 
 
 def _resolve(ctx, target):
-    target = (target or "").strip()
-    p = Path(target)
-    if not p.is_absolute():
-        p = Path(ctx["tab"]["cwd"]) / target
-    return p.resolve()
+    """Map a model-supplied path to a real host path, confined to the user's
+    view (the whole host for admins in host mode, the VM root otherwise)."""
+    try:
+        view = sandbox.fs(ctx["sid"])
+        p = view.host((target or "").strip(), ctx["tab"]["cwd"])
+        return p.resolve() if view.unrestricted else p
+    except (OSError, sandbox.SandboxError):
+        return Path(os.devnull) / "invalid"
 
 
 # Language guess from a filename, for syntax-highlighted code boxes in the UI.
@@ -539,9 +544,12 @@ def run_tool(name, args, ctx):
     import interp
 
     if name == "bash":
-        refusal = _guard_bash(args.get("command", ""))
-        if refusal:
-            return refusal
+        # The destructive-command guard only matters on the real host; inside
+        # the user's VM they are free to break (and `vm reset`) their own box.
+        if sandbox.effective_mode(ctx["sid"]) == sandbox.HOST:
+            refusal = _guard_bash(args.get("command", ""))
+            if refusal:
+                return refusal
         out = interp._passthrough(ctx, args.get("command", ""))
         return out or "(no output)"
     if name == "read_file":

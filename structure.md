@@ -2,13 +2,16 @@
 
 ```
 rconsole/
-├── app.py                  # Flask app: routes, auth guard, hosted-app proxy, /ws endpoint
+├── app.py                  # Flask app: CSRF + auth guards, login throttling, confined file APIs, proxy, /ws
 ├── main.py                 # Entry point (calls app.main())
+├── config.py               # All environment-driven settings + persisted secrets
+├── sandbox.py              # THE authorization choke point: host vs per-user VM (proot), path confinement
 ├── interp.py               # Command parsing/dispatch; interactive detection; host passthrough
 ├── commands.py             # Thin registry (COMMANDS/PROTECTED/@command) + module wiring
 ├── cmd_basic.py            # help, clear, history, rwhoami, cd, alias, theme
 ├── cmd_hosting.py          # serve / gunicorn / sprocess / kprocess (+port parsing, launcher)
 ├── cmd_users.py            # logout, suser/auser/nauser/ruser, muser/cpass/cuser, rboot
+├── cmd_vm.py               # vm: install / shell / run / mode / reset / remove / status
 ├── cmd_jobs.py             # jobs, jobout, jobtail, fg, kill
 ├── cmd_env.py              # sudo env (per-user environment variables)
 ├── cmd_tooling.py          # sudo opencode (external TUI launcher)
@@ -25,6 +28,16 @@ rconsole/
 ├── _wsgi_host.py           # Bootstrap: wsgiref fallback WSGI server (used by `gunicorn` when real gunicorn is unavailable)
 ├── examples/               # Example hosted apps (try them with `sudo serve` / `sudo gunicorn`)
 │   └── guestbook/app.py    # Single-file Flask guestbook demo
+├── gunicorn.conf.py        # Production server settings (1 worker + threads: state is in-memory)
+├── Dockerfile              # Image with proot/git/tini preinstalled (Render, any Docker host)
+├── render.yaml             # Render Blueprint (Docker service + persistent disk)
+├── requirements.txt        # Pinned runtime deps for Docker/pip (exported from uv.lock)
+├── tests/                  # unittest suite (run: python -m unittest discover -s tests)
+│   ├── helpers.py          # Isolated temp data dir; must be imported first
+│   ├── test_auth.py        # Hashing + migration, policy, quarantine, throttle
+│   ├── test_sandbox.py     # Path confinement (symlink/.. escapes), authorization
+│   ├── test_app.py         # HTTP: login, CSRF, file APIs, proxy, VM-backed commands
+│   └── test_vm_e2e.py      # Real proot VM from a locally served rootfs
 ├── pyproject.toml          # Project metadata + dependencies (uv)
 ├── uv.lock                 # Resolved dependency lockfile (uv)
 ├── .python-version         # Pinned Python version
@@ -41,9 +54,12 @@ rconsole/
 │   ├── console.html        # Main console page (loads xterm.js + console.js)
 │   ├── login.html          # Login page
 │   └── error.html          # Themed HTTP error page
-├── data/                   # Runtime data (gitignored)
-│   ├── users.json          # User accounts (hashed passwords)
-│   └── state/              # Per-user persisted tab/alias/theme/env state
+├── data/                   # Runtime data (gitignored; override with RCONSOLE_DATA_DIR)
+│   ├── users.json          # User accounts (hashed passwords, 0600)
+│   ├── secret.key, pepper.key  # Generated secrets (0600) unless set via env
+│   ├── state/              # Per-user persisted tab/alias/theme/env/mode state
+│   ├── logs/               # Hosted-app logs (<folder>-<port>.log)
+│   └── vm/                 # bin/proot, cache/ (rootfs tarballs), <user>/{rootfs,home}
 └── .venv/                  # Virtual environment (gitignored)
 ```
 
@@ -53,25 +69,41 @@ rconsole/
 
 ### Backend (Python)
 
+**`config.py`** — Every setting, read from the environment (data dir, VM,
+modes, proxy trust, throttle limits) plus `persistent_secret()`, which creates
+random secrets once and stores them `0600` so restarts/workers agree.
+
+**`sandbox.py`** — Execution targets and the one place permissions are decided.
+- `spec(sid, cmd, cwd)` / `argv_spec(...)`: argv + cwd + env for the right target
+  (`host` or `vm`); raises `PermissionDenied` for non-admins asking for the host.
+  `@vm` / `@host` prefixes force a target and are authorized the same way.
+- `fs(sid)` → `FsView`: path namespace for file access. VM views resolve symlinks
+  and `..` *inside* the root filesystem (`resolve_in_root`) and know the `/root`
+  bind mount, so nothing can escape.
+- VM lifecycle: `install` (background thread: proot → rootfs download with
+  checksum → safe extract → probe), `reset`, `describe`, `rename_user`.
+
 **`app.py`** — The Flask application.
-- `guard()` (before-request): enforces login, 30-day inactivity timeout, and that
-  the logged-in user still exists.
-- `login` / `console_page`: auth + console rendering.
+- `origin_check()` then `guard()` (before-request): CSRF/Origin check; login,
+  30-day inactivity timeout, user-still-exists, forced default-password change.
+- `login` (throttled per ip+user and per ip), `console_page`, `/healthz`.
 - `/api/run`: dispatches a line of input to `interp.process`.
-- `/api/file` (GET/POST): read / save a single file for the browser editor.
-- `/api/dir` (GET): list a directory for the visual file navigator.
-- `/api/fs` (POST): `mkdir` / `touch` / `rm` / `rmtree` / `rename` for the navigator.
-- `/<folder>/<int:port>/…`: reverse-proxy (`_do_proxy`) forwarding to the
-  registered hosted app at `127.0.0.1:<port>`.
-- `/ws`: WebSocket route → `ptyhost.run_pty`, streaming a real PTY.
-- `main()`: starts the dev server on `PORT` (default 5000).
+- `/api/file` (GET/POST), `/api/dir`, `/api/fs`: editor + navigator, all mapped
+  through `sandbox.fs` (admins: whole host; others: their VM only).
+- `/<folder>/<int:port>/…`: pooled reverse proxy to the hosted app; never
+  forwards the console's own session cookie; keeps multiple `Set-Cookie`.
+- `/ws`: terminal websocket; the `cmd` query value is authorized by `sandbox`
+  before anything is persisted or spawned.
 
 **`main.py`** — Thin entry point that imports `app.main` and runs it.
 
 **`interp.py`** — Command interpreter.
 - `process()`: routes built-ins to `commands.py`, interactive commands to a PTY
   (`{"pty": True, "cmd": …}`), background jobs (`trailing &`) to `jobs.py`,
-  and everything else to a real host-shell passthrough (`_passthrough`, 60s timeout).
+  and everything else to a shell passthrough in the user's target
+  (`_passthrough` → `sandbox.spec`, 60s timeout). The command text is passed to
+  the shell verbatim (pipes/redirects work); `SHELL_PREFERRED` lets `echo`/`wc`/…
+  fall through to the real tools when a line uses shell operators.
 - `INTERACTIVE`: the set of commands run through a real PTY. Bare `git` is
   intentionally *not* in the set — only the pager/editor git subcommands
   (`log`/`diff`/`show`/`status`/`blame`/`branch`) take the PTY path, so a bare
@@ -83,7 +115,10 @@ plus module wiring. No command logic lives here; each `cmd_*` / `editor` / `fun`
 module registers itself via the decorator (same pattern `agent.py` uses).
 `interp.py` dispatches via `COMMANDS` and enforces `PROTECTED` (sudo/admin-only).
 
-**`cmd_basic.py`** — help, clear/cls, history, rwhoami, cd, alias/unalias, theme.
+**`cmd_basic.py`** — help, clear/cls, history, rwhoami, cd (VM-aware, `~`), alias/unalias, theme.
+
+**`cmd_vm.py`** — `vm` (public): status, install, shell (`{"pty": true, "cmd": "@vm"}`),
+run, mode, reset, remove.
 
 **`cmd_hosting.py`** — serve / gunicorn (+ bind/port parsing, process launcher
 with real-gunicorn vs wsgiref fallback) and sprocess / kprocess.
@@ -129,21 +164,24 @@ Path helpers (`_resolve_path`, …) also used by `fun.py`'s `rev`/`wc`.
   selection, never `shell=True`) and `build_env()` (venv on `PATH`, sane
   `TERM`/locale/`SHELL` defaults, per-user `sudo env` vars).
 
-**`state.py`** — Global registry.
+**`state.py`** — Global registry (atomic `0600` state files; stores each user's mode).
 - `STATE`: per-session tabs/state.
 - `ACTIVE_HOSTS`: live hosted apps keyed by `(folder, port)` with their
   `Popen` handles.
 - `register_host` / `kill_host` / `kill_all_hosts`: lifecycle management.
 
 **`auth.py`** — Authentication.
-- PBKDF2-HMAC-SHA256 with per-user salt + server pepper (legacy unsalted
-  `sha256(password + PEPPER)` hashes are accepted once, then upgraded).
-- `seed_defaults()` creates `ark`/`ark` admin on first run.
-- `verify`, `get_user`, `list_users`, `create_user`, `set_password`,
-  `set_username`, `reset_to_defaults` (user file guarded by a thread lock).
+- PBKDF2-HMAC-SHA256 with per-user salt + a random persisted pepper (legacy
+  unsalted / old-pepper hashes are accepted once, then upgraded).
+- `seed_defaults()` creates the `ark` admin (`RCONSOLE_ADMIN_PASSWORD` or `ark`).
+- User file: atomic `0600` writes, mtime-cached reads, corrupt file quarantined.
+- `LoginThrottle`: exponential lockout used by the login route.
+- `verify`, `get_user`, `list_users`, `create_user`, `set_password`, `set_username`,
+  `set_admin`, `delete_user`, `reset_to_defaults`.
 
 **`_static_host.py`** — Hosts a directory over HTTP
-(`SimpleHTTPRequestHandler`) on `127.0.0.1:<port>`. Used by `serve`.
+(`SimpleHTTPRequestHandler`) on `127.0.0.1:<port>`. Used by `serve`;
+`--confine` (VM directories) refuses symlinks that leave the directory.
 
 **`_wsgi_host.py`** — wsgiref fallback server for WSGI apps. `sudo gunicorn`
 prefers the real `gunicorn` module (`python -m gunicorn <spec> -b
@@ -174,8 +212,8 @@ xterm.js emulator and FitAddon.
 
 ### Data & environment
 
-**`data/`** — Runtime state. Contains `users.json` (hashed credentials).
-Gitignored; do not commit.
+**`data/`** — Runtime state (see the tree above). Gitignored; do not commit.
+Set `RCONSOLE_DATA_DIR` to put it on a persistent disk.
 
 **`pyproject.toml` / `uv.lock`** — Dependencies: `flask`, `flask-sock`,
 `requests`, and `pywinpty` (Windows only). Managed with `uv`.

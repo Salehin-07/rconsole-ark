@@ -13,17 +13,13 @@ import sys
 import threading
 import time
 
-import shellutil
+import sandbox
 
 BUFFER_MAX = 200 * 1024  # characters kept per session
 REPLAY_MAX = 32 * 1024   # characters replayed to a (re)attaching client
 
 SESSIONS = {}              # (sid, tab_id) -> TermSession
 SESSIONS_LOCK = threading.Lock()
-
-
-def _build_env(sid=None):
-    return shellutil.build_env(sid)
 
 
 def get(sid, tab_id):
@@ -69,9 +65,12 @@ class TermSession:
 
     def _spawn_win(self):
         from winpty import PTY
-        shell_exe, flag = shellutil.detect_shell()
-        cmdline = f'{flag} "{self.cmd.replace(chr(34), "\\" + chr(34))}"' if self.cmd else None
-        env = _build_env(self.sid)
+        # Authorize first (the VM needs Linux, so this is always the host).
+        sp = sandbox.spec(self.sid, self.cmd, self.cwd)
+        shell_exe, flag = sp.argv[0], "/c" if sp.argv[0].lower().endswith("cmd.exe") else "-c"
+        _, cmd = sandbox.parse_target(self.cmd)
+        cmdline = f'{flag} "{cmd.replace(chr(34), "\\" + chr(34))}"' if cmd else None
+        env = sp.env
         env_str = "\0".join(f"{k}={v}" for k, v in env.items()) + "\0"
         pty = PTY(self.cols, self.rows)
         pty.spawn(shell_exe, cmdline=cmdline, cwd=self.cwd, env=env_str)
@@ -86,8 +85,10 @@ class TermSession:
         import struct
         import subprocess
         import termios
-        shell_exe, flag = shellutil.detect_shell()
-        argv = [shell_exe, flag, self.cmd] if self.cmd else [shell_exe]
+        # sandbox.spec authorizes the launch (host vs VM) before any process
+        # exists, so a forged websocket command can't bypass the admin gate.
+        sp = sandbox.spec(self.sid, self.cmd, self.cwd)
+        argv = sp.argv
         master_fd, slave_fd = pty_mod.openpty()
         try:
             cols = max(1, int(self.cols)); rows = max(1, int(self.rows))
@@ -98,9 +99,8 @@ class TermSession:
             fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
         except Exception:
             pass
-        env = _build_env(self.sid)
         proc = subprocess.Popen(
-            argv, cwd=self.cwd, env=env,
+            argv, cwd=sp.cwd, env=sp.env,
             stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
             close_fds=True, start_new_session=True,
         )
@@ -225,7 +225,8 @@ class TermSession:
         with self.lock:
             self.buffer += s
             if len(self.buffer) > BUFFER_MAX:
-                self.buffer = self.buffer[-BUFFER_MAX:]
+                # Trim with hysteresis so we don't re-copy on every append.
+                self.buffer = self.buffer[-(BUFFER_MAX * 3 // 4):]
 
     def _broadcast(self, data):
         with self.lock:
