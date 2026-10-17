@@ -90,6 +90,7 @@ Everything is configured through environment variables (see `config.py`).
 | `RCONSOLE_ALLOW_USER_HOST` | Let **non-admins** use the real host shell (full RCE — leave off) | `0` |
 | `RCONSOLE_USER_VM_PROC` | Expose host `/proc` to non-admin VMs (`ps`/`top` work, but see Security) | `0` |
 | `RCONSOLE_TRUST_PROXY` | Trust `X-Forwarded-*` (one proxy hop) | on when `RENDER` is set |
+| `RCONSOLE_ALLOWED_ORIGINS` | Extra hostnames the console is served from (comma separated). Auto-detected via `Host`, `X-Forwarded-Host` and Render's hostname; set it only if you still see `cross-origin request blocked` | – |
 | `RCONSOLE_COOKIE_SECURE` | `Secure` session cookie (HTTPS only) | on when `RENDER` is set |
 | `RCONSOLE_LOGIN_ATTEMPTS` / `RCONSOLE_LOGIN_LOCKOUT` | Failed logins before lockout / base lockout seconds (doubles per repeat, max 15 min) | `5` / `30` |
 | `RCONSOLE_THREADS` | gunicorn threads (≈ open terminals) | `64` |
@@ -418,6 +419,7 @@ a locally served root filesystem (download → checksum → extract → run).
 | `vm install` fails: "proot cannot run" | The platform blocks `ptrace` (rconsole already retries without seccomp acceleration). Use a VPS instead. |
 | `vm install` fails to download | Server has no outbound HTTPS, or the mirror is blocked. Set `RCONSOLE_VM_ROOTFS_URL` to a reachable tarball. |
 | Logged out after every deploy | No persistent disk / `RCONSOLE_DATA_DIR`; the generated secrets were lost. Mount a disk or set `RCONSOLE_SECRET`. |
+| `{"error":"cross-origin request blocked"}` after login | Your proxy rewrites `Host` without `X-Forwarded-Host`. The server log names the blocked host — add it to `RCONSOLE_ALLOWED_ORIGINS`. |
 | "Too many failed attempts" | Login lockout; wait the stated seconds. |
 | Hosted app exits immediately | The error shows the app's log; in VM mode install `python3`/`gunicorn` in the VM. `sudo sprocess <port>` shows logs. |
 | Hosted app not reachable | Ensure you used `sudo serve`/`sudo gunicorn`; access `/<folder>/<port>/`. |

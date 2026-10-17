@@ -110,6 +110,30 @@ class CsrfTests(Base):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(self.c.post("/api/run", json={"cmd": "rwhoami"}).status_code, 200)
 
+    def test_proxied_host_is_accepted(self):
+        """Behind a proxy Host may differ from Origin: X-Forwarded-Host fixes it."""
+        r = self.c.post("/login", data={"username": "ark", "password": "adminpass123"},
+                        headers={"Origin": "https://console.example.com",
+                                 "Host": "internal:10000",
+                                 "X-Forwarded-Host": "console.example.com"})
+        self.assertEqual(r.status_code, 302)
+        # ...but a different site is still refused even with that header present.
+        r = self.c.post("/login", data={"username": "ark", "password": "adminpass123"},
+                        headers={"Origin": "https://evil.example",
+                                 "X-Forwarded-Host": "console.example.com"})
+        self.assertEqual(r.status_code, 403)
+
+    def test_allowed_origins_env(self):
+        import config
+        old = config.ALLOWED_ORIGINS
+        config.ALLOWED_ORIGINS = ("my.domain.dev",)
+        try:
+            r = self.c.post("/login", data={"username": "ark", "password": "adminpass123"},
+                            headers={"Origin": "https://my.domain.dev", "Host": "internal"})
+            self.assertEqual(r.status_code, 302)
+        finally:
+            config.ALLOWED_ORIGINS = old
+
     def test_login_csrf_blocked(self):
         r = self.c.post("/login", data={"username": "ark", "password": "adminpass123"},
                         headers={"Origin": "https://evil.example"})

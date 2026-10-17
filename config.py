@@ -23,6 +23,8 @@ Environment variables
                                real host. Off by default — it is full RCE.
 ``RCONSOLE_TRUST_PROXY``       Honour ``X-Forwarded-*`` headers (default on when
                                running on Render).
+``RCONSOLE_ALLOWED_ORIGINS``   Extra hostnames the console is served from (comma
+                               separated). Normally auto-detected; see README.
 ``RCONSOLE_COOKIE_SECURE``     Mark the session cookie ``Secure`` (default on
                                when running on Render).
 ``RCONSOLE_VM_ROOTFS_URL``     Override the root filesystem tarball URL.
@@ -67,6 +69,13 @@ if DEFAULT_ADMIN_MODE not in ("host", "vm"):
 ALLOW_USER_HOST = env_bool("RCONSOLE_ALLOW_USER_HOST", False)
 
 TRUST_PROXY = env_bool("RCONSOLE_TRUST_PROXY", ON_RENDER)
+# Extra hostnames/origins the console may be reached at (comma separated), e.g.
+# "console.example.com,https://other.example.com". Only needed if a proxy
+# rewrites the Host header AND sends no X-Forwarded-Host.
+ALLOWED_ORIGINS = tuple(
+    h.strip().lower().split("://", 1)[-1].rstrip("/")
+    for h in (os.environ.get("RCONSOLE_ALLOWED_ORIGINS") or "").split(",") if h.strip()
+)
 COOKIE_SECURE = env_bool("RCONSOLE_COOKIE_SECURE", ON_RENDER)
 
 # Login throttling: after MAX_ATTEMPTS failures a key is locked out, with the

@@ -171,6 +171,24 @@ def _json_error(msg, code):
     return {"error": msg, "code": code}, code
 
 
+def _own_hosts():
+    """Hostnames this console is legitimately served from.
+
+    Behind a proxy the ``Host`` the app sees can differ from the one in the
+    browser's ``Origin``, so also accept the proxy's ``X-Forwarded-Host``,
+    Render's public hostname and any ``RCONSOLE_ALLOWED_ORIGINS``. Trusting
+    ``X-Forwarded-Host`` here is safe for CSRF: a cross-site page cannot add
+    custom request headers, so it cannot forge it.
+    """
+    hosts = {request.host.lower(), *config.ALLOWED_ORIGINS}
+    fwd = request.headers.get("X-Forwarded-Host", "")
+    hosts.update(h.strip().lower() for h in fwd.split(",") if h.strip())
+    ext = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+    if ext:
+        hosts.add(ext.lower())
+    return hosts
+
+
 @app.before_request
 def origin_check():
     """CSRF defence: reject cross-site state-changing requests and websockets.
@@ -190,7 +208,13 @@ def origin_check():
         return _json_error("cross-site request blocked", 403)
     origin = request.headers.get("Origin")
     if origin and origin != "null":
-        if urlsplit(origin).netloc.lower() != request.host.lower():
+        netloc = urlsplit(origin).netloc.lower()
+        if netloc not in _own_hosts():
+            app.logger.warning(
+                "blocked cross-origin %s %s: Origin=%s Host=%s X-Forwarded-Host=%s "
+                "(set RCONSOLE_ALLOWED_ORIGINS=%s if this is your own site)",
+                request.method, request.path, netloc, request.host,
+                request.headers.get("X-Forwarded-Host"), netloc)
             return _json_error("cross-origin request blocked", 403)
     elif origin == "null":
         return _json_error("cross-origin request blocked", 403)
