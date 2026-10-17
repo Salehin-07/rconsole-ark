@@ -94,7 +94,9 @@ _GZ_LOCK = threading.Lock()
 def optimize_response(resp):
     # Basic hardening headers (cheap, helps caching/proxy behaviour).
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
-    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    # same-origin (not no-referrer): keeps links private from other sites but lets
+    # the browser send a normal Origin header on our own form posts.
+    resp.headers.setdefault("Referrer-Policy", "same-origin")
     # The console is never meant to be framed by another site (clickjacking).
     # Hosted apps may set their own value; setdefault leaves theirs alone.
     resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
@@ -204,7 +206,14 @@ def origin_check():
     is_ws = request.headers.get("Upgrade", "").lower() == "websocket"
     if request.method in _SAFE_METHODS and not is_ws:
         return None
-    if request.headers.get("Sec-Fetch-Site") == "cross-site":
+    # Sec-Fetch-Site is set by the browser itself and cannot be forged by a web
+    # page, so when present it is authoritative. It also copes with proxies that
+    # rewrite Host and with `Origin: null`, which browsers send for same-origin
+    # form posts when the page has `Referrer-Policy: no-referrer`.
+    fetch_site = request.headers.get("Sec-Fetch-Site")
+    if fetch_site in ("same-origin", "none"):
+        return None
+    if fetch_site in ("cross-site", "same-site"):
         return _json_error("cross-site request blocked", 403)
     origin = request.headers.get("Origin")
     if origin and origin != "null":

@@ -110,6 +110,22 @@ class CsrfTests(Base):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(self.c.post("/api/run", json={"cmd": "rwhoami"}).status_code, 200)
 
+    def test_browser_attested_same_origin_is_accepted(self):
+        """Regression: Origin:null (from Referrer-Policy no-referrer) blocked login."""
+        r = self.c.post("/login", data={"username": "ark", "password": "adminpass123"},
+                        headers={"Origin": "null", "Sec-Fetch-Site": "same-origin",
+                                 "Host": "rconsole-ark.onrender.com"})
+        self.assertEqual(r.status_code, 302)
+        r = self.c.post("/login", data={"username": "ark", "password": "adminpass123"},
+                        headers={"Sec-Fetch-Site": "same-site"})
+        self.assertEqual(r.status_code, 403)
+        r = self.c.post("/login", data={"username": "ark", "password": "adminpass123"},
+                        headers={"Origin": "https://localhost", "Sec-Fetch-Site": "cross-site"})
+        self.assertEqual(r.status_code, 403)
+
+    def test_referrer_policy_lets_browsers_send_origin(self):
+        self.assertEqual(self.c.get("/healthz").headers["Referrer-Policy"], "same-origin")
+
     def test_proxied_host_is_accepted(self):
         """Behind a proxy Host may differ from Origin: X-Forwarded-Host fixes it."""
         r = self.c.post("/login", data={"username": "ark", "password": "adminpass123"},
