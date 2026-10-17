@@ -113,6 +113,20 @@ class TargetTests(unittest.TestCase):
         finally:
             os.environ.pop("RCONSOLE_SECRET")
 
+    def test_proot_flag_detection_for_old_builds(self):
+        """Regression: Ubuntu's proot 5.1.0 rejects --kill-on-exit."""
+        import stat
+        import tempfile
+        d = Path(tempfile.mkdtemp())
+        old, new = d / "proot-old", d / "proot-new"
+        old.write_text("#!/bin/sh\necho 'usage: proot [-r path] [-b path] [-0]'\n")
+        new.write_text("#!/bin/sh\necho 'usage: proot ... --kill-on-exit'\n")
+        for p in (old, new):
+            p.chmod(p.stat().st_mode | stat.S_IXUSR)
+        self.assertFalse(sandbox.proot_supports(str(old), "--kill-on-exit"))
+        self.assertTrue(sandbox.proot_supports(str(new), "--kill-on-exit"))
+        self.assertFalse(sandbox.proot_supports(str(d / "missing"), "--kill-on-exit"))
+
     def test_alpine_index_parser(self):
         text = """---
 -

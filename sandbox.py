@@ -26,6 +26,7 @@ Command prefix
 A command string may start with ``@vm`` or ``@host`` to force a target (used
 by ``vm shell``); the prefix is authorized exactly like the mode itself.
 """
+import functools
 import hashlib
 import os
 import posixpath
@@ -212,6 +213,18 @@ def find_proot():
         if cand and os.path.isfile(cand) and os.access(cand, os.X_OK):
             return cand
     return None
+
+
+@functools.lru_cache(maxsize=8)
+def proot_supports(proot, flag):
+    """Does this proot build know ``flag``? (Distro packages can be old: Ubuntu
+    24.04 ships 5.1.0, which lacks ``--kill-on-exit``.)"""
+    import subprocess
+    try:
+        p = subprocess.run([proot, "--help"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return flag in (p.stdout or "") + (p.stderr or "")
 
 
 def _download(url, dest, sha256=None, progress=None):
@@ -523,7 +536,9 @@ def _proot_prefix(sid, cwd, admin, extra_binds=()):
         argv += ["-b", "/etc/resolv.conf:/etc/resolv.conf"]
     for host_path, guest_path in extra_binds:
         argv += ["-b", f"{host_path}:{guest_path}"]
-    argv += ["-w", cwd or VM_HOME, "--kill-on-exit"]
+    argv += ["-w", cwd or VM_HOME]
+    if proot_supports(proot, "--kill-on-exit"):
+        argv.append("--kill-on-exit")   # reap guest daemons when the shell exits
     return argv
 
 
