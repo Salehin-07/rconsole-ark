@@ -7,7 +7,9 @@ privileges (Render, etc.). See :mod:`sandbox` for how it works and its limits.
 Subcommands::
 
     vm                 show status (same as `vm status`)
-    vm install         download and set up your VM (one time, ~30s)
+    vm list            show the systems you can install
+    vm install [name]  set up your VM: alpine (default), debian, ubuntu, kali
+                       optionally with a release, e.g. debian:bookworm
     vm shell           open an interactive shell inside the VM
     vm run <command>   run one command inside the VM and print its output
     vm mode [host|vm]  show or choose where plain commands run
@@ -17,19 +19,23 @@ Subcommands::
 ``vm`` is available to every user: it only ever touches your own VM.
 """
 import subprocess
+import textwrap
 
 import commands
+import distros
 import sandbox
 
 RUN_TIMEOUT = 120
 
 _USAGE = """\
   vm                 show status
-  vm install         download and set up your VM (one time, ~30s)
+  vm list            show the systems you can install
+  vm install [name]  alpine (default) | debian | ubuntu | kali
+                     e.g. vm install debian:bookworm
   vm shell           open an interactive shell inside the VM
   vm run <command>   run one command inside the VM
   vm mode [host|vm]  show or choose where plain commands run
-  vm reset --yes     recreate the root filesystem (keeps /root)
+  vm reset --yes     recreate the system files (keeps /root)
   vm remove --yes    delete the VM and its /root home"""
 
 
@@ -53,15 +59,44 @@ def _status(sid):
         lines.append(f"  detail    : {d['message']}")
     if d["distro"]:
         lines.append(f"  system    : {d['distro']}")
+    if d["distro_id"]:
+        pm = "apk add <pkg>" if d["family"] == "alpine" else "apt install -y <pkg>"
+        lines.append(f"  packages  : {pm}")
     if d["disk"] is not None:
         lines.append(f"  disk      : {_human(d['disk'])}")
     lines.append(f"  proot     : {d['proot'] or 'not found (fetched on install)'}")
     lines.append(f"  mode      : {d['mode']} (commands run on the {d['mode']})")
     lines.append(f"  host shell: {'allowed' if d['host_allowed'] else 'admins only'}")
     if d["state"] == "absent":
-        lines += ["", "Run `vm install` to set it up."]
+        lines += ["", "Run `vm list` to pick a system, then `vm install <name>`",
+                  "(plain `vm install` gives you Alpine)."]
     elif d["state"] == "ready":
         lines += ["", "Try: vm shell   |   vm run apk add git   |   vm mode vm"]
+    return "\n".join(lines)
+
+
+def _wrap(text, cols, indent=8):
+    pad = " " * indent
+    return textwrap.fill(text, width=max(cols, indent + 12), initial_indent=pad,
+                         subsequent_indent=pad, break_long_words=False)
+
+
+def _list(sid, cols=80):
+    """The catalog, wrapped to the screen width (phones are ~40 columns)."""
+    cols = cols or 80
+    cur = (sandbox.distro_info(sid) or {}).get("id") if sandbox.installed(sid) else None
+    lines = ["Systems you can install", "=======================", ""]
+    for d in distros.CATALOG.values():
+        mark = "  <- installed" if d.id == cur else ""
+        lines.append(f"{d.id:<8}{d.name} · {d.pkg} · {d.size}{mark}")
+        lines.append(_wrap(d.summary, cols))
+        lines.append(_wrap("release: " + d.release_help, cols))
+        lines.append("")
+    lines += ["Install one:", "  vm install <name>[:<release>]", "  vm install debian",
+              "  vm install ubuntu:24.04", "  vm install kali", ""]
+    lines.append(textwrap.fill(
+        "Switch later: `vm reset --yes`, then `vm install <other>`. "
+        "Your /root files are kept.", width=max(cols, 24)))
     return "\n".join(lines)
 
 
@@ -93,9 +128,12 @@ def cmd_vm(ctx, args):
     if sub in ("help", "-h", "--help"):
         return "vm — your personal Linux VM\n" + _USAGE
 
+    if sub in ("list", "ls", "distros", "images", "available", "options"):
+        return _list(sid, ctx.get("cols"))
+
     if sub == "install":
-        ok, msg = sandbox.install(sid)
-        return f"vm: {msg}" if ok or msg else "vm: nothing to do"
+        ok, msg = sandbox.install(sid, rest[0] if rest else None)
+        return f"vm: {msg}"
 
     if sub == "shell":
         try:

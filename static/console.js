@@ -555,10 +555,33 @@ function appendLines(tab, text, cls) {
   }
 }
 
+// How many monospace characters fit across the output area. Sent with every
+// command so the server can fit things like `neofetch` to this screen — a phone
+// holds ~40 columns, a desktop 100+.
+let _chW = 0;
+function outputCols() {
+  try {
+    if (!_chW) {
+      const probe = document.createElement("span");
+      probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;font:inherit";
+      probe.textContent = "M".repeat(50);
+      elOutput.appendChild(probe);
+      _chW = probe.getBoundingClientRect().width / 50;
+      probe.remove();
+    }
+    const cs = getComputedStyle(elOutput);
+    const inner = elOutput.clientWidth - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0);
+    return _chW > 0 ? Math.max(20, Math.floor(inner / _chW)) : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+window.addEventListener("resize", () => { _chW = 0; });
+
 async function send(cmd, tabId) {
   const t = (tabId && tabs.find((x) => x.id === tabId)) || activeTab();
   if (!t) return;
-  const body = JSON.stringify({ cmd, tab: t.id });
+  const body = JSON.stringify({ cmd, tab: t.id, cols: outputCols() });
   let resp;
   try {
     resp = await fetch("/api/run", {

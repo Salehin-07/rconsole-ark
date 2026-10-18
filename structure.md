@@ -6,12 +6,16 @@ rconsole/
 ├── main.py                 # Entry point (calls app.main())
 ├── config.py               # All environment-driven settings + persisted secrets
 ├── sandbox.py              # THE authorization choke point: host vs per-user VM (proot), path confinement
+├── distros.py              # VM system catalog (alpine/debian/ubuntu/kali) + checksum-verified resolvers
 ├── interp.py               # Command parsing/dispatch; interactive detection; host passthrough
 ├── commands.py             # Thin registry (COMMANDS/PROTECTED/@command) + module wiring
 ├── cmd_basic.py            # help, clear, history, rwhoami, cd, alias, theme
 ├── cmd_hosting.py          # serve / gunicorn / sprocess / kprocess (+port parsing, launcher)
 ├── cmd_users.py            # logout, suser/auser/nauser/ruser, muser/cpass/cuser, rboot
-├── cmd_vm.py               # vm: install / shell / run / mode / reset / remove / status
+├── cmd_vm.py               # vm: list / install <name> / shell / run / mode / reset / remove / status
+├── cmd_fetch.py            # neofetch / fetch (target aware, width responsive) + rfetch
+├── vmtools/
+│   └── rfetch.sh           # POSIX shim installed in every VM as neofetch / fetch / rfetch
 ├── cmd_jobs.py             # jobs, jobout, jobtail, fg, kill
 ├── cmd_env.py              # sudo env (per-user environment variables)
 ├── cmd_tooling.py          # sudo opencode (external TUI launcher)
@@ -30,12 +34,17 @@ rconsole/
 │   └── guestbook/app.py    # Single-file Flask guestbook demo
 ├── gunicorn.conf.py        # Production server settings (1 worker + threads: state is in-memory)
 ├── Dockerfile              # Image with proot/git/tini preinstalled (Render, any Docker host)
+├── docker-entrypoint.sh    # Fixes root-owned volumes, then drops to uid 10001 (RCONSOLE_RUN_AS_ROOT=1 keeps root)
+├── DEPLOY.md               # Full deployment guide: Render, Railway, Fly, VPS, k8s, cloud, home server
+├── deploy/                 # docker-compose.yml, Caddyfile, nginx.conf, fly.toml, k8s.yaml, systemd unit, env examples
 ├── render.yaml             # Render Blueprint (Docker service + persistent disk)
 ├── requirements.txt        # Pinned runtime deps for Docker/pip (exported from uv.lock)
 ├── tests/                  # unittest suite (run: python -m unittest discover -s tests)
 │   ├── helpers.py          # Isolated temp data dir; must be imported first
 │   ├── test_auth.py        # Hashing + migration, policy, quarantine, throttle
 │   ├── test_sandbox.py     # Path confinement (symlink/.. escapes), authorization
+│   ├── test_distros.py     # Catalog, aliases, mirror resolvers (HTTP faked)
+│   ├── test_fetch.py       # neofetch layouts at phone/desktop widths, target awareness
 │   ├── test_app.py         # HTTP: login, CSRF, file APIs, proxy, VM-backed commands
 │   └── test_vm_e2e.py      # Real proot VM from a locally served rootfs
 ├── pyproject.toml          # Project metadata + dependencies (uv)
@@ -80,8 +89,19 @@ random secrets once and stores them `0600` so restarts/workers agree.
 - `fs(sid)` → `FsView`: path namespace for file access. VM views resolve symlinks
   and `..` *inside* the root filesystem (`resolve_in_root`) and know the `/root`
   bind mount, so nothing can escape.
-- VM lifecycle: `install` (background thread: proot → rootfs download with
-  checksum → safe extract → probe), `reset`, `describe`, `rename_user`.
+- VM lifecycle: `install(sid, "debian:bookworm")` (background thread: proot →
+  rootfs download with the distro's own checksum → safe extract → per-family
+  tweaks → install the `rfetch` shim → probe), `reset`, `describe`, `distro_info`,
+  `family`, `rename_user`. Non-admin guests get only safe `/proc/*` info files.
+
+**`distros.py`** — The system catalog. `parse_choice("debian:bookworm")`, aliases
+(`কালী` → kali), and one resolver per system that finds the newest image and its
+published SHA-256 (Alpine release index, Ubuntu `SHA256SUMS`, linuxcontainers
+mirrors for Debian, kali.download for Kali).
+
+**`cmd_fetch.py`** — `neofetch`/`fetch` pick the VM's `rfetch` (vm mode) or
+rconsole's own summary (host mode); `layout()` fits logo + details to the width
+the browser reports (`cols` in `/api/run`).
 
 **`app.py`** — The Flask application.
 - `origin_check()` then `guard()` (before-request): CSRF/Origin check; login,

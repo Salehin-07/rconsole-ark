@@ -9,6 +9,7 @@ from pathlib import Path
 
 import commands
 import config
+import distros
 import sandbox
 import state
 
@@ -179,8 +180,8 @@ def _launch(ctx, port, wsgi_spec=None):
     if proc.poll() is not None:
         hint = ""
         if mode == sandbox.VM and wsgi_spec:
-            hint = ("\nHint: install it in your VM:  "
-                    "vm run apk add python3 py3-pip && vm run pip install gunicorn --break-system-packages")
+            hint = ("\nHint: install it in your VM:  vm run "
+                    + distros.python_setup_hint(sandbox.family(sid)))
         return (f"serve: process exited immediately (code {proc.returncode}).\n"
                 f"--- {log.name} ---\n{_tail(log)}{hint}")
 

@@ -21,6 +21,7 @@ import helpers  # noqa: F401
 
 import auth
 import config
+import distros
 import sandbox
 
 PROOT = os.environ.get("RCONSOLE_VM_PROOT") or shutil.which("proot")
@@ -161,15 +162,75 @@ class VmEndToEnd(unittest.TestCase):
         self.assertTrue(sandbox.set_mode("ark", "host")[0])
         self.assertEqual(sandbox.spec("ark", "id", "/tmp").mode, sandbox.HOST)
 
+    def test_debian_family_gets_apt_tweaks(self):
+        """A Debian-family install must make apt work for a fake-root user."""
+        auth.create_user("dave", "longenough1")
+        ok, msg = sandbox.install("dave", "kali", wait=True)  # rootfs comes from the override
+        self.assertTrue(ok, msg)
+        root = sandbox.rootfs_path("dave")
+        conf = (root / "etc/apt/apt.conf.d/99rconsole").read_text()
+        self.assertIn('APT::Sandbox::User "root"', conf)
+        policy = root / "usr/sbin/policy-rc.d"
+        self.assertTrue(os.access(policy, os.X_OK))
+        self.assertEqual(sandbox.family("dave"), "debian")
+        self.assertEqual(sandbox.distro_info("dave")["id"], "kali")
+        sandbox.reset("dave", keep_home=False)
+
     def test_bad_checksum_rejected(self):
         os.environ["RCONSOLE_VM_ROOTFS_SHA256"] = "0" * 64
         try:
             cached = config.VM_DIR / "cache" / "testroot.tar.gz"
             cached.unlink(missing_ok=True)
             with self.assertRaises(sandbox.SandboxError):
-                sandbox._fetch_rootfs()
+                sandbox._fetch_rootfs(distros.CATALOG["alpine"], "latest")
         finally:
             os.environ["RCONSOLE_VM_ROOTFS_SHA256"] = self.sha
+
+    def test_distro_metadata_and_guest_tools(self):
+        info = sandbox.distro_info("alice")
+        self.assertEqual(info["id"], "alpine")
+        self.assertEqual(sandbox.family("alice"), "alpine")
+        bindir = sandbox.rootfs_path("alice") / "usr/local/bin"
+        self.assertTrue((bindir / "rfetch").exists())
+        self.assertTrue((bindir / "neofetch").is_symlink())
+        self.assertTrue((bindir / "fetch").is_symlink())
+
+    def test_neofetch_inside_vm_is_the_vms_own(self):
+        out = self.run_in_vm("neofetch --plain").stdout
+        self.assertIn("TestLinux 1", out)           # the VM's PRETTY_NAME, not rconsole's
+        self.assertIn("root@", out)
+        self.assertNotIn("rconsole (", out)
+        self.assertIn("OS: TestLinux", self.run_in_vm("fetch --plain --no-logo").stdout)
+
+    def test_non_admin_gets_safe_proc_files_only(self):
+        sp = sandbox.spec("alice", "neofetch --plain", "/root")
+        p = subprocess.run(sp.argv, cwd=sp.cwd, env=sp.env, capture_output=True, text=True,
+                           timeout=30)
+        self.assertEqual(p.stderr.strip(), "")            # no "cannot open /proc/..." noise
+        self.assertIn("Memory:", p.stdout)
+        argv = " ".join(sp.argv)
+        self.assertNotIn("-b /proc ", argv + " ")         # whole /proc stays hidden
+        self.assertIn("/proc/meminfo:/proc/meminfo", argv)
+
+    def test_fetch_shim_adapts_to_screen_width(self):
+        def run(cols):
+            sp = sandbox.spec("alice", "neofetch --plain", "/root")
+            env = dict(sp.env, COLUMNS=str(cols))
+            p = subprocess.run(sp.argv, cwd=sp.cwd, env=env, capture_output=True,
+                               text=True, timeout=30)
+            return p.stdout.splitlines()
+        for cols in (90, 44, 30, 22):
+            lines = run(cols)
+            self.assertTrue(lines, cols)
+            self.assertLessEqual(max(len(l) for l in lines), cols, f"overflow at {cols}")
+        wide, narrow = run(90), run(30)
+        self.assertLess(len(wide), len(narrow))     # side-by-side is shorter than stacked
+
+    def test_switching_requires_reset_and_keeps_home(self):
+        ok, msg = sandbox.install("alice", "debian")
+        self.assertFalse(ok)
+        self.assertIn("vm reset --yes", msg)
+        self.assertIn("vm install debian", msg)
 
     def test_reset_keeps_home_remove_deletes_it(self):
         auth.create_user("carol", "longenough1")

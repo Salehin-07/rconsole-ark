@@ -1,5 +1,7 @@
 # rconsole — a Linux console in your browser, with a private VM per user
 
+> 📦 Deploying? Jump to **[DEPLOY.md](DEPLOY.md)** — Render, Railway, Fly.io, VPS, Kubernetes and more.
+
 rconsole is a Flask web application that exposes a **Linux console** in the
 browser. It blends two modes:
 
@@ -27,8 +29,11 @@ through rconsole's built-in reverse proxy — no extra port-forwarding required.
 
 - Browser terminal powered by **xterm.js** + a real PTY (ConPTY on Windows,
   `pty`/`select` on Linux/macOS).
-- **Per-user virtual machine** (`vm`): root inside, any package, persistent
-  `/root`, no host privileges needed (see [The VM](#the-vm-vm)).
+- **Per-user virtual machine** (`vm`): pick **Alpine, Debian, Ubuntu or Kali**
+  (`vm list`), be root inside, install any package, keep a persistent `/root`, no
+  host privileges needed (see [The VM](#the-vm-vm)).
+- **`neofetch` / `fetch`** that follow your target (the VM's own system in `vm`
+  mode, rconsole's in `host` mode) and adapt to phone-sized screens.
 - Tabs, each owning its own terminal session that keeps running in the
   background and reappears when you switch back.
 - Native, stateful console commands plus a real shell passthrough (pipes,
@@ -87,6 +92,7 @@ Everything is configured through environment variables (see `config.py`).
 | `RCONSOLE_MIN_PASSWORD` | Minimum password length | `8` |
 | `RCONSOLE_VM` | Enable the VM feature | `1` |
 | `RCONSOLE_DEFAULT_MODE` | Where admins' plain commands run: `host` or `vm` | `host` |
+| `RCONSOLE_RUN_AS_ROOT` | Docker only: keep root in the container so admins' host shell is real root (single-owner deployments; see [DEPLOY.md](DEPLOY.md#13-root-vs-unprivileged)) | `0` |
 | `RCONSOLE_ALLOW_USER_HOST` | Let **non-admins** use the real host shell (full RCE — leave off) | `0` |
 | `RCONSOLE_USER_VM_PROC` | Expose host `/proc` to non-admin VMs (`ps`/`top` work, but see Security) | `0` |
 | `RCONSOLE_TRUST_PROXY` | Trust `X-Forwarded-*` (one proxy hop) | on when `RENDER` is set |
@@ -106,50 +112,84 @@ and password hashes survive restarts and are shared by every process. They are
 ## The VM (`vm`)
 
 Every user can have a private Linux system. Inside it you are `root`, you can
-install packages with `apk`, and your home (`/root`) persists. It needs **no
-host privileges** — that is the point: on Render (or any container that gives
-you no `sudo`) the VM still gives you a fully permissive machine.
+install packages, and your home (`/root`) persists. It needs **no host
+privileges** — that is the point: on Render (or any container that gives you no
+`sudo`) the VM still gives you a fully permissive machine.
 
 ```text
 vm                 show status                       vm mode [host|vm]  choose where plain commands run
-vm install         set up your VM (one time, ~30s)   vm reset --yes     recreate system files (keeps /root)
-vm shell           open an interactive shell in it   vm remove --yes    delete the VM and /root
+vm list            show the systems you can install  vm reset --yes     recreate system files (keeps /root)
+vm install [name]  set up your VM (one time)         vm remove --yes    delete the VM and /root
+vm shell           open an interactive shell in it
 vm run <command>   run one command in it
 ```
 
+### Pick your system
+
+`vm list` shows everything available; `vm install <name>[:<release>]` installs it.
+
+| Name | System | Packages | Download | Notes |
+|------|--------|----------|----------|-------|
+| `alpine` (default) | Alpine Linux | `apk add` | ~3 MB | Tiny and the fastest to set up. |
+| `debian` | Debian 13 "trixie" | `apt install` | ~90 MB | `debian:bookworm`, `debian:sid`, … |
+| `ubuntu` | Ubuntu (newest LTS) | `apt install` | ~35 MB | `ubuntu:24.04`, `ubuntu:22.04`, … |
+| `kali` (also `কালী`) | Kali Linux (minimal) | `apt install` | ~140 MB | Security-testing distro — authorized use only. Add tools with `apt install kali-linux-headless` etc. |
+
 ```text
-$ vm install
-$ vm shell                       # a root shell in your own Alpine
-/ # apk add git python3 py3-pip nodejs
-/ # pip install --break-system-packages gunicorn flask
-$ vm mode vm                     # now plain commands (ls, python, git ...) run in the VM
+$ vm list
+$ vm install debian            # or: vm install ubuntu:24.04 / vm install kali
+$ vm status                    # wait until it says "installed"
+$ vm shell                     # a root shell in your own Debian
+root@rconsole:~# apt update && apt install -y git python3 python3-pip nodejs
+$ vm mode vm                   # now plain commands (ls, python, git ...) run in the VM
 $ cd /root/site && sudo serve 8000     # hosts a directory from inside the VM
 ```
 
-How it works: a per-user Alpine root filesystem is run under
+Every download is verified against the checksum the distribution itself publishes.
+To **switch systems**: `vm reset --yes` (keeps your `/root` files), then
+`vm install <other>`. Debian-family systems get a small apt tweak so `apt` works
+under fake-root, and Ubuntu falls back to the previous LTS if the newest image
+isn't published yet.
+
+How it works: a per-user root filesystem is run under
 [proot](https://proot-me.github.io/) (user-space `chroot` + fake root, no
 kernel privileges). The file navigator, editor, `fm`, `cd` and the agent are all
 confined to the VM's filesystem in `vm` mode — `..` and symlinks cannot escape
-it. The first install downloads proot (x86-64, pinned and checksum-verified) and
-the Alpine mini root filesystem (checksum from Alpine's release index); both
-are cached for later users.
+it. The first install downloads proot (x86-64, pinned and checksum-verified); both
+proot and the root filesystems are cached for later users.
 
 Things to know:
 
 - **It is not a hard security boundary.** proot is a compatibility layer:
   guest processes share the server's uid and PID namespace. Only create
-  accounts for people you trust. (`/proc` is hidden from non-admin guests by
-  default for this reason.)
+  accounts for people you trust. (Non-admin guests only see the harmless
+  `/proc/{uptime,meminfo,cpuinfo,loadavg,version}` files, not host processes.)
 - No `systemd`, no mounting, no raw sockets/kernel features; some syscalls are
   emulated and a few programs misbehave. If something needs a real kernel, use a
-  VPS or QEMU — see [Deployment](#deployment).
+  VPS or QEMU — see [DEPLOY.md](DEPLOY.md).
 - **proot needs `ptrace`.** If your host blocks it, `vm install` reports why and
   removes the half-built VM instead of leaving it broken.
 - Other CPU architectures: install `proot` yourself (the Dockerfile does this).
+  Debian, Ubuntu and Kali publish arm64 images too.
 - Hosted apps in VM mode: static sites are served by the server (nothing needed
   in the VM); `sudo gunicorn app:app` runs `python3 -m gunicorn` **inside** the
-  VM (`apk add python3 py3-pip && pip install gunicorn`). Startup failures are
-  reported immediately with the app's log.
+  VM — the error message prints the exact install command for your system.
+
+### `neofetch` / `fetch`
+
+`neofetch` and `fetch` follow your current target, and adapt to your screen so
+they look right on a phone as well as a desktop:
+
+- **In `vm` mode** they show the VM's own system — distro, package count, shell —
+  by running a small `rfetch` shim that rconsole installs inside every VM. The same
+  `neofetch` works when you type it inside `vm shell`, whichever system you chose.
+- **In `host` mode** they show rconsole's own summary of the server.
+- `rfetch` always shows rconsole's. Flags: `--no-logo`, `--plain` (VM shim).
+
+Layout is chosen from your screen width: logo beside the details on wide screens,
+a short logo above on medium ones, and details only (long values shortened with
+`~`) on narrow phones. If you install the real `neofetch`/`fastfetch` in your VM it
+lives at `/usr/bin/…`; call it by that path to use it instead of the shim.
 
 ### Choosing the target
 
@@ -175,7 +215,8 @@ calling the terminal websocket or the file APIs directly.
 | `cd <dir>` | Change directory (stateful; `~` supported; confined to the VM in `vm` mode). |
 | `history`, `rwhoami`, `alias`, `unalias`, `theme` | Console helpers. |
 | `edit <file>` / `fm [path]` | Built-in editor / file manager (mobile friendly). |
-| `vm …` | Your VM — see above. Available to everyone. |
+| `vm …` | Your VM (`vm list`, `vm install`, `vm shell`, …) — see above. Available to everyone. |
+| `neofetch` / `fetch` / `rfetch` | System summary: your VM's (in `vm` mode) or rconsole's (`host` mode); `rfetch` is always rconsole's. Fits your screen width. |
 | `<cmd> &`, `jobs`, `jobout %n`, `jobtail %n`, `fg %n`, `kill %n` | Background jobs. |
 | `logout` | Log out (anyone). |
 | `sudo cpass` / `cuser` | Change a password / rename a user (state and VM move with the name). |
@@ -326,32 +367,31 @@ Key points:
 
 ## Deployment
 
-### Render (recommended: Docker + disk)
+See **[DEPLOY.md](DEPLOY.md)** for the full guide — a checklist of what any host
+must provide, a comparison table, and step-by-step instructions for **Render,
+Railway, Fly.io, Koyeb/Northflank, any VPS (Docker Compose + Caddy), plain Linux
+with systemd, AWS/Google Cloud/Azure, Kubernetes, and a home server or Raspberry
+Pi**, plus backups, updates and troubleshooting.
 
-1. Push this repo to GitHub and create a **Blueprint** from `render.yaml`
-   (or a *Web Service* with *Runtime: Docker*).
-2. Give it a **persistent disk** mounted at `/data` and set
-   `RCONSOLE_DATA_DIR=/data`, so users, secrets and VMs survive deploys.
-3. Set `RCONSOLE_ADMIN_PASSWORD` (the blueprint prompts for it).
-4. Open the site, log in as `ark`, then run `vm install` and `vm shell`.
-
-Without a disk (free plan) everything works but is reset on every deploy; the
-VM re-downloads (~10 MB) each time. For the native Python runtime use start
-command `gunicorn -c gunicorn.conf.py app:app` — you lose `apt`, but the VM
-still works because proot is fetched at runtime.
-
-### Docker / VPS
+The short version:
 
 ```bash
+# Any VPS with Docker — automatic HTTPS:
+git clone https://github.com/<you>/rconsole-ark.git && cd rconsole-ark/deploy
+cp .env.example .env && nano .env          # RCONSOLE_DOMAIN + RCONSOLE_ADMIN_PASSWORD
+docker compose up -d --build
+```
+
+```bash
+# Or just the container:
 docker build -t rconsole . && docker run -p 5000:5000 -v rconsole-data:/data \
   -e RCONSOLE_ADMIN_PASSWORD='choose-a-strong-one' rconsole
 ```
 
-On a VPS you can also run it behind Caddy/nginx. Terminate TLS there and set
-`RCONSOLE_TRUST_PROXY=1` and `RCONSOLE_COOKIE_SECURE=1`.
-
-**Need a real kernel** (Docker-in-Docker, systemd, raw networking)? proot can't
-provide that and neither can Render. Use a VPS and QEMU/KVM (or just a VPS).
+Rules that apply everywhere: **one instance only**, a **persistent volume** at
+`RCONSOLE_DATA_DIR`, **websockets with long idle timeouts**, and **HTTPS** in front.
+Config files live in [`deploy/`](deploy/) (`docker-compose.yml`, `Caddyfile`,
+`nginx.conf`, `fly.toml`, `k8s.yaml`, systemd unit) plus [`render.yaml`](render.yaml).
 
 ---
 
@@ -397,7 +437,7 @@ What rconsole enforces, and what it does not.
 ## Testing
 
 ```bash
-uv run python -m unittest discover -s tests          # ~60 tests
+uv run python -m unittest discover -s tests          # ~100 tests
 RCONSOLE_VM_PROOT=/path/to/proot RCONSOLE_TEST_BUSYBOX=/path/to/busybox \
   uv run python -m unittest discover -s tests -v     # include real-VM end-to-end tests
 uv run ruff check .
@@ -418,6 +458,8 @@ a locally served root filesystem (download → checksum → extract → run).
 | `host access is restricted to admins` | Non-admins use the VM: `vm install`, then `vm shell`. |
 | `vm install` fails: "proot cannot run" | The platform blocks `ptrace` (rconsole already retries without seccomp acceleration). Use a VPS instead. |
 | `vm install` fails to download | Server has no outbound HTTPS, or the mirror is blocked. Set `RCONSOLE_VM_ROOTFS_URL` to a reachable tarball. |
+| `apt: not found` / `apk: not found` in the VM | Different systems, different tools: Alpine uses `apk add`, Debian/Ubuntu/Kali use `apt install`. `vm status` shows which one you have. |
+| `vm install debian` says "already installed" | Switch with `vm reset --yes` (keeps `/root`), then `vm install debian`. |
 | Logged out after every deploy | No persistent disk / `RCONSOLE_DATA_DIR`; the generated secrets were lost. Mount a disk or set `RCONSOLE_SECRET`. |
 | `{"error":"cross-origin request blocked"}` after login | Your proxy rewrites `Host` without `X-Forwarded-Host`. The server log names the blocked host — add it to `RCONSOLE_ALLOWED_ORIGINS`. |
 | "Too many failed attempts" | Login lockout; wait the stated seconds. |

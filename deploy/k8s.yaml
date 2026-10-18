@@ -1,0 +1,82 @@
+# Kubernetes: ONE replica (state is in memory) with a persistent volume.
+#   kubectl create secret generic rconsole --from-literal=admin-password='...'
+#   kubectl apply -f k8s.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rconsole-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rconsole
+spec:
+  replicas: 1                        # never raise this
+  strategy:
+    type: Recreate                   # the volume can only be attached once
+  selector:
+    matchLabels: {app: rconsole}
+  template:
+    metadata:
+      labels: {app: rconsole}
+    spec:
+      containers:
+        - name: rconsole
+          image: ghcr.io/CHANGE-ME/rconsole:latest   # build and push your own image
+          ports:
+            - containerPort: 5000
+          env:
+            - {name: RCONSOLE_DATA_DIR, value: /data}
+            - {name: RCONSOLE_TRUST_PROXY, value: "1"}
+            - {name: RCONSOLE_COOKIE_SECURE, value: "1"}
+            - {name: RCONSOLE_ALLOWED_ORIGINS, value: console.example.com}
+            - name: RCONSOLE_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: rconsole, key: admin-password}
+          readinessProbe:
+            httpGet: {path: /healthz, port: 5000}
+          livenessProbe:
+            httpGet: {path: /healthz, port: 5000}
+            initialDelaySeconds: 20
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {memory: 2Gi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: rconsole-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rconsole
+spec:
+  selector: {app: rconsole}
+  ports:
+    - {port: 80, targetPort: 5000}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rconsole
+  annotations:
+    # ingress-nginx: keep websocket terminals alive
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: 64m
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [console.example.com]
+      secretName: rconsole-tls
+  rules:
+    - host: console.example.com
+      http:
+        paths:
+          - {path: /, pathType: Prefix, backend: {service: {name: rconsole, port: {number: 80}}}}

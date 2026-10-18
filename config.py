@@ -6,8 +6,9 @@ purely through environment variables and nothing is hard-coded elsewhere.
 Environment variables
 ---------------------
 ``RCONSOLE_DATA_DIR``          Where users, state, secrets and VMs live
-                               (default ``./data``). Point it at a persistent
-                               disk (e.g. ``/data`` on Render) to keep them.
+                               (default ``./data``, or the attached volume on
+                               Railway). Point it at a persistent disk (e.g.
+                               ``/data``) to keep them across deploys.
 ``RCONSOLE_SECRET``            Flask session signing key. If unset, a random
                                key is generated once and persisted in the data
                                dir so sessions survive restarts.
@@ -21,12 +22,13 @@ Environment variables
                                non-admins always default to ``vm``).
 ``RCONSOLE_ALLOW_USER_HOST``   ``1`` lets *non-admin* users run commands on the
                                real host. Off by default — it is full RCE.
-``RCONSOLE_TRUST_PROXY``       Honour ``X-Forwarded-*`` headers (default on when
-                               running on Render).
+``RCONSOLE_TRUST_PROXY``       Honour ``X-Forwarded-*`` headers (default on when a
+                               managed platform is detected, see
+                               :func:`detect_platform`).
 ``RCONSOLE_ALLOWED_ORIGINS``   Extra hostnames the console is served from (comma
                                separated). Normally auto-detected; see README.
 ``RCONSOLE_COOKIE_SECURE``     Mark the session cookie ``Secure`` (default on
-                               when running on Render).
+                               when a managed platform is detected).
 ``RCONSOLE_VM_ROOTFS_URL``     Override the root filesystem tarball URL.
 ``RCONSOLE_VM_ROOTFS_SHA256``  Expected sha256 for the override tarball.
 ``RCONSOLE_VM_PROOT``          Path to a proot binary (default: auto-detect).
@@ -53,9 +55,43 @@ def env_int(name, default):
         return default
 
 
-ON_RENDER = bool(os.environ.get("RENDER"))
+def detect_platform(environ=None):
+    """Recognise a managed host from its environment variables.
 
-DATA_DIR = Path(os.environ.get("RCONSOLE_DATA_DIR") or (HERE / "data")).resolve()
+    Returns ``(name, public_hostnames, volume_path)``; ``name`` is ``None`` on a
+    plain server. Used to turn on proxy trust / secure cookies by default,
+    accept the platform's public hostname, and find an attached volume.
+    """
+    e = os.environ if environ is None else environ
+    name, hosts, volume = None, [], None
+    if e.get("RENDER"):
+        name = "render"
+        hosts.append(e.get("RENDER_EXTERNAL_HOSTNAME"))
+    if e.get("RAILWAY_PROJECT_ID") or e.get("RAILWAY_ENVIRONMENT"):
+        name = "railway"
+        hosts.append(e.get("RAILWAY_PUBLIC_DOMAIN"))
+        volume = e.get("RAILWAY_VOLUME_MOUNT_PATH")
+    if e.get("FLY_APP_NAME"):
+        name = "fly"
+        hosts.append(e["FLY_APP_NAME"] + ".fly.dev")
+    if e.get("KOYEB_APP_NAME"):
+        name = "koyeb"
+        hosts.append(e.get("KOYEB_PUBLIC_DOMAIN"))
+    if e.get("DYNO"):
+        name = "heroku"
+        hosts.append(e.get("HEROKU_APP_DEFAULT_DOMAIN_NAME"))
+    if e.get("K_SERVICE"):
+        name = "cloudrun"
+    if e.get("WEBSITE_SITE_NAME") or e.get("CONTAINER_APP_NAME"):
+        name = "azure"
+    return name, tuple(h.lower() for h in hosts if h), volume
+
+
+PLATFORM, PLATFORM_HOSTS, _PLATFORM_VOLUME = detect_platform()
+ON_RENDER = PLATFORM == "render"          # kept for backwards compatibility
+
+DATA_DIR = Path(os.environ.get("RCONSOLE_DATA_DIR") or _PLATFORM_VOLUME
+                or (HERE / "data")).resolve()
 STATE_DIR = DATA_DIR / "state"
 VM_DIR = DATA_DIR / "vm"
 LOG_DIR = DATA_DIR / "logs"
@@ -68,7 +104,7 @@ if DEFAULT_ADMIN_MODE not in ("host", "vm"):
     DEFAULT_ADMIN_MODE = "host"
 ALLOW_USER_HOST = env_bool("RCONSOLE_ALLOW_USER_HOST", False)
 
-TRUST_PROXY = env_bool("RCONSOLE_TRUST_PROXY", ON_RENDER)
+TRUST_PROXY = env_bool("RCONSOLE_TRUST_PROXY", PLATFORM is not None)
 # Extra hostnames/origins the console may be reached at (comma separated), e.g.
 # "console.example.com,https://other.example.com". Only needed if a proxy
 # rewrites the Host header AND sends no X-Forwarded-Host.
@@ -76,7 +112,7 @@ ALLOWED_ORIGINS = tuple(
     h.strip().lower().split("://", 1)[-1].rstrip("/")
     for h in (os.environ.get("RCONSOLE_ALLOWED_ORIGINS") or "").split(",") if h.strip()
 )
-COOKIE_SECURE = env_bool("RCONSOLE_COOKIE_SECURE", ON_RENDER)
+COOKIE_SECURE = env_bool("RCONSOLE_COOKIE_SECURE", PLATFORM is not None)
 
 # Login throttling: after MAX_ATTEMPTS failures a key is locked out, with the
 # lockout doubling on each repeat up to LOCKOUT_MAX seconds.

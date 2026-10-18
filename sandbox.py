@@ -28,6 +28,7 @@ by ``vm shell``); the prefix is authorized exactly like the mode itself.
 """
 import functools
 import hashlib
+import json
 import os
 import posixpath
 import re
@@ -43,6 +44,7 @@ import requests
 
 import auth
 import config
+import distros
 import state
 
 HOST = "host"
@@ -57,9 +59,11 @@ VM_HOME = "/root"
 PROOT_URL = "https://github.com/proot-me/proot/releases/download/v5.5.0/proot"
 PROOT_SHA256 = "db185300a9daabbce86aca7632d8c7fdc4249f6f153171954013b70c5f491ec0"
 
-ALPINE_BASE = "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/{arch}/"
 MAX_DOWNLOAD = 400 * 1024 * 1024
-_ARCH = {"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}
+DISTRO_FILE = "distro.json"
+SAFE_PROC_FILES = ("uptime", "meminfo", "cpuinfo", "loadavg", "version")
+CACHE_KEEP = 4                      # downloaded rootfs tarballs kept for reuse
+TOOLS_SRC = config.HERE / "vmtools" / "rfetch.sh"
 
 
 class SandboxError(Exception):
@@ -190,6 +194,7 @@ def _require_vm(sid):
         raise SandboxError("no VM yet. Run `vm install` (takes ~30s).")
     if not find_proot():
         raise SandboxError("proot is missing. Run `vm install` to fetch it.")
+    sync_guest_tools(sid)
 
 
 # ----------------------------------------------------------------- proot setup
@@ -267,8 +272,7 @@ def ensure_proot():
         found = find_proot()
         if found:
             return found
-        arch = _ARCH.get(os.uname().machine.lower())
-        if arch != "x86_64":
+        if distros.machine() not in ("x86_64", "amd64"):
             raise SandboxError(
                 f"no prebuilt proot for {os.uname().machine}. Install it with "
                 "your package manager (apt/apk install proot) or set "
@@ -281,27 +285,27 @@ def ensure_proot():
 
 def parse_alpine_release(text, flavor="alpine-minirootfs"):
     """Pick ``(file, sha256)`` for ``flavor`` from Alpine's latest-releases.yaml."""
-    entry = {}
-    entries = []
-    for line in text.splitlines():
-        if line.strip() == "-":
-            if entry:
-                entries.append(entry)
-            entry = {}
-            continue
-        m = re.match(r"\s+(\w+):\s*\"?([^\"]*?)\"?\s*$", line)
-        if m:
-            entry[m.group(1)] = m.group(2)
-    if entry:
-        entries.append(entry)
-    for e in entries:
-        if e.get("flavor") == flavor and e.get("file") and e.get("sha256"):
-            return e["file"], e["sha256"]
-    raise SandboxError(f"no {flavor} entry in the Alpine release index")
+    try:
+        return distros.parse_alpine_release(text, flavor)
+    except distros.DistroError as e:
+        raise SandboxError(str(e)) from e
 
 
-def _fetch_rootfs(progress=None):
-    """Return the path of a verified rootfs tarball (cached)."""
+def _prune_cache(cache, keep):
+    """Keep the newest few tarballs (and ``keep``); older ones just waste disk."""
+    files = sorted((p for p in cache.glob("*") if p.is_file() and ".part" not in p.name),
+                   key=lambda p: p.stat().st_mtime, reverse=True)
+    for p in files[CACHE_KEEP:]:
+        if p != keep:
+            p.unlink(missing_ok=True)
+
+
+def _fetch_rootfs(distro, release, progress=None):
+    """Return ``(tarball_path, label)`` for a verified root filesystem (cached).
+
+    ``RCONSOLE_VM_ROOTFS_URL`` (+ optional ``RCONSOLE_VM_ROOTFS_SHA256``)
+    overrides the catalog, e.g. for air-gapped mirrors and tests.
+    """
     cache = config.VM_DIR / "cache"
     override = os.environ.get("RCONSOLE_VM_ROOTFS_URL")
     if override:
@@ -309,22 +313,17 @@ def _fetch_rootfs(progress=None):
         dest = cache / name
         want = os.environ.get("RCONSOLE_VM_ROOTFS_SHA256")
         if dest.exists() and (not want or _sha256_file(dest) == want.lower()):
-            return dest
-        return _download(override, dest, want, progress)
-    arch = _ARCH.get(os.uname().machine.lower())
-    if not arch:
-        raise SandboxError(f"unsupported CPU architecture: {os.uname().machine}")
-    base = ALPINE_BASE.format(arch=arch)
+            return dest, distro.name
+        return _download(override, dest, want, progress), distro.name
     try:
-        r = requests.get(base + "latest-releases.yaml", timeout=20)
-        r.raise_for_status()
-    except requests.RequestException as e:
-        raise SandboxError(f"could not reach the Alpine mirror: {e}") from e
-    fname, digest = parse_alpine_release(r.text)
-    dest = cache / fname
-    if dest.exists() and _sha256_file(dest) == digest:
-        return dest
-    return _download(base + fname, dest, digest, progress)
+        src = distros.resolve(distro, release)
+    except distros.DistroError as e:
+        raise SandboxError(str(e)) from e
+    dest = cache / src.filename
+    if not (dest.exists() and _sha256_file(dest) == src.sha256):
+        _download(src.url, dest, src.sha256, progress)
+    _prune_cache(cache, keep=dest)
+    return dest, src.label
 
 
 def _sha256_file(path):
@@ -347,6 +346,16 @@ def _extract_filter(member, dest):
     return member
 
 
+def _flatten_single_dir(target):
+    """Some tarballs (Kali NetHunter) wrap the system in one top-level folder."""
+    kids = list(Path(target).iterdir())
+    if len(kids) == 1 and kids[0].is_dir() and not (Path(target) / "etc").exists():
+        inner = kids[0]
+        for item in list(inner.iterdir()):
+            os.replace(item, Path(target) / item.name)
+        inner.rmdir()
+
+
 def _extract(tarball, target):
     target = Path(target)
     if target.exists():
@@ -354,6 +363,7 @@ def _extract(tarball, target):
     target.mkdir(parents=True)
     with tarfile.open(tarball) as tf:
         tf.extractall(target, filter=_extract_filter)
+    _flatten_single_dir(target)
 
 
 # ------------------------------------------------------------------ installing
@@ -374,34 +384,108 @@ def _set_install(sid, st, msg=""):
         _installs[sid] = {"state": st, "message": msg}
 
 
-def install(sid, wait=False):
-    """Provision this user's VM. Returns ``(started, message)``."""
+def distro_info(sid):
+    """What this user's VM was built from (``None`` if not installed)."""
+    try:
+        return json.loads((vm_base(sid) / DISTRO_FILE).read_text())
+    except (OSError, ValueError):
+        pass
+    if installed(sid):    # VMs made before distros existed were always Alpine
+        return {"id": "alpine", "release": "latest", "family": "alpine",
+                "label": "Alpine Linux"}
+    return None
+
+
+def family(sid):
+    """Package-manager family of the user's VM: ``alpine`` or ``debian``."""
+    info = distro_info(sid)
+    return (info or {}).get("family", "alpine")
+
+
+def install(sid, choice=None, wait=False):
+    """Provision this user's VM from ``choice`` (``"debian:bookworm"`` etc.).
+
+    Returns ``(started, message)``. Validation happens up front so typos are
+    reported immediately instead of failing later in the background.
+    """
     if not supported():
         return False, "the VM is unavailable (needs Linux and RCONSOLE_VM=1)."
+    try:
+        distro, release = distros.parse_choice(choice)
+    except distros.DistroError as e:
+        return False, str(e)
     with _installs_lock:
         if (_installs.get(sid) or {}).get("state") == "installing":
             return False, "already installing; check `vm status`."
     if installed(sid):
-        return False, "VM already installed. Use `vm reset` to recreate it."
-    _set_install(sid, "installing", "starting")
-    t = threading.Thread(target=_install_worker, args=(sid,), daemon=True)
+        cur = (distro_info(sid) or {}).get("label", "a system")
+        return False, (f"VM already installed ({cur}). To switch systems run "
+                       f"`vm reset --yes` (keeps /root), then `vm install {distro.id}`.")
+    _set_install(sid, "installing", f"starting {distro.name}")
+    t = threading.Thread(target=_install_worker, args=(sid, distro, release), daemon=True)
     t.start()
     if wait:
         t.join()
         st = install_status(sid)
         return st["state"] == "ready", st["message"] or st["state"]
-    return True, "installing in the background; check `vm status`."
+    return True, (f"installing {distro.name} ({release}) in the background; "
+                  f"check `vm status`.")
 
 
-def _install_worker(sid):
+def _post_setup(rootfs, distro):
+    """Small per-family tweaks so the system behaves under proot."""
+    rootfs = Path(rootfs)
+    for d in ("dev", "proc", "tmp", "root", "etc", "usr/local/bin"):
+        (rootfs / d).mkdir(parents=True, exist_ok=True)
+    try:
+        (rootfs / "tmp").chmod(0o1777)
+    except OSError:
+        pass
+    if distro.family == "debian":
+        # apt normally drops to an unprivileged `_apt` user, which fake-root
+        # proot cannot do; and services must not try to start during installs.
+        conf = rootfs / "etc/apt/apt.conf.d"
+        conf.mkdir(parents=True, exist_ok=True)
+        (conf / "99rconsole").write_text(
+            'APT::Sandbox::User "root";\n'
+            'Acquire::Retries "3";\n'
+            'Dpkg::Options { "--force-unsafe-io"; };\n')
+        policy = rootfs / "usr/sbin/policy-rc.d"
+        policy.parent.mkdir(parents=True, exist_ok=True)
+        policy.write_text("#!/bin/sh\nexit 101\n")
+        policy.chmod(0o755)
+
+
+def sync_guest_tools(sid):
+    """Install the ``neofetch``/``fetch``/``rfetch`` shim into the VM.
+
+    Lives in ``/usr/local/bin`` so it works in every distro and takes priority
+    over a real neofetch installed later (which stays at /usr/bin/neofetch).
+    """
+    try:
+        dest_dir = rootfs_path(sid) / "usr/local/bin"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / "rfetch"
+        if not dest.exists() or dest.stat().st_size != TOOLS_SRC.stat().st_size:
+            shutil.copyfile(TOOLS_SRC, dest)
+            dest.chmod(0o755)
+        for alias in ("neofetch", "fetch"):
+            link = dest_dir / alias
+            if not link.exists() and not link.is_symlink():
+                link.symlink_to("rfetch")
+    except OSError:
+        pass   # cosmetic: never block the VM on this
+
+
+def _install_worker(sid, distro, release):
     global _no_seccomp
     base = vm_base(sid)
     try:
         config.ensure_private_dir(config.VM_DIR)
         _set_install(sid, "installing", "fetching proot")
         ensure_proot()
-        _set_install(sid, "installing", "downloading root filesystem")
-        tarball = _fetch_rootfs()
+        _set_install(sid, "installing", f"downloading {distro.name}")
+        tarball, label = _fetch_rootfs(distro, release)
         _set_install(sid, "installing", "extracting")
         config.ensure_private_dir(base)
         tmp_root = base / (ROOTFS_DIRNAME + ".new")
@@ -413,8 +497,8 @@ def _install_worker(sid):
         home_path(sid).mkdir(parents=True, exist_ok=True)
         os.chmod(home_path(sid), 0o700)
         (config.VM_DIR / "tmp").mkdir(parents=True, exist_ok=True)
-        for d in ("dev", "proc", "tmp", "root", "etc"):
-            (final / d).mkdir(exist_ok=True)
+        _post_setup(final, distro)
+        sync_guest_tools(sid)
         _set_install(sid, "installing", "testing proot")
         err = _probe(sid)
         if err:
@@ -426,9 +510,13 @@ def _install_worker(sid):
             shutil.rmtree(final, ignore_errors=True)
             raise SandboxError(
                 "proot cannot run on this host (ptrace may be blocked): " + err)
+        (base / DISTRO_FILE).write_text(json.dumps({
+            "id": distro.id, "release": release, "family": distro.family,
+            "label": label, "installed_at": int(time.time())}))
         (base / READY_MARKER).write_text(str(int(time.time())))
         _set_install(sid, "ready", "")
     except Exception as e:  # surfaced through `vm status`
+        shutil.rmtree(base / (ROOTFS_DIRNAME + ".new"), ignore_errors=True)
         _set_install(sid, "failed", str(e))
 
 
@@ -486,14 +574,18 @@ def describe(sid):
         "supported": supported(), "state": st["state"], "message": st["message"],
         "mode": effective_mode(sid), "proot": find_proot(),
         "host_allowed": host_allowed(sid), "distro": None, "disk": None,
+        "family": None, "distro_id": None, "release": None,
     }
     if installed(sid):
+        meta = distro_info(sid) or {}
+        info.update(distro_id=meta.get("id"), release=meta.get("release"),
+                    family=meta.get("family"))
         try:
             text = (rootfs_path(sid) / "etc" / "os-release").read_text()
             m = re.search(r'PRETTY_NAME="?([^"\n]+)', text)
-            info["distro"] = m.group(1) if m else None
+            info["distro"] = m.group(1) if m else meta.get("label")
         except OSError:
-            pass
+            info["distro"] = meta.get("label")
         info["disk"] = disk_usage(sid)
     return info
 
@@ -532,6 +624,14 @@ def _proot_prefix(sid, cwd, admin, extra_binds=()):
             "-b", "/dev", "-b", f"{home_path(sid)}:{VM_HOME}"]
     if admin or config.env_bool("RCONSOLE_USER_VM_PROC", False):
         argv += ["-b", "/proc"]
+    else:
+        # The full /proc exposes every host process (and their environments),
+        # so non-admins get only the harmless system-wide info files. That is
+        # enough for free, uptime, neofetch and friends.
+        for name in SAFE_PROC_FILES:
+            host = f"/proc/{name}"
+            if os.path.exists(host):
+                argv += ["-b", f"{host}:{host}"]
     if os.path.exists("/etc/resolv.conf"):
         argv += ["-b", "/etc/resolv.conf:/etc/resolv.conf"]
     for host_path, guest_path in extra_binds:

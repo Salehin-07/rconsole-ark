@@ -150,6 +150,32 @@ class CsrfTests(Base):
         finally:
             config.ALLOWED_ORIGINS = old
 
+    def test_platform_detection(self):
+        import config
+        d = config.detect_platform
+        self.assertEqual(d({})[0], None)
+        n, hosts, _ = d({"RENDER": "true", "RENDER_EXTERNAL_HOSTNAME": "App.onrender.com"})
+        self.assertEqual((n, hosts), ("render", ("app.onrender.com",)))
+        n, hosts, vol = d({"RAILWAY_PROJECT_ID": "x", "RAILWAY_PUBLIC_DOMAIN": "a.up.railway.app",
+                           "RAILWAY_VOLUME_MOUNT_PATH": "/data"})
+        self.assertEqual((n, hosts, vol), ("railway", ("a.up.railway.app",), "/data"))
+        self.assertEqual(d({"FLY_APP_NAME": "rc"}), ("fly", ("rc.fly.dev",), None))
+        self.assertEqual(d({"DYNO": "web.1"})[0], "heroku")
+        self.assertEqual(d({"K_SERVICE": "svc"})[0], "cloudrun")
+        self.assertEqual(d({"KOYEB_APP_NAME": "k", "KOYEB_PUBLIC_DOMAIN": "k.koyeb.app"})[1],
+                         ("k.koyeb.app",))
+
+    def test_platform_hostname_is_accepted(self):
+        import config
+        old = config.PLATFORM_HOSTS
+        config.PLATFORM_HOSTS = ("rc.fly.dev",)
+        try:
+            r = self.c.post("/login", data={"username": "ark", "password": "adminpass123"},
+                            headers={"Origin": "https://rc.fly.dev", "Host": "10.0.0.1:5000"})
+            self.assertEqual(r.status_code, 302)
+        finally:
+            config.PLATFORM_HOSTS = old
+
     def test_login_csrf_blocked(self):
         r = self.c.post("/login", data={"username": "ark", "password": "adminpass123"},
                         headers={"Origin": "https://evil.example"})

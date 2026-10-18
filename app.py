@@ -185,9 +185,7 @@ def _own_hosts():
     hosts = {request.host.lower(), *config.ALLOWED_ORIGINS}
     fwd = request.headers.get("X-Forwarded-Host", "")
     hosts.update(h.strip().lower() for h in fwd.split(",") if h.strip())
-    ext = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
-    if ext:
-        hosts.add(ext.lower())
+    hosts.update(config.PLATFORM_HOSTS)   # e.g. rconsole.onrender.com, app.fly.dev
     return hosts
 
 
@@ -371,7 +369,12 @@ def run():
                 tab["history"] = tab["history"][-500:]
             state.save(username)
 
-    result = interp.process(tab, username, is_admin, username, raw)
+    # The browser reports how many characters fit across its output area so
+    # commands can adapt (neofetch on a phone vs a desktop).
+    cols = data.get("cols")
+    cols = max(20, min(int(cols), 300)) if isinstance(cols, (int, float)) and not isinstance(cols, bool) else None
+
+    result = interp.process(tab, username, is_admin, username, raw, cols=cols)
     if isinstance(result, dict):
         result["cwd"] = tab["cwd"]
     else:

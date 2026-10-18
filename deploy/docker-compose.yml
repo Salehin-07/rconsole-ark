@@ -1,0 +1,43 @@
+# rconsole + automatic HTTPS (Caddy) on any Docker host / VPS.
+#
+#   cd deploy && cp .env.example .env && $EDITOR .env
+#   docker compose up -d --build
+#
+# Open https://$RCONSOLE_DOMAIN and log in as `ark`.
+services:
+  rconsole:
+    build:
+      context: ..
+    image: rconsole:latest
+    restart: unless-stopped
+    environment:
+      RCONSOLE_DATA_DIR: /data
+      RCONSOLE_ADMIN_PASSWORD: ${RCONSOLE_ADMIN_PASSWORD:?set RCONSOLE_ADMIN_PASSWORD in .env}
+      RCONSOLE_TRUST_PROXY: "1"        # Caddy is the one trusted proxy hop
+      RCONSOLE_COOKIE_SECURE: "1"      # served over HTTPS only
+      RCONSOLE_ALLOWED_ORIGINS: ${RCONSOLE_DOMAIN:?set RCONSOLE_DOMAIN in .env}
+    volumes:
+      - rconsole-data:/data            # users, secrets, VMs, logs
+    expose:
+      - "5000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - rconsole
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      RCONSOLE_DOMAIN: ${RCONSOLE_DOMAIN:?set RCONSOLE_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data               # certificates
+      - caddy-config:/config
+
+volumes:
+  rconsole-data:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,22 @@
+# systemd unit for running rconsole directly on a Linux server (no Docker).
+#   sudo useradd --system --create-home --home-dir /opt/rconsole rconsole
+#   sudo -u rconsole git clone https://github.com/YOU/rconsole-ark /opt/rconsole/app
+#   cd /opt/rconsole/app && sudo -u rconsole uv sync --frozen
+#   sudo cp deploy/rconsole.service /etc/systemd/system/ && sudo systemctl enable --now rconsole
+[Unit]
+Description=rconsole web console
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=rconsole
+WorkingDirectory=/opt/rconsole/app
+EnvironmentFile=/etc/rconsole.env
+ExecStart=/opt/rconsole/app/.venv/bin/gunicorn -c gunicorn.conf.py app:app
+Restart=always
+RestartSec=3
+# NOTE: do not add ProtectSystem=/ProtectHome=: admins' *host* shell would
+# inherit those limits. The per-user VM is the sandbox, not systemd.
+
+[Install]
+WantedBy=multi-user.target

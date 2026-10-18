@@ -110,7 +110,7 @@ def _passthrough(ctx, host_cmd):
     return (out + err).rstrip("\n")
 
 
-def process(tab, username, is_admin, sid, raw):
+def process(tab, username, is_admin, sid, raw, cols=None):
     """Process a line of input for a tab.
 
     Returns a dict with some of: output, clear, action, update_session, prompt.
@@ -183,6 +183,9 @@ def process(tab, username, is_admin, sid, raw):
         "sid": sid,
         "sudo": sudo,
         "raw": raw,
+        # Printable width of the user's screen (0/None = unknown). Commands such
+        # as neofetch use it so their output fits phones as well as desktops.
+        "cols": cols,
     }
 
     if sudo and not is_admin:

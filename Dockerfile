@@ -25,13 +25,13 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-# Run unprivileged. The VM still gives users a root shell *inside* their sandbox.
-# If you also want root on the host shell (e.g. `sudo apt install` for admins),
-# delete the next two lines and the `USER` line — the container itself remains
-# the isolation boundary.
+# The entrypoint starts as root just long enough to make the (root-owned) data
+# volume writable, then runs rconsole as the unprivileged `rconsole` user. Set
+# RCONSOLE_RUN_AS_ROOT=1 to keep root (admins get a real-root host shell inside
+# the container). The per-user VM gives everyone a root shell regardless.
 RUN useradd --create-home --uid 10001 rconsole \
- && mkdir -p /data && chown -R rconsole:rconsole /data /app
-USER rconsole
+ && mkdir -p /data && chown -R rconsole:rconsole /data /app \
+ && chmod +x /app/docker-entrypoint.sh
 
 VOLUME ["/data"]
 EXPOSE 5000
@@ -39,5 +39,5 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import os,urllib.request as u; u.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('PORT','5000'), timeout=4)" || exit 1
 
-ENTRYPOINT ["tini", "--"]
+ENTRYPOINT ["tini", "--", "/app/docker-entrypoint.sh"]
 CMD ["gunicorn", "-c", "gunicorn.conf.py", "app:app"]

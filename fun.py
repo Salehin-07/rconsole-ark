@@ -7,15 +7,12 @@ animated loop, because the line console only advances a generator when the user
 sends input.
 """
 import calendar
-import os
 import random
-import shutil
 import sys
 import time
 
 import commands
 import editor
-import state
 
 ESC = "\x1b["
 START_TIME = time.time()
@@ -219,78 +216,7 @@ def _matrix(rows=24, cols=60):
     return "\n".join(out) + RESET
 
 
-# --- neofetch ---------------------------------------------------------------
-def _neofetch(ctx):
-    # Logo as PLAIN visible text; color is wrapped AFTER padding so the two
-    # columns line up (counting ANSI escapes as width would misalign them).
-    logo = [
-        "  ██████",
-        "  ██  ██",
-        "  ██  ██",
-        "  ██  ██",
-        "  ██████",
-        "  ██  ██",
-        "  ██ ██",
-        "  ████",
-        "  ██ ██",
-        "  ██  ██",
-    ]
-    try:
-        import socket
-        host = socket.gethostname()
-    except Exception:
-        host = "unknown"
-    try:
-        plat = sys.platform
-    except Exception:
-        plat = "unknown"
-    username = ctx.get("username", "user")
-    is_admin = ctx.get("is_admin")
-    role = "admin" if is_admin else "user"
-    theme = "default"
-    try:
-        s = state.get_session(username)
-        if s:
-            theme = s.get("theme", "default")
-    except Exception:
-        pass
-    up = int(time.time() - START_TIME)
-    cpus = os.cpu_count() or "?"
-    mem = _mem_info()
-    disk = "n/a"
-    try:
-        du = shutil.disk_usage(os.getcwd())
-        disk = "%d/%d GB" % (du.free // 1024 ** 3, du.total // 1024 ** 3)
-    except Exception:
-        pass
-    b = fg(4)
-    info = [
-        BOLD + str(username) + RESET + "@rconsole",
-        b + "-----------" + RESET,
-        "OS: " + b + "rconsole (%s)" % plat + RESET,
-        "Host: " + b + str(host) + RESET,
-        "Shell: " + b + "rconsole-sh" + RESET,
-        "Term: " + b + "xterm.js" + RESET,
-        "Python: " + b + sys.version.split()[0] + RESET,
-        "CPU: " + b + "%s cores" % cpus + RESET,
-        "Memory: " + b + mem + RESET,
-        "Disk(/): " + b + disk + RESET,
-        "Theme: " + b + str(theme) + RESET,
-        "Role: " + b + role + RESET,
-        "Uptime: " + b + _fmt_uptime(up) + RESET,
-        "Threads: " + b + str(_count_threads()) + RESET,
-        "PID: " + b + str(os.getpid()) + RESET,
-    ]
-    W = 24
-    n = max(len(logo), len(info))
-    out = []
-    for i in range(n):
-        l = logo[i] if i < len(logo) else ""
-        r = info[i] if i < len(info) else ""
-        out.append(fg(2) + l.ljust(W) + RESET + "  " + r)
-    return "\n".join(out) + RESET
-
-
+# --- shared system-info helpers (used by `uptime` and cmd_fetch.py) ----------
 def _fmt_uptime(s):
     h, rem = divmod(s, 3600)
     m, sec = divmod(rem, 60)
@@ -428,12 +354,6 @@ def cmd_sl(ctx, args):
 @commands.command("matrix")
 def cmd_matrix(ctx, args):
     return _matrix()
-
-
-@commands.command("neofetch")
-@commands.command("fetch")
-def cmd_neofetch(ctx, args):
-    return _neofetch(ctx)
 
 
 @commands.command("colors")

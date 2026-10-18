@@ -1,0 +1,5 @@
+# Caddy obtains and renews the TLS certificate automatically and proxies
+# websockets (the terminal) with no extra configuration.
+{$RCONSOLE_DOMAIN} {
+	reverse_proxy rconsole:5000
+}
