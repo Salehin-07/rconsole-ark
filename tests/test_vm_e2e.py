@@ -76,7 +76,7 @@ class VmEndToEnd(unittest.TestCase):
         auth.USERS_FILE.unlink(missing_ok=True)
         auth.seed_defaults()
         auth.create_user("alice", "longenough1")
-        ok, msg = sandbox.install("alice", wait=True)
+        ok, msg = sandbox.install("alice", "alpine", wait=True)
         assert ok, msg
 
     @classmethod
@@ -234,7 +234,7 @@ class VmEndToEnd(unittest.TestCase):
 
     def test_reset_keeps_home_remove_deletes_it(self):
         auth.create_user("carol", "longenough1")
-        self.assertTrue(sandbox.install("carol", wait=True)[0])
+        self.assertTrue(sandbox.install("carol", "alpine", wait=True)[0])
         home = sandbox.home_path("carol", "alpine")
         (home / "f").write_text("x")
         sandbox.reset("carol", "alpine", keep_home=True)

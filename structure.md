@@ -15,6 +15,7 @@ rconsole/
 ├── cmd_hosting.py          # serve / gunicorn / sprocess / kprocess (+port parsing, launcher)
 ├── cmd_users.py            # logout, suser/auser/nauser/ruser, muser/cpass/cuser, rboot
 ├── cmd_vm.py               # vm: list / install <name> / shell / run / mode / reset / remove / status
+├── devsetup.py             # `vm setup <profile>`: per-family package sets + install scripts (python, build, node, ...)
 ├── cmd_fetch.py            # neofetch / fetch (target aware, width responsive) + rfetch
 ├── vmtools/
 │   └── rfetch.sh           # POSIX shim installed in every VM as neofetch / fetch / rfetch
@@ -46,6 +47,7 @@ rconsole/
 │   ├── test_auth.py        # Hashing + migration, policy, quarantine, throttle
 │   ├── test_sandbox.py     # Path confinement (symlink/.. escapes), authorization
 │   ├── test_multivm.py     # Several VMs per user: separation, picker, targets API, migration, doctor
+│   ├── test_devsetup.py    # Every profile script is valid sh and has the headers psycopg2 & co. need
 │   ├── test_distros.py     # Catalog, aliases, mirror resolvers (HTTP faked)
 │   ├── test_fetch.py       # neofetch layouts at phone/desktop widths, target awareness
 │   ├── test_app.py         # HTTP: login, CSRF, file APIs, proxy, VM-backed commands

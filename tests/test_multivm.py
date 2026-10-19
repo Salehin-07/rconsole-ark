@@ -119,13 +119,46 @@ class MultiVm(unittest.TestCase):
         self.assertIn("u@debian", bashrc)
         self.assertIn(".bashrc", (sandbox.home_path("alice", "debian") / ".profile").read_text())
 
-    def test_noninteractive_env_only_without_a_terminal(self):
+    def test_existing_vms_get_hushlogin_once(self):
+        self.install("kali")
+        home = sandbox.home_path("alice", "kali")
+        (home / ".hushlogin").unlink()
+        (home / ".rconsole-hush-done").unlink()                 # a VM made before the fix
+        sandbox.sync_guest_tools("alice", "kali")
+        self.assertTrue((home / ".hushlogin").exists())         # applied
+        (home / ".hushlogin").unlink()                          # the user wants the banner back
+        sandbox.sync_guest_tools("alice", "kali")
+        self.assertFalse((home / ".hushlogin").exists())        # and we respect that
+
+    def test_never_asks_questions_even_in_a_terminal(self):
+        """Regression: tzdata's 'select your geographic area' prompt in `vm shell`."""
         self.install("debian")
         plain = sandbox.spec("alice", "true", "/root")
         tty = sandbox.spec("alice", "", "/root", tty=True)
-        self.assertEqual(plain.env["DEBIAN_FRONTEND"], "noninteractive")
-        self.assertNotIn("DEBIAN_FRONTEND", tty.env)
+        for sp in (plain, tty):
+            self.assertEqual(sp.env["DEBIAN_FRONTEND"], "noninteractive")
+            self.assertEqual(sp.env["NEEDRESTART_MODE"], "a")
+            self.assertEqual(sp.env["PIP_BREAK_SYSTEM_PACKAGES"], "1")   # bare `pip install` works
+            self.assertEqual(sp.env["PIP_ROOT_USER_ACTION"], "ignore")
         self.assertEqual(plain.vm, "debian")
+
+    def test_default_install_is_debian(self):
+        ok, msg = sandbox.install("alice", wait=True)                 # no name given
+        self.assertTrue(ok, msg)
+        self.assertEqual(sandbox.installed_vms("alice"), ["debian"])
+        self.assertEqual(sandbox.family("alice"), "debian")
+
+    def test_timezone_hushlogin_and_private_dev_net(self):
+        self.install("kali")
+        root = sandbox.rootfs_path("alice", "kali")
+        self.assertEqual((root / "etc/timezone").read_text().strip(), "Etc/UTC")  # tzdata pre-answered
+        self.assertTrue((sandbox.home_path("alice", "kali") / ".hushlogin").exists())  # Kali banner
+        argv = " ".join(sandbox.spec("alice", "true", "/root").argv)
+        self.assertIn(f"{sandbox.vm_dir('alice', 'kali') / 'dev-net'}:/dev/net", argv)
+        # Kali's login script does exactly this; both steps must now succeed.
+        out = self.run_in("mkdir -p /dev/net && ln -s /dev/null /dev/net/tun && echo ok")
+        self.assertEqual(out.stdout.strip(), "ok", out.stderr)
+        self.assertTrue((sandbox.vm_dir("alice", "kali") / "dev-net" / "tun").is_symlink())
 
     # ------------------------------------------------------------- choosing
     def test_one_system_is_automatic_several_need_a_choice(self):
@@ -210,6 +243,7 @@ class MultiVm(unittest.TestCase):
         self.assertIn("choice", self.run_cmd(c, "vm run echo x"))
         status = self.run_cmd(c, "vm")["output"]
         self.assertIn("Your systems (2)", status)
+        self.assertIn("vm setup python", status)
         self.assertIn("alpine", status)
         self.assertIn("debian", status)
         self.assertIn("choice", self.run_cmd(c, "vm mode vm"))         # ambiguous -> picker
@@ -301,6 +335,39 @@ class MultiVm(unittest.TestCase):
         out = self.run_cmd(c, "neofetch --plain")["output"]
         self.assertIn("root@debian", out)                              # HOSTNAME is the VM's name
 
+    def test_vm_setup_lists_profiles_and_starts_a_job(self):
+        self.install("debian")
+        c = self.client("alice", "longenough1")
+        listing = self.run_cmd(c, "vm setup")["output"]
+        for name in ("python", "build", "node", "rust", "db", "tools", "all"):
+            self.assertIn(name, listing)
+        self.assertIn("psycopg2", listing)
+        self.assertIn("unknown profile", self.run_cmd(c, "vm setup cobol")["output"])
+        res = self.run_cmd(c, "vm setup python")
+        self.assertTrue(res["fg"])                                      # output streams live
+        jid = res["jobtail"]
+        script = sandbox.rootfs_path("alice", "debian") / "tmp" / "rconsole-setup-python.sh"
+        text = script.read_text()
+        self.assertIn("libpq-dev", text)                                # psycopg2's headers
+        self.assertIn("build-essential", text)                          # compiler
+        self.assertIn("apt-get install", text)
+        import jobs, time
+        job = jobs.get_job("alice", jid)
+        self.assertIn("rconsole-setup-python.sh", job.cmd)
+        for _ in range(50):                                             # runs in the VM (busybox:
+            if not job.alive:                                           #  no apt, so it stops early)
+                break
+            time.sleep(0.1)
+        text_out, _ = job.read_from(0)
+        self.assertIn("Setting up 'python'", text_out)
+
+    def test_vm_setup_asks_which_system_when_ambiguous(self):
+        self.install("alpine", "debian")
+        c = self.client("alice", "longenough1")
+        res = self.run_cmd(c, "vm setup python")
+        self.assertEqual([o["cmds"] for o in res["choice"]["options"] if o.get("group") != "install"],
+                         [["vm setup python alpine"], ["vm setup python debian"]])
+
     def test_doctor_reports_each_check(self):
         self.install("alpine")
         c = self.client("alice", "longenough1")
@@ -319,6 +386,7 @@ class MultiVm(unittest.TestCase):
         base = sandbox.user_dir("alice")
         for name in ("rootfs", "home", "distro.json", ".ready"):
             os.replace(new / name, base / name)
+        shutil.rmtree(new / "dev-net", ignore_errors=True)       # didn't exist in the old layout
         new.rmdir()
         sandbox._migrated.discard("alice")
         self.assertEqual(sandbox.installed_vms("alice"), ["debian"])    # moved under debian/

@@ -125,6 +125,7 @@ vm list               systems you can install             vm mode [host|vm [n]] 
 vm install <name>...  e.g. debian ubuntu:24.04 | all      vm reset [name] --yes recreate system files (keeps /root)
 vm shell [name]       interactive shell in a VM           vm remove <name|all> --yes   delete it and its /root
 vm run [--vm n] <cmd> run one command in a VM             vm doctor [name]      diagnose a VM
+vm setup <profile>    install Python / build tools / Node / … in a VM (see below)
 ```
 
 ### Pick your systems
@@ -134,18 +135,49 @@ Install several in one go: `vm install debian ubuntu kali`, or `vm install all`.
 
 | Name | System | Packages | Download | Notes |
 |------|--------|----------|----------|-------|
-| `alpine` (default) | Alpine Linux | `apk add` | ~3 MB | Tiny and the fastest to set up. |
-| `debian` | Debian 13 "trixie" | `apt install` | ~90 MB | `debian:bookworm`, `debian:sid`, … |
+| `debian` (**default**) | Debian 13 "trixie" | `apt install` | ~90 MB | The universal choice. `debian:bookworm`, `debian:sid`, … |
 | `ubuntu` | Ubuntu (newest LTS, 26.04) | `apt install` | ~35 MB | `ubuntu:24.04`, `ubuntu:22.04`, … |
 | `kali` (also `কালী`) | Kali Linux (minimal) | `apt install` | ~140 MB | Security-testing distro — authorized use only. Add tools with `apt install kali-linux-headless` etc. |
+| `alpine` | Alpine Linux | `apk add` | ~3 MB | Tiny and the fastest to set up. |
+
+Plain `vm install` (no name) installs **Debian**.
 
 Every download is verified against the checksum the distribution itself publishes.
+
+### Install Python and build tools in one command
+
+`vm setup <profile>` installs a ready-made toolchain **inside a VM** as a background
+job with live progress (it keeps going if you close the tab; `jobs`, `fg %n`):
+
+| Profile | Installs |
+|---------|----------|
+| `python` | Python 3, pip, venv, a compiler **and the development headers** that packages like **psycopg2**, mysqlclient, Pillow, lxml and cryptography need to build (PostgreSQL, MySQL/MariaDB, SQLite, libffi, OpenSSL, XML, JPEG/PNG/WebP, LDAP, YAML, …) |
+| `build` | gcc, g++, make, cmake, autotools, pkg-config |
+| `node` | Node.js and npm |
+| `rust` | Rust and cargo (for wheels that compile from source) |
+| `db` | `psql`, `mysql`, `redis-cli`, `sqlite3` |
+| `tools` | nano, vim, wget, curl, git, ps, htop, zip, jq, ssh, … |
+| `all` | everything above |
+
+```text
+$ vm setup python            # (add a name if you have several: vm setup python kali)
+$ pip install psycopg2 mysqlclient Pillow lxml      # builds from source, no flags needed
+```
+
+The right package names are used for each system (`libpq-dev` on Debian-family,
+`postgresql-dev` on Alpine), and if one package is missing on a given release only
+that one is skipped. Inside a VM `pip install` works without
+`--break-system-packages`, and installs never stop to ask questions (no more
+"Please select the geographic area" from tzdata) — `DEBIAN_FRONTEND=noninteractive`
+is always set.
 
 ### Working with several systems
 
 - **One system installed:** everything just works; you never type its name.
 - **Several installed:** pick where things run — whichever is easiest:
-  - the **dropdown in the tab bar** (🖥 Host · 🐧 Debian · 🐧 Kali · *Install another…*);
+  - the **dropdown in the tab bar** (🖥 Host · 🐧 Debian · 🐧 Kali · *Install another…*)
+    — on a **phone** it lives in the **⚙ settings menu** together with the theme
+    button (same controls, just tidier; wider screens keep them in the bar);
   - `vm use debian` / `vm mode vm debian`;
   - one-offs: `vm shell kali`, `vm run --vm ubuntu apt update`, or prefix any
     command with `@vm:kali` (e.g. `@vm:kali nmap -V`).
@@ -271,7 +303,9 @@ $ ls -la | grep py > files.txt && wc -l files.txt
 ```
 
 Interactive programs (`nano vim less top python bash ssh git log …`) open in a
-real PTY; press **Esc** to detach. Other commands have a 60-second timeout —
+real PTY window. Close it with the **✕ button in the top-right corner** (works on
+phones, where there is no Esc key) or press **Esc**: either one ends the session and
+returns you to the console. Other commands have a 60-second timeout —
 append ` &` to run longer ones as a job.
 
 ---
@@ -487,6 +521,9 @@ a locally served root filesystem (download → checksum → extract → run).
 | `host access is restricted to admins` | Non-admins use the VM: `vm install`, then `vm shell`. |
 | `vm install` fails: "proot cannot run" | Either the platform blocks `ptrace` (rconsole already retries without seccomp acceleration — use a VPS then), or the proot is too old (`unknown program 'prooted-…'`): rconsole fetches 5.5.0 on x86-64; elsewhere install a newer one. |
 | `bash: cannot set terminal process group … no job control` | Fixed in current versions (the terminal now gets a controlling terminal). Update. |
+| Kali prints "mkdir: cannot create directory '/dev/net'" or a "minimal installation" banner | Fixed: every VM gets a private writable `/dev/net` and the banner is hidden by `~/.hushlogin`. Update rconsole; new VMs get it at install, existing ones on the next launch (the banner file: `touch ~/.hushlogin`). |
+| `apt install` stops at "Please select the geographic area" | Fixed: VMs never ask questions (`DEBIAN_FRONTEND=noninteractive`). Update rconsole. |
+| `pip install psycopg2` fails to build ("pg_config executable not found") | Run `vm setup python` first (installs the compiler and `libpq-dev`/`postgresql-dev`). |
 | A VM command hangs or "timed out" | `apt`/builds can exceed the 60–90 s limit for plain commands: use `vm shell` or add `&`. `vm doctor` shows if DNS/network is the cause. |
 | "Choose a system" dropdown keeps appearing | You have several VMs and no default: pick one (it is remembered), or `vm use <name>`. |
 | `vm install` fails to download | Server has no outbound HTTPS, or the mirror is blocked. Set `RCONSOLE_VM_ROOTFS_URL` to a reachable tarball. |

@@ -742,6 +742,21 @@ async function openPty(cmd, tabId) {
   t.term.loadAddon(t.fitAddon);
   t.term.open(host);
 
+  // A visible way out (Esc is not on a phone keyboard): closes this window and
+  // ends the session, exactly like pressing Esc.
+  const xbtn = document.createElement("button");
+  xbtn.type = "button";
+  xbtn.className = "term-close";
+  xbtn.textContent = "✕";
+  xbtn.title = "Close this window (Esc)";
+  xbtn.setAttribute("aria-label", "Close window");
+  xbtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    userExitPty(tabId);
+  });
+  host.appendChild(xbtn);
+
   // xterm captures keystrokes through its own hidden textarea. On mobile that
   // textarea inherits the browser's autocorrect/autocapitalize and (on iOS)
   // triggers zoom-on-focus — both add latency and mangle editor input. Harden
@@ -2587,6 +2602,7 @@ function buildTargetSelect(info) {
     info.installable.forEach((d) => g.appendChild(new Option(`+ ${d.name} (${d.size})`, "install:" + d.id)));
     elTarget.appendChild(g);
   }
+  updateTargetRow();
   // While something installs, keep the menu fresh so it appears when ready.
   clearTimeout(targetsTimer);
   if (info.installing && info.installing.length) targetsTimer = setTimeout(refreshTargets, 4000);
@@ -2628,6 +2644,60 @@ elTarget.addEventListener("change", async () => {
     refreshTargets();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Phone layout: the tab bar only has room for the tabs, "+", files and ⚙. The
+// theme button and the system dropdown are the *same elements*, moved into the
+// settings menu on small screens and back into the bar on larger ones — so no
+// feature differs between layouts.
+// ---------------------------------------------------------------------------
+const elSettingsBtn = document.getElementById("settingsbtn");
+const elSettingsMenu = document.getElementById("settingsmenu");
+const elTargetRow = document.getElementById("sm-target-row");
+const mqPhone = window.matchMedia("(max-width: 640px)");
+
+function updateTargetRow() {
+  if (elTargetRow) elTargetRow.hidden = elTarget.hidden;
+}
+
+function closeSettings() {
+  elSettingsMenu.hidden = true;
+  elSettingsBtn.setAttribute("aria-expanded", "false");
+}
+
+function toggleSettings() {
+  if (!elSettingsMenu.hidden) { closeSettings(); return; }
+  const bar = document.getElementById("tabbar").getBoundingClientRect();
+  elSettingsMenu.style.top = Math.round(bar.bottom + 4) + "px";
+  elSettingsMenu.hidden = false;
+  elSettingsBtn.setAttribute("aria-expanded", "true");
+}
+
+function placeControls() {
+  const bar = document.getElementById("tabbar");
+  if (mqPhone.matches) {
+    document.getElementById("sm-theme-slot").appendChild(elTheme);
+    document.getElementById("sm-target-slot").appendChild(elTarget);
+  } else {
+    bar.insertBefore(elTarget, document.getElementById("filesbtn"));
+    bar.insertBefore(elTheme, elSettingsBtn);
+    closeSettings();
+  }
+  updateTargetRow();
+}
+
+elSettingsBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleSettings(); });
+document.addEventListener("click", (e) => {
+  if (!elSettingsMenu.hidden && !elSettingsMenu.contains(e.target)) closeSettings();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !elSettingsMenu.hidden) closeSettings();
+});
+if (mqPhone.addEventListener) mqPhone.addEventListener("change", placeControls);
+else if (mqPhone.addListener) mqPhone.addListener(placeControls);   // older Safari
+// Choosing a system inside the menu should dismiss it.
+elTarget.addEventListener("change", () => { if (mqPhone.matches) closeSettings(); });
+placeControls();
 
 init();
 applyTheme(currentTheme);

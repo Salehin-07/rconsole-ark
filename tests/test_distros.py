@@ -26,7 +26,10 @@ def fake_http(table):
 class ChoiceTests(unittest.TestCase):
     def test_default_and_release(self):
         d, rel = distros.parse_choice(None)
-        self.assertEqual((d.id, rel), ("alpine", "latest"))
+        self.assertEqual((d.id, rel), ("debian", "trixie"))          # Debian is the default
+        self.assertEqual(distros.DEFAULT_DISTRO, "debian")
+        self.assertEqual(distros.parse_choice("alpine")[1], "latest")
+        self.assertEqual(list(distros.CATALOG)[0], "debian")         # listed first
         d, rel = distros.parse_choice("Debian:Bookworm")
         self.assertEqual((d.id, rel), ("debian", "bookworm"))
         self.assertEqual(distros.parse_choice("ubuntu")[1], "lts")

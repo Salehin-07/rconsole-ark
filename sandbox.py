@@ -637,7 +637,7 @@ def distro_info(sid, vm=None):
 
 def family(sid, vm=None):
     """Package-manager family of a VM: ``alpine`` or ``debian``."""
-    return (distro_info(sid, vm) or {}).get("family", "alpine")
+    return (distro_info(sid, vm) or {}).get("family", "debian")
 
 
 def install(sid, choice=None, wait=False):
@@ -728,6 +728,12 @@ def _seed_home(rootfs, home, vm):
                     shutil.copy2(item, home / item.name)
     except OSError:
         pass
+    # Kali prints a "minimal installation" banner at every login; this hides it.
+    try:
+        (home / ".hushlogin").touch(exist_ok=True)
+        (home / ".rconsole-hush-done").touch(exist_ok=True)
+    except OSError:
+        pass
     rc = home / ".bashrc"
     marker = "# rconsole prompt"
     try:
@@ -756,6 +762,16 @@ def _post_setup(rootfs, distro):
         pass
     _fix_resolv_conf(rootfs)
     if distro.family == "debian":
+        # Pre-answer tzdata's "which time zone?" question.
+        tz = rootfs / "etc/timezone"
+        if not tz.exists():
+            tz.write_text("Etc/UTC\n")
+        lt = rootfs / "etc/localtime"
+        if not lt.exists() and not lt.is_symlink():
+            try:
+                lt.symlink_to("/usr/share/zoneinfo/Etc/UTC")
+            except OSError:
+                pass
         # apt normally drops to an unprivileged `_apt` user, which fake-root
         # proot cannot do; services must not try to start during installs; and
         # `apt` (as opposed to apt-get) nags "does not have a stable CLI
@@ -790,6 +806,13 @@ def sync_guest_tools(sid, vm=None):
             link = dest_dir / alias
             if not link.exists() and not link.is_symlink():
                 link.symlink_to("rfetch")
+        # VMs created before `.hushlogin` was seeded get it exactly once; after
+        # that it is the user's file (deleting it brings the banner back for good).
+        home = home_path(sid, vm)
+        done = home / ".rconsole-hush-done"
+        if home.is_dir() and not done.exists():
+            (home / ".hushlogin").touch(exist_ok=True)
+            done.touch()
     except (OSError, SandboxError):
         pass   # cosmetic: never block the VM on this
 
@@ -1029,12 +1052,18 @@ def _vm_env(sid, vm, probe=False, tty=False):
         "SHELL": _guest_shell(sid, vm), "RCONSOLE_VM": vm,
         "PROOT_TMP_DIR": str(config.VM_DIR / "tmp"),
     }
-    if not tty:
-        # No terminal to answer prompts: installs must never block waiting for
-        # debconf/needrestart dialogs (tzdata and friends).
-        env["DEBIAN_FRONTEND"] = "noninteractive"
-        env["NEEDRESTART_MODE"] = "a"
-        env["APT_LISTCHANGES_FRONTEND"] = "none"
+    # Never ask questions: tzdata's "select your geographic area", keyboard and
+    # needrestart dialogs are unusable on a phone and hang scripts. Anyone who
+    # really wants the dialogs can `export DEBIAN_FRONTEND=dialog`.
+    env["DEBIAN_FRONTEND"] = "noninteractive"
+    env["NEEDRESTART_MODE"] = "a"
+    env["APT_LISTCHANGES_FRONTEND"] = "none"
+    # Debian 12+/Ubuntu 24.04 mark system Python "externally managed" and make a
+    # bare `pip install` fail; inside a throwaway VM that protection only gets in
+    # the way (use a venv if you prefer).
+    env["PIP_BREAK_SYSTEM_PACKAGES"] = "1"
+    env["PIP_ROOT_USER_ACTION"] = "ignore"
+    env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
     if _seccomp_off():
         env["PROOT_NO_SECCOMP"] = "1"
     if not probe:
@@ -1060,6 +1089,14 @@ def _proot_prefix(sid, vm, cwd, admin, extra_binds=()):
                 argv += ["-b", f"{host}:{host}"]
     if os.path.exists("/etc/resolv.conf"):
         argv += ["-b", "/etc/resolv.conf:/etc/resolv.conf"]
+    # Some systems (Kali's login scripts) try to create /dev/net/tun. The host's
+    # /dev is read-only for us, so give the VM a private, writable /dev/net.
+    devnet = vm_dir(sid, vm) / "dev-net"
+    try:
+        devnet.mkdir(exist_ok=True)
+        argv += ["-b", f"{devnet}:/dev/net"]
+    except OSError:
+        pass
     for host_path, guest_path in extra_binds:
         argv += ["-b", f"{host_path}:{guest_path}"]
     argv += ["-w", cwd or VM_HOME]

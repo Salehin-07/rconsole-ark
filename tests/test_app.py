@@ -70,6 +70,20 @@ class AuthFlowTests(Base):
         # A different account from the same IP is not locked by the per-user key.
         self.assertEqual(self.login("alice", "longenough1").status_code, 302)
 
+    def test_front_end_has_phone_settings_menu_and_close_button(self):
+        self.login()
+        page = self.c.get("/console").get_data(as_text=True)
+        for needle in ('id="settingsbtn"', 'id="settingsmenu"', 'id="sm-theme-slot"',
+                       'id="sm-target-slot"', 'id="themebtn"', 'id="targetsel"'):
+            self.assertIn(needle, page)
+        js = self.c.get("/static/console.js").get_data(as_text=True)
+        self.assertIn("term-close", js)             # ✕ on every interactive window
+        self.assertIn("placeControls", js)          # moves theme + system into the menu on phones
+        self.assertIn("(max-width: 640px)", js)
+        css = self.c.get("/static/style.css").get_data(as_text=True)
+        self.assertIn(".term-close", css)
+        self.assertIn("#settingsmenu", css)
+
     def test_security_headers(self):
         h = self.c.get("/healthz").headers
         self.assertEqual(h["X-Content-Type-Options"], "nosniff")

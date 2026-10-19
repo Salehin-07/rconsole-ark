@@ -4,8 +4,8 @@ Each entry knows how to *resolve* a root-filesystem tarball for the current CPU
 architecture: the download URL plus the SHA-256 published by the distribution
 itself (never a value baked in here, so releases keep working as they roll).
 
-    vm install                 -> Alpine (default)
-    vm install debian          -> Debian stable
+    vm install                 -> Debian stable (default)
+    vm install alpine          -> Alpine (tiny, fastest)
     vm install debian:bookworm -> a specific Debian release
     vm install ubuntu:24.04    -> a specific Ubuntu release
     vm install kali            -> Kali Linux (minimal)
@@ -210,13 +210,9 @@ _RESOLVERS = {
 }
 
 CATALOG = {
-    "alpine": Distro(
-        "alpine", "Alpine Linux", "alpine",
-        "tiny and the fastest to set up (default)", "~3 MB", "latest",
-        "latest, or a branch like 3.21 / edge", "apk", ("alp",)),
     "debian": Distro(
         "debian", "Debian", "debian",
-        "the universal OS: huge package archive, rock solid", "~90 MB", "trixie",
+        "the universal OS: huge package archive, rock solid (default)", "~90 MB", "trixie",
         "a codename: trixie (13, default), bookworm (12), sid", "apt", ("deb",)),
     "ubuntu": Distro(
         "ubuntu", "Ubuntu", "debian",
@@ -227,9 +223,13 @@ CATALOG = {
         "security-testing distro (authorized use only)", "~140 MB", "minimal",
         "minimal (default), nano, full (1.7 GB, too big)", "apt",
         ("kali-linux", "kalilinux", "কালী")),
+    "alpine": Distro(
+        "alpine", "Alpine Linux", "alpine",
+        "tiny and the fastest to set up", "~3 MB", "latest",
+        "latest, or a branch like 3.21 / edge", "apk", ("alp",)),
 }
 
-DEFAULT_DISTRO = "alpine"
+DEFAULT_DISTRO = "debian"
 
 
 def _alias_map():

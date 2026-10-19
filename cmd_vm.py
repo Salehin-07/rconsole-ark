@@ -16,6 +16,7 @@ Subcommands::
     vm mode [host|vm [name]]       choose where plain commands run
     vm reset [name] --yes          recreate a VM's system files (keeps /root)
     vm remove <name|all> --yes     delete a VM and its /root
+    vm setup <profile> [name]      install Python/build tools/Node/... (see `vm setup`)
     vm doctor [name]      check that a VM works and show what is wrong if not
 
 With a single VM you never need to type its name. With several, commands that
@@ -29,7 +30,9 @@ import textwrap
 import time
 
 import commands
+import devsetup
 import distros
+import jobs
 import sandbox
 
 RUN_TIMEOUT = 90      # under Render's 100 s HTTP limit; use `vm shell` or `&` for more
@@ -45,6 +48,7 @@ _USAGE = """\
   vm mode [host|vm [n]] where plain commands run
   vm reset [name] --yes recreate system files (keeps /root)
   vm remove <name|all> --yes   delete a VM and its /root
+  vm setup <profile> [n] install python, build tools, node ... (`vm setup` lists them)
   vm doctor [name]      diagnose a VM"""
 
 
@@ -107,7 +111,7 @@ def _status(sid, cols, only=None):
     if not infos:
         lines += ["You have no systems yet.", "",
                   "Run `vm list` to see what you can install, then",
-                  "`vm install <name>` (plain `vm install` gives you Alpine)."]
+                  "`vm install <name>` (plain `vm install` gives you Debian)."]
     else:
         lines += [f"Your systems ({len(infos)})", "-----------------"]
         for i in infos:
@@ -123,6 +127,7 @@ def _status(sid, cols, only=None):
             pm = "apk add <pkg>" if infos[0]["family"] == "alpine" else "apt install -y <pkg>"
             lines.append(f"  packages : {pm}")
         lines.append("")
+        lines.append("Tip: `vm setup python` installs Python + build tools (psycopg2, Pillow, …).")
         if mode == sandbox.HOST:
             lines.append("Plain commands run on the host (admin). `vm mode vm` to switch.")
         elif active:
@@ -173,6 +178,27 @@ def _run(ctx, vm, cmd):
     except OSError as e:
         return f"vm: {e}"
     return ((p.stdout or "") + (p.stderr or "")).rstrip("\n")
+
+
+def _start_setup(ctx, vm, profile):
+    """Write the setup script into the VM and run it as a background job."""
+    sid = ctx["sid"]
+    try:
+        sandbox.resolve(sid, f"vm:{vm}")           # authorizes + checks the VM is ready
+        text = devsetup.script(profile, sandbox.family(sid, vm))
+        path = sandbox.rootfs_path(sid, vm) / "tmp" / f"rconsole-setup-{profile}.sh"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        path.chmod(0o755)
+        guest = f"/tmp/rconsole-setup-{profile}.sh"
+        jid, _job = jobs.start_job(sid, f"@vm:{vm} {devsetup.quoted_path_cmd(guest)}", "/root")
+    except sandbox.SandboxError as e:
+        return f"vm setup: {e}"
+    except OSError as e:
+        return f"vm setup: could not prepare the script: {e}"
+    return {"output": f"Setting up '{profile}' in {vm} as job %{jid} — live output below "
+                      f"(it keeps going if you leave; `jobs`, `fg %{jid}`).",
+            "jobtail": jid, "fg": True}
 
 
 def _doctor(ctx, vm):
@@ -350,6 +376,20 @@ def cmd_vm(ctx, args):
         sandbox.reset_cwds(sid)
         verb = "removed" if sub == "remove" else "reset (run `vm install <name>` to recreate)"
         return f"vm: {', '.join(targets)} {verb}."
+
+    if sub in ("setup", "dev", "tools"):
+        if not rest or rest[0] in ("list", "help", "-h"):
+            return ("Install a ready-made toolchain inside a VM:\n\n" + devsetup.describe() +
+                    "\n\nUsage: vm setup <profile> [name]      e.g. vm setup python\n"
+                    "It runs as a background job and shows progress; `vm setup python` is what "
+                    "you need for pip packages such as psycopg2, Pillow, lxml or mysqlclient.")
+        profile = rest[0].lower()
+        if profile not in devsetup.PROFILES:
+            return (f"vm setup: unknown profile '{profile}'.\n\n" + devsetup.describe())
+        vm, _r, reply = _pick_vm(sid, rest[1:], f"vm setup {profile}", f"vm setup {profile} {{vm}}")
+        if reply:
+            return reply
+        return _start_setup(ctx, vm, profile)
 
     if sub in ("doctor", "check", "diagnose"):
         vms = sandbox.installed_vms(sid)
