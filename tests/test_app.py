@@ -213,9 +213,11 @@ class HostModeTests(Base):
     def test_non_admin_cannot_run_host_commands(self):
         c = rapp.app.test_client()
         self.login("alice", "longenough1", c)
-        out = self.run_cmd("cat /etc/passwd", client=c)["output"]
-        self.assertNotIn("root:", out)
-        self.assertIn("vm install", out)
+        res = self.run_cmd("cat /etc/passwd", client=c)
+        self.assertNotIn("root:", res["output"])
+        # No system yet: the reply is a picker offering to install one.
+        self.assertTrue(res["choice"]["options"])
+        self.assertTrue(all(o["cmds"][0].startswith("vm install ") for o in res["choice"]["options"]))
         self.assertIn("not in the sudoers", self.run_cmd("sudo id", client=c)["output"])
         self.assertIn("not in the sudoers", self.run_cmd("sudo ls", client=c)["output"])
 
@@ -357,9 +359,9 @@ class VmApiTests(Base):
 
     def test_vm_commands(self):
         out = self.run_cmd("vm", client=self.uc)["output"]
-        self.assertIn("installed", out)
+        self.assertIn("Your systems (1)", out)
         self.assertIn("uid=0", self.run_cmd("vm run id", client=self.uc)["output"])
-        self.assertEqual(self.run_cmd("vm shell", client=self.uc).get("cmd"), "@vm")
+        self.assertEqual(self.run_cmd("vm shell", client=self.uc).get("cmd"), "@vm:alpine")
         self.assertIn("admins", self.run_cmd("vm mode host", client=self.uc)["output"])
         self.assertIn("--yes", self.run_cmd("vm reset", client=self.uc)["output"])
 

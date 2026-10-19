@@ -230,8 +230,12 @@ function startJobTail(tab, jid, isFg) {
   jobTail.timer = setInterval(tick, 800);
   tick();
 }
+// Name shown in the prompt: "rconsole" on the host, otherwise the VM you are in
+// (e.g. ark@debian:/root$). Kept up to date from every server response.
+let TARGET_LABEL = "rconsole";
+let lastSentCmd = "";
 function promptText(cwd) {
-  return `${USER}@rconsole:${cwd}$ `;
+  return `${USER}@${TARGET_LABEL}:${cwd}$ `;
 }
 
 function usedTabNumbers() {
@@ -581,6 +585,7 @@ window.addEventListener("resize", () => { _chW = 0; });
 async function send(cmd, tabId) {
   const t = (tabId && tabs.find((x) => x.id === tabId)) || activeTab();
   if (!t) return;
+  lastSentCmd = cmd;
   const body = JSON.stringify({ cmd, tab: t.id, cols: outputCols() });
   let resp;
   try {
@@ -655,9 +660,13 @@ function handleResponse(tabId, data) {
     return;
   }
 
+  if (data.target) TARGET_LABEL = data.target;
   if (data.output !== undefined && data.output !== "") {
     appendRich(t, data.output, "");
   }
+  // The command needs to know which system to use: show a dropdown right here.
+  if (data.choice && data.choice.options && data.choice.options.length) addChoice(t, data.choice);
+  if (/^\s*(sudo\s+)?vm(\s|$)/.test(lastSentCmd)) refreshTargets();
   if (data.prompt !== undefined) {
     t.interactive = true;
     t.interactivePrompt = data.prompt;
@@ -2507,5 +2516,119 @@ async function init() {
   selectTab(tabs[0].id);
 }
 
+// ---------------------------------------------------------------------------
+// Systems: the dropdown in the tab bar and the inline "choose a system" picker.
+// ---------------------------------------------------------------------------
+const elTarget = document.getElementById("targetsel");
+let targetsInfo = null;
+let targetsTimer = null;
+
+async function runFromUi(cmd, tabId) {
+  const t = tabs.find((x) => x.id === tabId) || activeTab();
+  if (!t) return;
+  t.lines.push({ text: promptText(t.cwd) + cmd });
+  if (isActiveTab(t)) renderOutput();
+  await send(cmd, t.id);
+}
+
+function addChoice(tab, choice) {
+  const box = document.createElement("div");
+  box.className = "choice-box";
+  const sel = document.createElement("select");
+  sel.className = "choice-select";
+  sel.setAttribute("aria-label", choice.title || "Choose a system");
+  const ph = new Option((choice.title || "Choose") + " …", "");
+  ph.disabled = true;
+  ph.selected = true;
+  sel.appendChild(ph);
+  const main = document.createElement("optgroup");
+  main.label = "Run in";
+  const inst = document.createElement("optgroup");
+  inst.label = "Install another";
+  choice.options.forEach((o, i) => {
+    const opt = new Option(o.label, String(i));
+    (o.group === "install" ? inst : main).appendChild(opt);
+  });
+  if (main.children.length) sel.appendChild(main);
+  if (inst.children.length) sel.appendChild(inst);
+  sel.addEventListener("change", async () => {
+    const o = choice.options[Number(sel.value)];
+    if (!o) return;
+    sel.disabled = true;
+    for (const c of o.cmds) await runFromUi(c, tab.id);
+  });
+  box.appendChild(sel);
+  tab.lines.push({ el: box });
+}
+
+function buildTargetSelect(info) {
+  targetsInfo = info;
+  const before = TARGET_LABEL;
+  if (info.label) TARGET_LABEL = info.label;
+  if (before !== TARGET_LABEL && typeof renderOutput === "function" && activeTab()) renderOutput();
+  const canInstall = info.installable && info.installable.length > 0;
+  if (!info.supported && info.targets.length <= 1) { elTarget.hidden = true; return; }
+  elTarget.hidden = false;
+  elTarget.innerHTML = "";
+  if (!info.current) {
+    const ph = new Option("choose system…", "");
+    ph.disabled = true;
+    ph.selected = true;
+    elTarget.appendChild(ph);
+  }
+  info.targets.forEach((t) => {
+    const o = new Option((t.kind === "host" ? "🖥 " : "🐧 ") + t.label, t.id);
+    if (t.id === info.current) o.selected = true;
+    elTarget.appendChild(o);
+  });
+  if (canInstall && info.supported) {
+    const g = document.createElement("optgroup");
+    g.label = "Install another";
+    info.installable.forEach((d) => g.appendChild(new Option(`+ ${d.name} (${d.size})`, "install:" + d.id)));
+    elTarget.appendChild(g);
+  }
+  // While something installs, keep the menu fresh so it appears when ready.
+  clearTimeout(targetsTimer);
+  if (info.installing && info.installing.length) targetsTimer = setTimeout(refreshTargets, 4000);
+}
+
+async function refreshTargets() {
+  try {
+    const r = await fetch("/api/targets", { credentials: "same-origin" });
+    if (r.ok) buildTargetSelect(await r.json());
+  } catch (e) { /* offline: keep the old menu */ }
+}
+
+elTarget.addEventListener("change", async () => {
+  const v = elTarget.value;
+  const t = activeTab();
+  if (v.startsWith("install:")) {
+    await runFromUi("vm install " + v.slice(8), t.id);
+    refreshTargets();
+    return;
+  }
+  try {
+    const r = await fetch("/api/target", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target: v }),
+    });
+    const data = await r.json();
+    if (!data.ok) {
+      t.lines.push({ text: "target: " + (data.error || "could not switch"), cls: "term-red" });
+      renderOutput();
+      refreshTargets();
+      return;
+    }
+    tabs.forEach((x) => { if (data.cwds && data.cwds[x.id]) x.cwd = data.cwds[x.id]; });
+    buildTargetSelect(data);
+    t.lines.push({ text: `Switched to ${data.label}. Plain commands run there now.`, cls: "term-dim" });
+    renderOutput();
+  } catch (e) {
+    refreshTargets();
+  }
+});
+
 init();
 applyTheme(currentTheme);
+refreshTargets();

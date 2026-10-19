@@ -812,4 +812,8 @@ def cmd_agent(ctx, args):
         return {"output": _list_models(provider, cfg)}
     if args and args[0] in ("help", "?", "h"):
         return {"output": AGENT_HELP}
+    try:
+        sandbox.fs(ctx["sid"])          # which system will the agent work in?
+    except sandbox.SandboxError as e:
+        return {"output": f"agent: {e}"}
     return agent_routine(ctx, " ".join(args) if args else None)

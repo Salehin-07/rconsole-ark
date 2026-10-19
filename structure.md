@@ -5,6 +5,8 @@ rconsole/
 ├── app.py                  # Flask app: CSRF + auth guards, login throttling, confined file APIs, proxy, /ws
 ├── main.py                 # Entry point (calls app.main())
 ├── config.py               # All environment-driven settings + persisted secrets
+├── LICENSE                 # MIT
+├── _ptyexec.py             # PTY launcher: setsid + controlling terminal (job control, Ctrl+C), then exec
 ├── sandbox.py              # THE authorization choke point: host vs per-user VM (proot), path confinement
 ├── distros.py              # VM system catalog (alpine/debian/ubuntu/kali) + checksum-verified resolvers
 ├── interp.py               # Command parsing/dispatch; interactive detection; host passthrough
@@ -43,6 +45,7 @@ rconsole/
 │   ├── helpers.py          # Isolated temp data dir; must be imported first
 │   ├── test_auth.py        # Hashing + migration, policy, quarantine, throttle
 │   ├── test_sandbox.py     # Path confinement (symlink/.. escapes), authorization
+│   ├── test_multivm.py     # Several VMs per user: separation, picker, targets API, migration, doctor
 │   ├── test_distros.py     # Catalog, aliases, mirror resolvers (HTTP faked)
 │   ├── test_fetch.py       # neofetch layouts at phone/desktop widths, target awareness
 │   ├── test_app.py         # HTTP: login, CSRF, file APIs, proxy, VM-backed commands
@@ -89,7 +92,12 @@ random secrets once and stores them `0600` so restarts/workers agree.
 - `fs(sid)` → `FsView`: path namespace for file access. VM views resolve symlinks
   and `..` *inside* the root filesystem (`resolve_in_root`) and know the `/root`
   bind mount, so nothing can escape.
-- VM lifecycle: `install(sid, "debian:bookworm")` (background thread: proot →
+- **Several VMs per user** under `vm/<user>/<id>/{rootfs,home}`; `installed_vms`,
+  `active_vm` (auto when exactly one), `resolve()` → `Target(mode, vm)` or
+  `NeedVmChoice` (the interpreter turns that into a dropdown), `targets()` /
+  `set_target()` for the browser menu, `choice()` for the inline picker,
+  `@vm:<id>` command prefix. Legacy single-VM layouts migrate on first access.
+- VM lifecycle: `install_many(sid, ["debian", "kali"])` (background thread: proot →
   rootfs download with the distro's own checksum → safe extract → per-family
   tweaks → install the `rfetch` shim → probe), `reset`, `describe`, `distro_info`,
   `family`, `rename_user`. Non-admin guests get only safe `/proc/*` info files.

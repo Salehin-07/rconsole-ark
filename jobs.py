@@ -51,6 +51,8 @@ class Job:
             self.proc = subprocess.Popen(
                 sp.argv, cwd=sp.cwd, env=sp.env, **popen_kwargs)
             self.pid = self.proc.pid
+        except sandbox.NeedVmChoice:
+            raise                      # interp turns this into a system picker
         except Exception as e:
             self.alive = False
             self.end = time.time()

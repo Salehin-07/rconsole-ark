@@ -13,11 +13,13 @@ import sys
 import threading
 import time
 
+import config
 import sandbox
 
 BUFFER_MAX = 200 * 1024  # characters kept per session
 REPLAY_MAX = 32 * 1024   # characters replayed to a (re)attaching client
 
+_PTYEXEC = config.HERE / "_ptyexec.py"
 SESSIONS = {}              # (sid, tab_id) -> TermSession
 SESSIONS_LOCK = threading.Lock()
 
@@ -66,7 +68,7 @@ class TermSession:
     def _spawn_win(self):
         from winpty import PTY
         # Authorize first (the VM needs Linux, so this is always the host).
-        sp = sandbox.spec(self.sid, self.cmd, self.cwd)
+        sp = sandbox.spec(self.sid, self.cmd, self.cwd, tty=True)
         shell_exe, flag = sp.argv[0], "/c" if sp.argv[0].lower().endswith("cmd.exe") else "-c"
         _, cmd = sandbox.parse_target(self.cmd)
         cmdline = f'{flag} "{cmd.replace(chr(34), "\\" + chr(34))}"' if cmd else None
@@ -87,7 +89,7 @@ class TermSession:
         import termios
         # sandbox.spec authorizes the launch (host vs VM) before any process
         # exists, so a forged websocket command can't bypass the admin gate.
-        sp = sandbox.spec(self.sid, self.cmd, self.cwd)
+        sp = sandbox.spec(self.sid, self.cmd, self.cwd, tty=True)
         argv = sp.argv
         master_fd, slave_fd = pty_mod.openpty()
         try:
@@ -99,10 +101,12 @@ class TermSession:
             fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
         except Exception:
             pass
+        # _ptyexec makes the slave our controlling terminal (job control, Ctrl+C).
+        launcher = [sys.executable, "-S", str(_PTYEXEC)]
         proc = subprocess.Popen(
-            argv, cwd=sp.cwd, env=sp.env,
+            launcher + argv, cwd=sp.cwd, env=sp.env,
             stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
-            close_fds=True, start_new_session=True,
+            close_fds=True,
         )
         os.close(slave_fd)
         self.master_fd = master_fd

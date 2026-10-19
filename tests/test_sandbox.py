@@ -80,6 +80,9 @@ class TargetTests(unittest.TestCase):
         self.assertEqual(sandbox.parse_target("@vm"), ("vm", ""))
         self.assertEqual(sandbox.parse_target("@vm ls -la"), ("vm", "ls -la"))
         self.assertEqual(sandbox.parse_target("@host id"), ("host", "id"))
+        self.assertEqual(sandbox.parse_target("@vm:debian ls -la"), ("vm:debian", "ls -la"))
+        self.assertEqual(sandbox.parse_target("@vm:kali"), ("vm:kali", ""))
+        self.assertEqual(sandbox.parse_target("@vm:Bad/Name x"), (None, "@vm:Bad/Name x"))
         self.assertEqual(sandbox.parse_target("@vmx"), (None, "@vmx"))
         self.assertEqual(sandbox.parse_target("echo @vm"), (None, "echo @vm"))
 
@@ -89,10 +92,10 @@ class TargetTests(unittest.TestCase):
             sandbox.resolve_target("alice", sandbox.HOST)
         with self.assertRaises(sandbox.PermissionDenied):
             sandbox.spec("alice", "@host cat /etc/passwd", "/")
-        # With no VM installed the default path is refused too — not host.
-        with self.assertRaises(sandbox.SandboxError) as cm:
+        # With no VM installed the default path asks for one — never the host.
+        with self.assertRaises(sandbox.NeedVmChoice) as cm:
             sandbox.spec("alice", "cat /etc/passwd", "/")
-        self.assertNotIsInstance(cm.exception, sandbox.PermissionDenied)
+        self.assertTrue(cm.exception.empty)
 
     def test_non_admin_cannot_pick_host_mode(self):
         ok, msg = sandbox.set_mode("alice", "host")

@@ -98,11 +98,14 @@ def _passthrough(ctx, host_cmd):
             env=sp.env,
             stdin=subprocess.DEVNULL,
         )
+    except sandbox.NeedVmChoice:
+        raise                       # becomes a picker in process()
     except sandbox.SandboxError as e:
         return f"rconsole: {e}"
     except subprocess.TimeoutExpired:
-        return (f"command timed out after {PASS_THROUGH_TIMEOUT}s "
-                "(append ' &' to run it as a background job)")
+        hint = ("`vm shell` has no time limit, or " if sandbox.effective_mode(ctx["sid"]) == sandbox.VM else "")
+        return (f"command timed out after {PASS_THROUGH_TIMEOUT}s — {hint}"
+                "append ' &' to run it as a background job")
     except Exception as e:
         return f"error: {e}"
     out = proc.stdout or ""
@@ -113,8 +116,25 @@ def _passthrough(ctx, host_cmd):
 def process(tab, username, is_admin, sid, raw, cols=None):
     """Process a line of input for a tab.
 
-    Returns a dict with some of: output, clear, action, update_session, prompt.
+    Returns a dict with some of: output, clear, action, update_session, prompt,
+    choice. When the command needs a system the user has not chosen yet (several
+    VMs installed, or none), the reply carries a ``choice`` — a picker the
+    browser shows as a dropdown — and the command is re-run after the pick.
     """
+    try:
+        return _process(tab, username, is_admin, sid, raw, cols)
+    except sandbox.NeedVmChoice as need:
+        tab["gen"] = None             # drop a half-run interactive command
+        if need.empty:
+            text = ("You have no system to run this in yet. "
+                    "Pick one to install (it takes about a minute):")
+            return {"output": text, "choice": sandbox.choice(sid)}
+        return {"output": "More than one system is installed. Where should this run?",
+                "choice": sandbox.choice(sid, then=raw.rstrip("\n"))}
+
+
+def _process(tab, username, is_admin, sid, raw, cols=None):
+    """Implementation of :func:`process` (may raise :class:`sandbox.NeedVmChoice`)."""
     line = raw.rstrip("\n")
 
     # Interactive command awaiting input?
@@ -201,6 +221,8 @@ def process(tab, username, is_admin, sid, raw, cols=None):
         fn = commands.COMMANDS[name]
         try:
             result = fn(ctx, args)
+        except sandbox.NeedVmChoice:
+            raise                   # becomes a picker in process()
         except Exception as e:
             return {"output": f"{name}: error: {e}"}
         if hasattr(result, "send") and hasattr(result, "__next__"):

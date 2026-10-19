@@ -67,6 +67,7 @@ def _write(username):
                 "theme": sess.get("theme", DEFAULT_THEME),
                 "env": dict(sess.get("env", {}) or {}),
                 "mode": sess.get("mode"),
+                "vm": sess.get("vm"),
             }
         # Atomic + private: the file can hold API keys set via `sudo env`, and a
         # crash mid-write must never leave a truncated state file behind.
@@ -167,6 +168,7 @@ def _load(username):
         "theme": data.get("theme", DEFAULT_THEME) or DEFAULT_THEME,
         "env": data.get("env", {}) or {},
         "mode": data.get("mode") if data.get("mode") in ("host", "vm") else None,
+        "vm": data.get("vm") if isinstance(data.get("vm"), str) else None,
     }
 
 
@@ -275,6 +277,21 @@ def set_mode(username, mode):
         if not sess:
             sess = new_session(username)
         sess["mode"] = mode
+        save_now(username)
+
+
+def get_vm(username):
+    """The VM the user last chose to work in (``None`` = not chosen)."""
+    sess = STATE.get(username)
+    return (sess or {}).get("vm") if sess else None
+
+
+def set_vm(username, vm):
+    with STATE_LOCK:
+        sess = STATE.get(username)
+        if not sess:
+            sess = new_session(username)
+        sess["vm"] = vm
         save_now(username)
 
 

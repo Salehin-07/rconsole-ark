@@ -24,11 +24,12 @@ satisfies these five rules works; the rest of this guide is just *how* on each o
 | 2 | **A persistent volume** mounted somewhere, with `RCONSOLE_DATA_DIR` pointing at it | Users, passwords, secrets, saved tabs and **every user's VM** live there. Without it, each deploy resets everything. |
 | 3 | **Websockets + long idle timeouts** | The browser terminal is a websocket. Proxies that cut idle connections after 30–60 s will drop terminals. |
 | 4 | **HTTPS in front** | Login cookies are `Secure`; never expose the console over plain HTTP on the internet. |
-| 5 | **Outbound internet** | `vm install` downloads proot (GitHub) and the system image (Alpine/Debian/Ubuntu/Kali mirrors), and `apk`/`apt` fetch packages. |
+| 5 | **Outbound internet** | `vm install` downloads proot 5.5.0 (from GitHub, checksum-verified, once) and the system image (Alpine/Debian/Ubuntu/Kali mirrors), and `apk`/`apt` fetch packages. |
 
 Recommended size: **1 vCPU / 1 GB RAM** for a few users; add RAM if people build
 software or run hosted apps. Each VM costs ~10–150 MB of disk depending on the
-system you pick, plus whatever the user installs.
+system you pick, plus whatever the user installs — and a user can keep several, so
+budget disk for roughly *users × systems*.
 
 The container image does the right thing automatically:
 
@@ -370,6 +371,8 @@ hold users' files; the `rootfs` folders can be recreated with `vm install`.
 | Terminal connects, then drops after ~60 s | Proxy idle timeout. nginx: `proxy_read_timeout 3600s`. AWS ALB: raise idle timeout. Cloudflare: use the proxy's websocket support and avoid free-plan idle limits via a tunnel. |
 | `vm install` fails with "could not reach …" | No outbound internet, or the mirror is blocked. Set `RCONSOLE_VM_ROOTFS_URL` to a reachable tarball (and `RCONSOLE_VM_ROOTFS_SHA256`). |
 | `vm install` fails: "proot cannot run" | The platform blocks `ptrace`. Use a VPS/microVM (Fly.io, any VM) instead. |
+| A VM misbehaves and you don't know why | Run **`vm doctor <name>`**: it checks shell, programs, root, write access, DNS, internet and the package manager, and prints which step fails. Paste its output when asking for help. |
+| `coreutils: unknown program 'prooted-…'` | A proot older than 5.5 under Ubuntu 26.04. rconsole downloads 5.5.0 automatically on x86-64 — make sure the server can reach github.com; on ARM install a newer proot. |
 | `vm install` says unsupported CPU | Prebuilt proot is x86-64. On ARM install it: `apt install proot` / `apk add proot`. The Docker image has it. |
 | `apt update` inside a Debian/Ubuntu/Kali VM prints sandbox warnings | Harmless; rconsole already sets `APT::Sandbox::User "root"`. |
 | 502 from a hosted app | The app crashed on start: `sudo sprocess <port>` shows its log. In VM mode install Python and gunicorn in the VM (`vm run …`, the error message prints the exact command). |

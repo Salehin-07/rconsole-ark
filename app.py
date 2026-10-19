@@ -379,6 +379,8 @@ def run():
         result["cwd"] = tab["cwd"]
     else:
         result = {"output": result, "cwd": tab["cwd"]}
+    # Name shown in the prompt: `rconsole` on the host, else the VM's name.
+    result["target"] = sandbox.target_label(username)
 
     # Apply session updates requested by a command (e.g. cuser, cpass).
     if result.get("update_session"):
@@ -510,7 +512,31 @@ def api_tabs():
                 "alive": bool(s and s.alive and not s.exited),
                 "cmd": t.get("cmd", ""),
             })
-    return {"tabs": tabs}
+    return {"tabs": tabs, "target": sandbox.target_label(username)}
+
+
+@app.route("/api/targets")
+def api_targets():
+    """What the browser's target dropdown shows (host/VMs/installable systems)."""
+    if "username" not in session:
+        return {"error": "unauthorized"}, 401
+    return sandbox.targets(session["username"])
+
+
+@app.route("/api/target", methods=["POST"])
+def api_set_target():
+    """Switch where plain commands run: ``host`` or ``vm:<name>``."""
+    if "username" not in session:
+        return {"error": "unauthorized"}, 401
+    username = session["username"]
+    data = request.get_json(silent=True) or {}
+    ok, msg = sandbox.set_target(username, str(data.get("target", "")))
+    if not ok:
+        return {"ok": False, "error": msg}, 400
+    sandbox.reset_cwds(username)
+    sess = state.get_session(username)
+    cwds = {tid: t["cwd"] for tid, t in (sess or {}).get("tabs", {}).items()}
+    return {"ok": True, "cwds": cwds, **sandbox.targets(username)}
 
 
 @app.route("/api/close_tab", methods=["POST"])
@@ -541,6 +567,10 @@ def _fs_view():
     """Return ``(view, None)`` or ``(None, error_response)``."""
     try:
         return sandbox.fs(session["username"]), None
+    except sandbox.NeedVmChoice as need:
+        msg = ("no system installed yet — install one from the target menu" if need.empty
+               else "several systems installed — choose one from the target menu")
+        return None, ({"ok": False, "error": msg, "choose": True}, 409)
     except sandbox.SandboxError as e:
         return None, ({"ok": False, "error": str(e)}, 409)
 
@@ -739,6 +769,9 @@ def ws_terminal(ws):
         forced, _ = sandbox.parse_target(cmd)
         try:
             sandbox.resolve_target(username, forced)
+        except sandbox.NeedVmChoice as need:
+            return _ws_notice(ws, "no system installed yet: run `vm install`" if need.empty
+                              else "choose a system first (target menu, or `vm use <name>`)")
         except sandbox.SandboxError as e:
             return _ws_notice(ws, str(e))
         state.set_terminal(sess, username, tab_id, cmd, tab["cwd"])
@@ -752,6 +785,8 @@ def ws_terminal(ws):
         rows = 24
     try:
         ptyhost.attach(ws, username, tab_id, cmd, tab["cwd"], cols, rows)
+    except sandbox.NeedVmChoice:
+        _ws_notice(ws, "choose a system first (target menu, or `vm use <name>`)")
     except sandbox.SandboxError as e:
         _ws_notice(ws, str(e))
     except OSError as e:

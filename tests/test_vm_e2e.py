@@ -226,21 +226,22 @@ class VmEndToEnd(unittest.TestCase):
         wide, narrow = run(90), run(30)
         self.assertLess(len(wide), len(narrow))     # side-by-side is shorter than stacked
 
-    def test_switching_requires_reset_and_keeps_home(self):
-        ok, msg = sandbox.install("alice", "debian")
+    def test_installing_the_same_system_twice_is_refused(self):
+        ok, msg = sandbox.install("alice", "alpine")
         self.assertFalse(ok)
-        self.assertIn("vm reset --yes", msg)
-        self.assertIn("vm install debian", msg)
+        self.assertIn("already installed", msg)
+        self.assertIn("vm remove alpine", msg)
 
     def test_reset_keeps_home_remove_deletes_it(self):
         auth.create_user("carol", "longenough1")
         self.assertTrue(sandbox.install("carol", wait=True)[0])
-        (sandbox.home_path("carol") / "f").write_text("x")
-        sandbox.reset("carol", keep_home=True)
+        home = sandbox.home_path("carol", "alpine")
+        (home / "f").write_text("x")
+        sandbox.reset("carol", "alpine", keep_home=True)
         self.assertFalse(sandbox.installed("carol"))
-        self.assertTrue((sandbox.home_path("carol") / "f").exists())
-        sandbox.reset("carol", keep_home=False)
-        self.assertFalse(sandbox.vm_base("carol").exists())
+        self.assertTrue((home / "f").exists())
+        sandbox.reset("carol", "alpine", keep_home=False)
+        self.assertFalse(sandbox.vm_dir("carol", "alpine").exists())
 
 
 if __name__ == "__main__":

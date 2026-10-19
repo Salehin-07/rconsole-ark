@@ -29,9 +29,10 @@ through rconsole's built-in reverse proxy — no extra port-forwarding required.
 
 - Browser terminal powered by **xterm.js** + a real PTY (ConPTY on Windows,
   `pty`/`select` on Linux/macOS).
-- **Per-user virtual machine** (`vm`): pick **Alpine, Debian, Ubuntu or Kali**
-  (`vm list`), be root inside, install any package, keep a persistent `/root`, no
-  host privileges needed (see [The VM](#the-vm-vm)).
+- **Several virtual machines per user** (`vm`): **Alpine, Debian, Ubuntu, Kali** —
+  one, some or all, each with its own root filesystem and persistent `/root`. Be
+  root inside, install any package, no host privileges needed; switch with a
+  dropdown (see [The VM](#the-vm-vm)).
 - **`neofetch` / `fetch`** that follow your target (the VM's own system in `vm`
   mode, rconsole's in `host` mode) and adapt to phone-sized screens.
 - Tabs, each owning its own terminal session that keeps running in the
@@ -111,52 +112,75 @@ and password hashes survive restarts and are shared by every process. They are
 
 ## The VM (`vm`)
 
-Every user can have a private Linux system. Inside it you are `root`, you can
-install packages, and your home (`/root`) persists. It needs **no host
-privileges** — that is the point: on Render (or any container that gives you no
-`sudo`) the VM still gives you a fully permissive machine.
+Every user can have private Linux systems — **as many as you like**: just one,
+two, or all four at once. Each is a separate machine with its **own root
+filesystem and its own `/root`**; nothing is shared. Inside one you are `root`
+and can install anything. It needs **no host privileges** — that is the point: on
+Render (or any container that gives you no `sudo`) the VM still gives you a fully
+permissive machine.
 
 ```text
-vm                 show status                       vm mode [host|vm]  choose where plain commands run
-vm list            show the systems you can install  vm reset --yes     recreate system files (keeps /root)
-vm install [name]  set up your VM (one time)         vm remove --yes    delete the VM and /root
-vm shell           open an interactive shell in it
-vm run <command>   run one command in it
+vm                    your systems and the active one     vm use <name>         make one the default
+vm list               systems you can install             vm mode [host|vm [n]] where plain commands run
+vm install <name>...  e.g. debian ubuntu:24.04 | all      vm reset [name] --yes recreate system files (keeps /root)
+vm shell [name]       interactive shell in a VM           vm remove <name|all> --yes   delete it and its /root
+vm run [--vm n] <cmd> run one command in a VM             vm doctor [name]      diagnose a VM
 ```
 
-### Pick your system
+### Pick your systems
 
 `vm list` shows everything available; `vm install <name>[:<release>]` installs it.
+Install several in one go: `vm install debian ubuntu kali`, or `vm install all`.
 
 | Name | System | Packages | Download | Notes |
 |------|--------|----------|----------|-------|
 | `alpine` (default) | Alpine Linux | `apk add` | ~3 MB | Tiny and the fastest to set up. |
 | `debian` | Debian 13 "trixie" | `apt install` | ~90 MB | `debian:bookworm`, `debian:sid`, … |
-| `ubuntu` | Ubuntu (newest LTS) | `apt install` | ~35 MB | `ubuntu:24.04`, `ubuntu:22.04`, … |
+| `ubuntu` | Ubuntu (newest LTS, 26.04) | `apt install` | ~35 MB | `ubuntu:24.04`, `ubuntu:22.04`, … |
 | `kali` (also `কালী`) | Kali Linux (minimal) | `apt install` | ~140 MB | Security-testing distro — authorized use only. Add tools with `apt install kali-linux-headless` etc. |
 
+Every download is verified against the checksum the distribution itself publishes.
+
+### Working with several systems
+
+- **One system installed:** everything just works; you never type its name.
+- **Several installed:** pick where things run — whichever is easiest:
+  - the **dropdown in the tab bar** (🖥 Host · 🐧 Debian · 🐧 Kali · *Install another…*);
+  - `vm use debian` / `vm mode vm debian`;
+  - one-offs: `vm shell kali`, `vm run --vm ubuntu apt update`, or prefix any
+    command with `@vm:kali` (e.g. `@vm:kali nmap -V`).
+- If a command needs a system and you have not picked one, a **dropdown appears
+  right in the output** listing your systems *and* the ones you can still install;
+  choose one and the command runs. Your choice is remembered.
+- The **prompt shows where you are**: `ark@rconsole:/srv$` on the host,
+  `ark@debian:/root$` in a VM.
+- **Admins** can use both `host` and any VM (`vm mode host`). **Normal users** go
+  straight to their VMs and never see the host.
+
 ```text
-$ vm list
-$ vm install debian            # or: vm install ubuntu:24.04 / vm install kali
-$ vm status                    # wait until it says "installed"
-$ vm shell                     # a root shell in your own Debian
-root@rconsole:~# apt update && apt install -y git python3 python3-pip nodejs
-$ vm mode vm                   # now plain commands (ls, python, git ...) run in the VM
-$ cd /root/site && sudo serve 8000     # hosts a directory from inside the VM
+$ vm install debian kali          # two systems, installed one after the other
+$ vm                              # shows both and which is active
+$ vm shell kali                   # a root shell in Kali
+root@kali:~# apt update && apt install -y nmap
+$ vm use debian                   # plain commands now run in Debian
+ark@debian:/root$ python3 --version
 ```
 
-Every download is verified against the checksum the distribution itself publishes.
-To **switch systems**: `vm reset --yes` (keeps your `/root` files), then
-`vm install <other>`. Debian-family systems get a small apt tweak so `apt` works
-under fake-root, and Ubuntu falls back to the previous LTS if the newest image
-isn't published yet.
+### How it works
 
-How it works: a per-user root filesystem is run under
-[proot](https://proot-me.github.io/) (user-space `chroot` + fake root, no
-kernel privileges). The file navigator, editor, `fm`, `cd` and the agent are all
-confined to the VM's filesystem in `vm` mode — `..` and symlinks cannot escape
-it. The first install downloads proot (x86-64, pinned and checksum-verified); both
-proot and the root filesystems are cached for later users.
+Each system is a root filesystem run under [proot](https://proot-me.github.io/)
+(user-space `chroot` + fake root, no kernel privileges). The file navigator,
+editor, `fm`, `cd` and the agent are all confined to the chosen system's
+filesystem — `..` and symlinks cannot escape it. rconsole uses **proot 5.5.0**: on
+x86-64 it downloads that exact, checksum-verified build the first time it is
+needed, because older proots (such as the one Ubuntu/Debian package) cannot run
+Ubuntu 26.04's Rust-based coreutils (`coreutils: unknown program 'prooted-…'`).
+Installs run a self-test and fail with a clear message rather than leave a broken VM.
+
+Data lives in `<data>/vm/<user>/<system>/{rootfs,home}`. `vm reset <name> --yes`
+recreates a system's files but keeps its `/root`; `vm remove` deletes both.
+Existing single-VM installs from earlier versions are moved into this layout
+automatically.
 
 Things to know:
 
@@ -164,40 +188,45 @@ Things to know:
   guest processes share the server's uid and PID namespace. Only create
   accounts for people you trust. (Non-admin guests only see the harmless
   `/proc/{uptime,meminfo,cpuinfo,loadavg,version}` files, not host processes.)
+- **Long commands:** a plain command or `vm run` is cut off after 60–90 s (hosting
+  platforms drop HTTP requests around 100 s). For `apt upgrade`, builds and the
+  like use `vm shell` (no limit, Ctrl+C works) or append `&` to run a background job.
 - No `systemd`, no mounting, no raw sockets/kernel features; some syscalls are
   emulated and a few programs misbehave. If something needs a real kernel, use a
   VPS or QEMU — see [DEPLOY.md](DEPLOY.md).
 - **proot needs `ptrace`.** If your host blocks it, `vm install` reports why and
-  removes the half-built VM instead of leaving it broken.
-- Other CPU architectures: install `proot` yourself (the Dockerfile does this).
-  Debian, Ubuntu and Kali publish arm64 images too.
-- Hosted apps in VM mode: static sites are served by the server (nothing needed
-  in the VM); `sudo gunicorn app:app` runs `python3 -m gunicorn` **inside** the
-  VM — the error message prints the exact install command for your system.
+  removes the half-built VM instead of leaving it broken. **`vm doctor`** runs a
+  checklist (shell, programs, root, write access, DNS, internet, package manager)
+  and shows exactly which step fails.
+- Other CPU architectures: install `proot` 5.5+ yourself (the Dockerfile adds the
+  distro one, which may be older). Debian, Ubuntu and Kali publish arm64 images too.
+- Hosted apps in a VM: static sites are served by the server (nothing needed in
+  the VM); `sudo gunicorn app:app` runs `python3 -m gunicorn` **inside** the VM —
+  the error message prints the exact install command for your system.
 
 ### `neofetch` / `fetch`
 
 `neofetch` and `fetch` follow your current target, and adapt to your screen so
 they look right on a phone as well as a desktop:
 
-- **In `vm` mode** they show the VM's own system — distro, package count, shell —
-  by running a small `rfetch` shim that rconsole installs inside every VM. The same
+- **In a VM** they show that VM's own system — distro, package count, shell — by
+  running a small `rfetch` shim that rconsole installs inside every VM. The same
   `neofetch` works when you type it inside `vm shell`, whichever system you chose.
-- **In `host` mode** they show rconsole's own summary of the server.
+- **On the host** they show rconsole's own summary of the server.
 - `rfetch` always shows rconsole's. Flags: `--no-logo`, `--plain` (VM shim).
 
 Layout is chosen from your screen width: logo beside the details on wide screens,
 a short logo above on medium ones, and details only (long values shortened with
-`~`) on narrow phones. If you install the real `neofetch`/`fastfetch` in your VM it
+`~`) on narrow phones. If you install the real `neofetch`/`fastfetch` in a VM it
 lives at `/usr/bin/…`; call it by that path to use it instead of the shim.
 
 ### Choosing the target
 
 | | host | vm |
 |---|---|---|
-| Admin default | ✅ (`RCONSOLE_DEFAULT_MODE=host`) | `vm mode vm` |
+| Admin default | ✅ (`RCONSOLE_DEFAULT_MODE=host`) | `vm use <name>` |
 | Non-admin | ❌ always refused | ✅ the only option |
-| Prefix a single command | `@host cmd` (admins) | `@vm cmd` |
+| Prefix a single command | `@host cmd` (admins) | `@vm cmd` (active) or `@vm:<name> cmd` |
 
 All of this is enforced in one place (`sandbox.py`), so it cannot be bypassed by
 calling the terminal websocket or the file APIs directly.
@@ -215,7 +244,7 @@ calling the terminal websocket or the file APIs directly.
 | `cd <dir>` | Change directory (stateful; `~` supported; confined to the VM in `vm` mode). |
 | `history`, `rwhoami`, `alias`, `unalias`, `theme` | Console helpers. |
 | `edit <file>` / `fm [path]` | Built-in editor / file manager (mobile friendly). |
-| `vm …` | Your VM (`vm list`, `vm install`, `vm shell`, …) — see above. Available to everyone. |
+| `vm …` | Your systems (`vm list`, `vm install`, `vm shell`, `vm use`, `vm doctor`, …) — see above. Available to everyone. |
 | `neofetch` / `fetch` / `rfetch` | System summary: your VM's (in `vm` mode) or rconsole's (`host` mode); `rfetch` is always rconsole's. Fits your screen width. |
 | `<cmd> &`, `jobs`, `jobout %n`, `jobtail %n`, `fg %n`, `kill %n` | Background jobs. |
 | `logout` | Log out (anyone). |
@@ -456,7 +485,10 @@ a locally served root filesystem (download → checksum → extract → run).
 |---------|-------------|
 | "Password change required" / commands refused after login | You used the default password. Run `sudo cpass`. |
 | `host access is restricted to admins` | Non-admins use the VM: `vm install`, then `vm shell`. |
-| `vm install` fails: "proot cannot run" | The platform blocks `ptrace` (rconsole already retries without seccomp acceleration). Use a VPS instead. |
+| `vm install` fails: "proot cannot run" | Either the platform blocks `ptrace` (rconsole already retries without seccomp acceleration — use a VPS then), or the proot is too old (`unknown program 'prooted-…'`): rconsole fetches 5.5.0 on x86-64; elsewhere install a newer one. |
+| `bash: cannot set terminal process group … no job control` | Fixed in current versions (the terminal now gets a controlling terminal). Update. |
+| A VM command hangs or "timed out" | `apt`/builds can exceed the 60–90 s limit for plain commands: use `vm shell` or add `&`. `vm doctor` shows if DNS/network is the cause. |
+| "Choose a system" dropdown keeps appearing | You have several VMs and no default: pick one (it is remembered), or `vm use <name>`. |
 | `vm install` fails to download | Server has no outbound HTTPS, or the mirror is blocked. Set `RCONSOLE_VM_ROOTFS_URL` to a reachable tarball. |
 | `apt: not found` / `apk: not found` in the VM | Different systems, different tools: Alpine uses `apk add`, Debian/Ubuntu/Kali use `apt install`. `vm status` shows which one you have. |
 | `vm install debian` says "already installed" | Switch with `vm reset --yes` (keeps `/root`), then `vm install debian`. |
@@ -472,3 +504,9 @@ a locally served root filesystem (download → checksum → extract → run).
 ## File reference
 
 See [`structure.md`](structure.md) for every module and what it does.
+
+---
+
+## License
+
+[MIT](LICENSE) © 2026 Salehin-07 (MD ABU SALEHIN).
