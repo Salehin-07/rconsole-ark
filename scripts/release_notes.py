@@ -39,7 +39,13 @@ cp .env.example .env && nano .env        # set RCONSOLE_DOMAIN and RCONSOLE_ADMI
 docker compose up -d --build
 ```
 
-**2. Just the container**
+**2. Pull the image — no source needed** (download `docker-compose.yml`, `Caddyfile` and `env.example` below)
+```bash
+cp env.example .env && nano .env         # set RCONSOLE_DOMAIN and RCONSOLE_ADMIN_PASSWORD
+docker compose up -d
+```
+
+**3. Just the container**
 ```bash
 docker run -d -p 5000:5000 -v rconsole-data:/data \\
   -e RCONSOLE_ADMIN_PASSWORD='choose-a-strong-one' {image}:{version}
@@ -47,7 +53,7 @@ docker run -d -p 5000:5000 -v rconsole-data:/data \\
 (The image is built for amd64 and arm64. If `docker pull` is denied, the package is private: build from the
 source archive instead, or make the package public in the repository's *Packages* settings.)
 
-**3. No Docker** — extract the archive, `uv sync`, then `uv run gunicorn -c gunicorn.conf.py app:app`
+**4. No Docker** — extract the archive, `uv sync`, then `uv run gunicorn -c gunicorn.conf.py app:app`
 (see `deploy/rconsole.service` for systemd).
 
 Deploying to Render, Railway, Fly.io, Kubernetes, AWS/GCP/Azure or a Raspberry Pi? Follow **`DEPLOY.md`**.
@@ -57,7 +63,7 @@ All commands are documented in **`COMMANDS.md`**.
 | File | What |
 |---|---|
 | `rconsole-{version}.tar.gz` / `.zip` | the complete source: app, Dockerfile, `deploy/` configs, docs, tests |
-| `docker-compose.yml`, `Caddyfile`, `.env.example` | the compose + HTTPS quick-start files on their own |
+| `docker-compose.yml`, `Caddyfile`, `env.example` | the compose + HTTPS quick-start files on their own (pulls the image) |
 | `SHA256SUMS` | checksums — verify with `sha256sum -c SHA256SUMS` |
 
 First login is `ark` with the password you set in `RCONSOLE_ADMIN_PASSWORD` (or `ark`/`ark`, which forces a change).

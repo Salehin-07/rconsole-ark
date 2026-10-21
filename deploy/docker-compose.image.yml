@@ -1,10 +1,11 @@
 # Quick start that PULLS the published image (no source checkout or build needed).
 # This is the `docker-compose.yml` attached to each GitHub release.
 #
-#   cp .env.example .env && nano .env      # RCONSOLE_DOMAIN + RCONSOLE_ADMIN_PASSWORD
+#   cp env.example .env && nano .env       # RCONSOLE_DOMAIN + RCONSOLE_ADMIN_PASSWORD
 #   docker compose up -d
 #
-# Needs the Caddyfile and .env.example from the same release, in this folder.
+# Needs the Caddyfile and env.example from the same release, in this folder
+# (`cp env.example .env`).
 services:
   rconsole:
     image: ghcr.io/salehin-07/rconsole-ark:${RCONSOLE_VERSION:-latest}

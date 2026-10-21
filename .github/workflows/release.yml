@@ -56,16 +56,20 @@ jobs:
           # compose + Caddy quick-start that pulls the published image
           sed "s/:-latest/:-$VERSION/" deploy/docker-compose.image.yml > dist/docker-compose.yml
           cp deploy/Caddyfile dist/Caddyfile
-          cp deploy/.env.example dist/.env.example
+          cp deploy/.env.example dist/env.example      # GitHub renames dot-files on upload
           python3 scripts/release_notes.py "$VERSION" "$GITHUB_REPOSITORY" > dist/NOTES.md
-          (cd dist && sha256sum rconsole-* docker-compose.yml Caddyfile .env.example > SHA256SUMS)
+          (cd dist && sha256sum rconsole-* docker-compose.yml Caddyfile env.example > SHA256SUMS)
           ls -la dist && cat dist/SHA256SUMS
 
       - name: Create or update the release
         run: |
           VERSION="${TAG#v}"
-          FILES="dist/rconsole-$VERSION.tar.gz dist/rconsole-$VERSION.zip dist/docker-compose.yml dist/Caddyfile dist/.env.example dist/SHA256SUMS"
+          FILES="dist/rconsole-$VERSION.tar.gz dist/rconsole-$VERSION.zip dist/docker-compose.yml dist/Caddyfile dist/env.example dist/SHA256SUMS"
           if gh release view "$TAG" >/dev/null 2>&1; then
+            # Re-running a release replaces its assets exactly (no stale leftovers).
+            for a in $(gh release view "$TAG" --json assets -q '.assets[].name'); do
+              gh release delete-asset "$TAG" "$a" --yes
+            done
             gh release upload "$TAG" $FILES --clobber
             gh release edit "$TAG" --title "rconsole $VERSION" --notes-file dist/NOTES.md
           else

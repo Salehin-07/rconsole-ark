@@ -34,7 +34,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("### Fixed", out)
         self.assertIn("## Host it yourself", out)
         for asset in (f"rconsole-{__version__}.tar.gz", "docker-compose.yml", "Caddyfile",
-                      ".env.example", "SHA256SUMS"):
+                      "env.example", "SHA256SUMS"):
             self.assertIn(asset, out)
         self.assertIn("releases/download/v" + __version__, out)
         self.assertIn("ghcr.io/someone/some-repo:" + __version__, out)   # image names are lowercase
