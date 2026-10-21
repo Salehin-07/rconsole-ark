@@ -17,3 +17,6 @@ data/
 # Editor / OS noise
 .DS_Store
 Thumbs.db
+
+# JS UI-check tooling (npm install --no-save jsdom)
+node_modules/

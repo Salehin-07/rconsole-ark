@@ -399,7 +399,13 @@ function selectTab(id) {
   }
   if (elCmd && t) elCmd.value = t.draft || "";
   updateView();
-  if (!isPtyActive() && elCmd) elCmd.focus();
+  if (!isPtyActive() && elCmd && !pickerHasFocus()) elCmd.focus();
+}
+
+// True while a dropdown/button in the output (e.g. the system picker) is in use.
+function pickerHasFocus() {
+  const a = document.activeElement;
+  return !!(a && a.closest && a.closest(".choice-box"));
 }
 
 function appendLineEl(ln) {
@@ -1041,7 +1047,17 @@ elCmd.addEventListener("keydown", (e) => {
 elNew.onclick = () => newTab();
 const elTheme = document.getElementById("themebtn");
 if (elTheme) elTheme.onclick = cycleTheme;
-document.getElementById("screen").addEventListener("click", () => elCmd.focus());
+// Clicking empty screen space focuses the prompt (opens the keyboard on phones).
+// It must NOT do that for real controls: stealing focus from a <select> closes
+// its dropdown the instant it opens, which made the inline "choose a system"
+// picker impossible to use.
+const INTERACTIVE_SELECTOR = "select, option, button, a, input, textarea, label, .choice-box";
+document.getElementById("screen").addEventListener("click", (e) => {
+  if (e.target.closest && e.target.closest(INTERACTIVE_SELECTOR)) return;
+  const sel = window.getSelection && window.getSelection();
+  if (sel && String(sel).length) return;          // let people select/copy output text
+  elCmd.focus();
+});
 
 // ---------------------------------------------------------------------------
 // Mobile key bar: Tab / Esc / Ctrl / arrow buttons for touch keyboards.
@@ -2573,6 +2589,9 @@ function addChoice(tab, choice) {
     for (const c of o.cmds) await runFromUi(c, tab.id);
   });
   box.appendChild(sel);
+  // Nothing in here may trigger the screen-level handlers (focus, copy, scroll).
+  ["click", "mousedown", "mouseup", "touchstart", "touchend", "pointerdown", "keydown"].forEach(
+    (ev) => box.addEventListener(ev, (e) => e.stopPropagation()));
   tab.lines.push({ el: box });
 }
 

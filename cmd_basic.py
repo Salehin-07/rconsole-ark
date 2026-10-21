@@ -4,6 +4,7 @@ from pathlib import Path
 import commands
 import sandbox
 import state
+from version import __version__
 
 
 @commands.command("help")
@@ -14,6 +15,8 @@ def cmd_help(ctx, args):
         ("cd <dir>", "change directory (stateful)"),
         ("history", "command history for this tab"),
         ("rwhoami", "print the current user"),
+        ("version", "print the rconsole version"),
+        ("expose <port> <name>", "publish a running server at /<name>/"),
         ("edit <file>", "built-in code editor (great on phones)"),
         ("fm [path]", "in-console file manager + editor"),
         ("vm [install|shell|run|mode]", "your personal Linux VM (root, apk add anything)"),
@@ -26,7 +29,7 @@ def cmd_help(ctx, args):
         ("sudo suser / auser / nauser", "list / grant / revoke admin"),
         ("sudo rboot", "factory reset (kill hosts, reset users)"),
     ]
-    out = ["Console commands (type a name, then Enter):", ""]
+    out = [f"rconsole {__version__} — console commands (type a name, then Enter):", ""]
     for name, desc in std:
         out.append(f"  {name:<16} {desc}")
     out.append("")
@@ -73,6 +76,12 @@ def cmd_help(ctx, args):
     out.append("plus xterm can be fragile for full-screen TUIs (or tap the")
     out.append("📁 button in the tab bar for a visual file navigator).")
     return "\n".join(out)
+
+
+@commands.command("version")
+def cmd_version(ctx, args):
+    """Print the rconsole version."""
+    return f"rconsole {__version__}"
 
 
 @commands.command("clear")

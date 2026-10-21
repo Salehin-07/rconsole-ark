@@ -1,0 +1,111 @@
+name: Release
+
+# Push a tag like v1.1.0 (it must match version.py) and this workflow:
+#   1. runs the full CI,
+#   2. builds the source archives + checksums + quick-start files,
+#   3. creates the GitHub Release with notes taken from CHANGELOG.md,
+#   4. publishes a multi-arch container image to GitHub Container Registry.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)release, e.g. v1.1.0"
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+
+      - name: Tag must match version.py
+        run: |
+          VERSION="${TAG#v}"
+          FILE_VERSION="$(python3 -c 'from version import __version__; print(__version__)')"
+          if [ "$VERSION" != "$FILE_VERSION" ]; then
+            echo "Tag $TAG does not match version.py ($FILE_VERSION)"; exit 1
+          fi
+
+      - name: Build release assets
+        run: |
+          VERSION="${TAG#v}"
+          mkdir dist
+          git archive --format=tar.gz --prefix="rconsole-$VERSION/" -o "dist/rconsole-$VERSION.tar.gz" "$TAG"
+          git archive --format=zip    --prefix="rconsole-$VERSION/" -o "dist/rconsole-$VERSION.zip"    "$TAG"
+          # compose + Caddy quick-start that pulls the published image
+          sed "s/:-latest/:-$VERSION/" deploy/docker-compose.image.yml > dist/docker-compose.yml
+          cp deploy/Caddyfile dist/Caddyfile
+          cp deploy/.env.example dist/.env.example
+          python3 scripts/release_notes.py "$VERSION" "$GITHUB_REPOSITORY" > dist/NOTES.md
+          (cd dist && sha256sum rconsole-* docker-compose.yml Caddyfile .env.example > SHA256SUMS)
+          ls -la dist && cat dist/SHA256SUMS
+
+      - name: Create or update the release
+        run: |
+          VERSION="${TAG#v}"
+          FILES="dist/rconsole-$VERSION.tar.gz dist/rconsole-$VERSION.zip dist/docker-compose.yml dist/Caddyfile dist/.env.example dist/SHA256SUMS"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" $FILES --clobber
+            gh release edit "$TAG" --title "rconsole $VERSION" --notes-file dist/NOTES.md
+          else
+            gh release create "$TAG" $FILES --title "rconsole $VERSION" --notes-file dist/NOTES.md --verify-tag --latest
+          fi
+
+  image:
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    continue-on-error: true            # the release itself must not depend on the registry
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=${{ env.TAG }}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

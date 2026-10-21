@@ -75,6 +75,27 @@ PROOT_SHA256 = "db185300a9daabbce86aca7632d8c7fdc4249f6f153171954013b70c5f491ec0
 
 MAX_DOWNLOAD = 400 * 1024 * 1024
 DISTRO_FILE = "distro.json"
+# Where `curl ... | sh` installers put things (uv, pipx -> ~/.local/bin, rustup ->
+# ~/.cargo/bin, bun, go, npm -g, deno). They tell you to `source` an env file or
+# restart your shell; line-mode commands never read shell rc files, so these
+# directories are simply always on PATH.
+USER_BIN_DIRS = ("/root/.local/bin", "/root/.cargo/bin", "/root/.bun/bin", "/root/go/bin",
+                 "/root/.npm-global/bin", "/root/.deno/bin")
+SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ENV_FILE = ".rconsole_env"
+# Read by every non-interactive bash (BASH_ENV): makes `vm run`, plain commands and
+# scripts see what a login shell would — e.g. PATH lines installers append to
+# ~/.profile — once per process tree.
+ENV_FILE_TEXT = """# Managed by rconsole: lets non-interactive commands see your login profile.
+# Put PATH/exports in ~/.profile (or ~/.bash_profile) and they apply everywhere.
+if [ -z "$RCONSOLE_PROFILE_LOADED" ]; then
+  export RCONSOLE_PROFILE_LOADED=1
+  for _rc_f in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+    if [ -r "$_rc_f" ]; then . "$_rc_f" >/dev/null 2>&1; break; fi
+  done
+  unset _rc_f
+fi
+"""
 SAFE_PROC_FILES = ("uptime", "meminfo", "cpuinfo", "loadavg", "version")
 CACHE_KEEP = 4                      # downloaded rootfs tarballs kept for reuse
 TOOLS_SRC = config.HERE / "vmtools" / "rfetch.sh"
@@ -734,6 +755,7 @@ def _seed_home(rootfs, home, vm):
         (home / ".rconsole-hush-done").touch(exist_ok=True)
     except OSError:
         pass
+    _write_env_file(home)
     rc = home / ".bashrc"
     marker = "# rconsole prompt"
     try:
@@ -747,6 +769,16 @@ def _seed_home(rootfs, home, vm):
         if ".bashrc" not in ptext:
             with open(prof, "a") as f:
                 f.write('\n[ -n "$BASH_VERSION" ] && [ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"\n')
+    except OSError:
+        pass
+
+
+def _write_env_file(home):
+    """Create/refresh ``~/.rconsole_env`` (ours to manage, unlike the dotfiles)."""
+    path = Path(home) / ENV_FILE
+    try:
+        if not path.exists() or path.read_text() != ENV_FILE_TEXT:
+            path.write_text(ENV_FILE_TEXT)
     except OSError:
         pass
 
@@ -809,6 +841,7 @@ def sync_guest_tools(sid, vm=None):
         # VMs created before `.hushlogin` was seeded get it exactly once; after
         # that it is the user's file (deleting it brings the banner back for good).
         home = home_path(sid, vm)
+        _write_env_file(home)               # existing VMs pick this up on next launch
         done = home / ".rconsole-hush-done"
         if home.is_dir() and not done.exists():
             (home / ".hushlogin").touch(exist_ok=True)
@@ -1046,7 +1079,7 @@ def _guest_shell(sid, vm):
 def _vm_env(sid, vm, probe=False, tty=False):
     env = {
         "HOME": VM_HOME, "USER": "root", "LOGNAME": "root",
-        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PATH": ":".join(USER_BIN_DIRS) + ":" + SYSTEM_PATH,
         "TERM": os.environ.get("TERM") or "xterm-256color",
         "COLORTERM": "truecolor", "LANG": "C.UTF-8", "HOSTNAME": vm,
         "SHELL": _guest_shell(sid, vm), "RCONSOLE_VM": vm,
@@ -1066,6 +1099,8 @@ def _vm_env(sid, vm, probe=False, tty=False):
     env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
     if _seccomp_off():
         env["PROOT_NO_SECCOMP"] = "1"
+    if env["SHELL"].endswith("bash"):
+        env["BASH_ENV"] = f"{VM_HOME}/{ENV_FILE}"
     if not probe:
         for k, v in (state.get_env(sid) or {}).items():
             if not k.startswith("PROOT_"):

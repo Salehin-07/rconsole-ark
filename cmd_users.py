@@ -5,6 +5,7 @@ import shutil
 import auth
 import commands
 import config
+import exposure
 import jobs
 import sandbox
 import state
@@ -82,6 +83,7 @@ def _migrate_user_data(old, new):
             pass
     state.rename_user(old, new)
     sandbox.rename_user(old, new)
+    exposure.rename_owner(old, new)
 
 
 def _migrate_cleanup(name):
@@ -96,6 +98,7 @@ def _migrate_cleanup(name):
             pass
     sandbox.reset(name, keep_home=False)
     state.drop_user(name)
+    exposure.remove_owner(name)
 
 
 @commands.command("rboot")
@@ -138,6 +141,7 @@ def cmd_rboot(ctx, args):
                 if d.is_dir() and d.name not in ("bin", "cache", "tmp"):
                     shutil.rmtree(d, ignore_errors=True)
         shutil.rmtree(config.LOG_DIR, ignore_errors=True)
+        exposure.clear()
     except Exception:
         pass
 

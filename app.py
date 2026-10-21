@@ -6,10 +6,12 @@ access is authorized by :mod:`sandbox`, never by this module, so every entry
 point — the line console, the terminal websocket and the file APIs — enforces
 the same rules.
 """
+import functools
 import gzip
 import logging
 import os
 import posixpath
+import re
 import shutil
 import threading
 import time
@@ -26,12 +28,14 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 import auth
 import config
+import exposure
 import interp
 import jobs
 import ptyhost
 import sandbox
 import state
 import termsess
+from version import __version__
 
 app = Flask(__name__)
 app.secret_key = config.persistent_secret("RCONSOLE_SECRET", "secret.key")
@@ -199,9 +203,12 @@ def origin_check():
     such headers (curl, server-to-server) are not browser-forgeable and pass.
     Proxied hosted apps do their own CSRF handling and are exempt.
     """
-    if (request.endpoint or "").startswith("proxy"):
-        return None
     is_ws = request.headers.get("Upgrade", "").lower() == "websocket"
+    # Hosted/exposed apps do their own CSRF handling — but a websocket handshake is
+    # never exempt (the console's own /ws terminal is one, and proxies don't carry
+    # websockets anyway), so a cross-site page can't reach it through a proxy route.
+    if (request.endpoint or "").startswith("proxy") and not is_ws:
+        return None
     if request.method in _SAFE_METHODS and not is_ws:
         return None
     # Sec-Fetch-Site is set by the browser itself and cannot be forged by a web
@@ -228,10 +235,29 @@ def origin_check():
     return None
 
 
+def _public_exposure_request():
+    """Is this request for an `expose --public` app (viewable without logging in)?"""
+    ep = request.endpoint or ""
+    va = request.view_args or {}
+    if ep in ("proxy_named_bare", "proxy_named", "proxy_named_rest"):
+        name = va.get("name")
+    elif ep in ("proxy_noslash", "proxy_slash", "proxy_rest"):
+        # /<name>/<digits>/… is an exposure only when no hosted app owns that path.
+        if (va.get("folder"), va.get("port")) in HOSTS:
+            return False
+        name = va.get("folder")
+    else:
+        return False
+    e = exposure.get(name or "")
+    return bool(e and e["public"])
+
+
 @app.before_request
 def guard():
     # Allow login page, health probe and static assets without a session.
     if request.endpoint in ("login", "static", "healthz"):
+        return
+    if _public_exposure_request():
         return
     if "username" not in session:
         endpoint = request.endpoint or ""
@@ -267,8 +293,8 @@ def guard():
 
 @app.get("/healthz")
 def healthz():
-    """Unauthenticated liveness probe (Render health checks)."""
-    return {"ok": True}
+    """Unauthenticated liveness probe (platform health checks)."""
+    return {"ok": True, "version": __version__}
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -422,12 +448,51 @@ def _forward_cookies():
             if k != app.config["SESSION_COOKIE_NAME"]}
 
 
-def _do_proxy(folder, port, rest=""):
-    key = (folder, port)
-    if key not in HOSTS:
-        abort(404)
+_REWRITE_TYPES = ("text/html", "application/xhtml", "text/css")
+
+
+@functools.lru_cache(maxsize=64)
+def _rewrite_patterns(prefix):
+    """Regexes that put ``prefix`` in front of root-relative URLs (not yet prefixed)."""
+    skip = re.escape(prefix.lstrip("/")) + "/"
+    attr = re.compile(
+        r"""(\b(?:href|src|action|formaction|poster|data-src|data-href)\s*=\s*)(["'])/(?!/|%s)""" % skip,
+        re.I)
+    css = re.compile(r"""(url\(\s*)(["']?)/(?!/|%s)""" % skip, re.I)
+    return attr, css
+
+
+def _rewrite_body(content, charset, prefix):
+    """Best-effort: ``href="/x"`` -> ``href="/name/x"`` and ``url(/x)`` likewise."""
+    text = content.decode(charset or "utf-8", errors="replace")
+    attr, css = _rewrite_patterns(prefix)
+    text = attr.sub(lambda m: f"{m.group(1)}{m.group(2)}{prefix}/", text)
+    text = css.sub(lambda m: f"{m.group(1)}{m.group(2)}{prefix}/", text)
+    return text.encode(charset or "utf-8", errors="replace")
+
+
+def _rewrite_location(loc, port, prefix):
+    """Keep redirects inside the prefix (the app thinks it lives at /)."""
+    for origin in (f"http://127.0.0.1:{port}", f"http://localhost:{port}"):
+        if loc.startswith(origin):
+            loc = loc[len(origin):] or "/"
+    if loc.startswith("/") and not loc.startswith("//") and not loc.startswith(prefix + "/") \
+            and loc != prefix:
+        return prefix + loc
+    return loc
+
+
+def _proxy_to(port, rest, label, prefix, rewrite=False):
+    """Forward the current request to ``127.0.0.1:<port>/<rest>`` and relay the reply."""
     url = f"http://127.0.0.1:{port}/{rest}"
     headers = {k: v for k, v in request.headers.items() if k.lower() not in _HOP_BY_HOP}
+    # Tell the app where it lives so prefix-aware frameworks can build correct links.
+    headers["X-Forwarded-Prefix"] = prefix
+    headers["X-Forwarded-Host"] = request.host
+    headers["X-Forwarded-Proto"] = request.scheme
+    headers["X-Forwarded-For"] = request.remote_addr or ""
+    if rewrite:
+        headers["Accept-Encoding"] = "identity"        # we must read the body as text
     body = request.get_data()
     # Connection-refused means nothing was processed, so retrying is always
     # safe (a freshly launched app needs a moment to bind its port). Timeouts
@@ -437,7 +502,7 @@ def _do_proxy(folder, port, rest=""):
     for _ in range(8):
         try:
             resp = _upstream().request(
-                request.method, url, params=request.args, data=body,
+                request.method, url, params=list(request.args.items(multi=True)), data=body,
                 headers=headers, cookies=_forward_cookies(), timeout=30,
                 allow_redirects=False,
             )
@@ -452,12 +517,49 @@ def _do_proxy(folder, port, rest=""):
             last_err = e
             break
     if resp is None:
-        app.logger.warning("proxy %s:%s failed: %s", folder, port, last_err)
+        app.logger.warning("proxy %s failed: %s", label, last_err)
         abort(502)
     excluded = {"content-length", "content-encoding", "transfer-encoding",
                 "connection", "server", "keep-alive"}
-    out_headers = [(k, v) for k, v in resp.raw.headers.items() if k.lower() not in excluded]
-    return Response(resp.content, status=resp.status_code, headers=out_headers)
+    out_headers = []
+    for k, v in resp.raw.headers.items():
+        if k.lower() in excluded:
+            continue
+        if k.lower() == "location":
+            v = _rewrite_location(v, port, prefix)
+        out_headers.append((k, v))
+    content = resp.content
+    ctype = (resp.headers.get("Content-Type") or "").lower()
+    if rewrite and any(t in ctype for t in _REWRITE_TYPES):
+        content = _rewrite_body(content, resp.encoding, prefix)
+    return Response(content, status=resp.status_code, headers=out_headers)
+
+
+def _do_proxy(folder, port, rest=""):
+    """Hosted apps started with `sudo serve` / `sudo gunicorn`: /<folder>/<port>/…"""
+    key = (folder, port)
+    if key not in HOSTS:
+        # An exposure whose path happens to start with digits (/myapp/8000/…).
+        if exposure.get(folder):
+            return _named_proxy(folder, request.path.split("/", 2)[2])
+        abort(404)
+    return _proxy_to(port, rest, f"{folder}:{port}", f"/{folder}/{port}")
+
+
+def _named_proxy(name, rest=""):
+    """`expose <port> <name>`: /<name>/… -> 127.0.0.1:<port>/…"""
+    e = exposure.get(name)
+    if not e:
+        abort(404)
+    return _proxy_to(e["port"], rest, name, f"/{name}", rewrite=e["rewrite"])
+
+
+def _named_bare(name):
+    """`/name` -> `/name/` so relative links in the app resolve inside the prefix."""
+    if not exposure.get(name):
+        abort(404)
+    qs = request.query_string.decode("latin-1")
+    return redirect(f"/{name}/" + (f"?{qs}" if qs else ""), code=308)
 
 
 _PROXY_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"]
@@ -465,6 +567,11 @@ app.add_url_rule("/<folder>/<int:port>", "proxy_noslash",
                  lambda folder, port: _do_proxy(folder, port, ""), methods=_PROXY_METHODS)
 app.add_url_rule("/<folder>/<int:port>/", "proxy_slash", _do_proxy, methods=_PROXY_METHODS)
 app.add_url_rule("/<folder>/<int:port>/<path:rest>", "proxy_rest", _do_proxy,
+                 methods=_PROXY_METHODS)
+app.add_url_rule("/<name>", "proxy_named_bare", _named_bare, methods=["GET", "HEAD"])
+app.add_url_rule("/<name>/", "proxy_named", lambda name: _named_proxy(name, ""),
+                 methods=_PROXY_METHODS)
+app.add_url_rule("/<name>/<path:rest>", "proxy_named_rest", _named_proxy,
                  methods=_PROXY_METHODS)
 
 

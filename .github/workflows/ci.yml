@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -35,6 +36,17 @@ jobs:
 
       - name: Lint
         run: uv run ruff check .
+
+      # Browser-behaviour checks for the console UI (system picker keeps focus,
+      # phone settings menu, ✕ window button) in a simulated DOM.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: UI checks (jsdom)
+        run: |
+          cd tests/js
+          npm install --no-save jsdom
+          node ui_check.js
 
       - name: Test
         run: uv run python -m unittest discover -s tests -v

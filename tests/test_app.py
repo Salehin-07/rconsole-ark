@@ -51,7 +51,7 @@ class AuthFlowTests(Base):
         self.assertEqual(self.c.get("/").status_code, 302)
 
     def test_healthz_is_public(self):
-        self.assertEqual(self.c.get("/healthz").get_json(), {"ok": True})
+        self.assertTrue(self.c.get("/healthz").get_json()["ok"])
 
     def test_login_ok_and_cookie_flags(self):
         r = self.login()

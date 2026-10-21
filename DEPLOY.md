@@ -43,6 +43,13 @@ The container image does the right thing automatically:
 
 ---
 
+### Getting the files
+
+Every [GitHub release](../../releases) contains what you need to host rconsole yourself: the complete source
+(`rconsole-<version>.tar.gz` / `.zip`, including the Dockerfile and `deploy/` configs), a ready-to-use
+`docker-compose.yml` + `Caddyfile` + `.env.example`, and `SHA256SUMS` (verify with `sha256sum -c SHA256SUMS`).
+A multi-arch container image is published to `ghcr.io/<owner>/<repo>` with each release. Or just clone the repo.
+
 ## 2. Choose a platform
 
 | Platform | Works? | Persistent disk | Effort | Notes |

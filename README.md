@@ -1,6 +1,11 @@
 # rconsole — a Linux console in your browser, with a private VM per user
 
-> 📦 Deploying? Jump to **[DEPLOY.md](DEPLOY.md)** — Render, Railway, Fly.io, VPS, Kubernetes and more.
+> 📦 **Deploying?** → **[DEPLOY.md](DEPLOY.md)** (Render, Railway, Fly.io, VPS, Kubernetes, …) ·
+> 📖 **Every command** → **[COMMANDS.md](COMMANDS.md)** ·
+> 🧾 **What's new** → **[CHANGELOG.md](CHANGELOG.md)** ·
+> ⬇️ **Self-host from a release** → [Releases](../../releases) (source archives, compose quick-start, container image)
+
+**Version 1.1.0** · MIT licensed
 
 rconsole is a Flask web application that exposes a **Linux console** in the
 browser. It blends two modes:
@@ -33,6 +38,8 @@ through rconsole's built-in reverse proxy — no extra port-forwarding required.
   one, some or all, each with its own root filesystem and persistent `/root`. Be
   root inside, install any package, no host privileges needed; switch with a
   dropdown (see [The VM](#the-vm-vm)).
+- **`expose <port> <name>`**: run any server you like (`python main.py &`, `npm run dev`, …) on the host or in a
+  VM and publish it at `https://<domain>/<name>/` — private by default, `--public` for admins.
 - **`neofetch` / `fetch`** that follow your target (the VM's own system in `vm`
   mode, rconsole's in `host` mode) and adapt to phone-sized screens.
 - Tabs, each owning its own terminal session that keeps running in the
@@ -276,6 +283,8 @@ calling the terminal websocket or the file APIs directly.
 | `cd <dir>` | Change directory (stateful; `~` supported; confined to the VM in `vm` mode). |
 | `history`, `rwhoami`, `alias`, `unalias`, `theme` | Console helpers. |
 | `edit <file>` / `fm [path]` | Built-in editor / file manager (mobile friendly). |
+| `expose <port> <name>` · `expose list` · `expose rm <name>` | Publish a server you started at `/<name>/` — see [Hosting web apps](#hosting-web-apps). Everyone. |
+| `version` | Print the rconsole version. |
 | `vm …` | Your systems (`vm list`, `vm install`, `vm shell`, `vm use`, `vm doctor`, …) — see above. Available to everyone. |
 | `neofetch` / `fetch` / `rfetch` | System summary: your VM's (in `vm` mode) or rconsole's (`host` mode); `rfetch` is always rconsole's. Fits your screen width. |
 | `<cmd> &`, `jobs`, `jobout %n`, `jobtail %n`, `fg %n`, `kill %n` | Background jobs. |
@@ -311,6 +320,23 @@ append ` &` to run longer ones as a job.
 ---
 
 ## Hosting web apps
+
+Two ways, both behind rconsole's login (unless you use `expose --public`):
+
+**`expose` — you start the program, rconsole publishes it.** Works for anything that serves HTTP, on the host
+or inside any VM:
+
+```text
+$ python main.py &              # or: flask run -p 8000, npm run dev, uvicorn app:app --port 8000, …
+$ expose 8000 myapp             # -> https://<your-domain>/myapp/
+$ expose list                   # [up]/[down] status
+$ expose rm myapp
+```
+Apps that don't know they live under a path prefix can use `expose 8000 myapp --rewrite` (fixes root-relative
+links in HTML/CSS). The proxy sends `X-Forwarded-Prefix`, so prefix-aware frameworks work natively. Details and
+limits (no WebSockets) are in [COMMANDS.md](COMMANDS.md#expose).
+
+**`sudo serve` / `sudo gunicorn` — rconsole starts and manages the app:**
 
 ```text
 ark@rconsole:/srv/mysite$ sudo serve 8000
@@ -533,6 +559,8 @@ a locally served root filesystem (download → checksum → extract → run).
 | `{"error":"cross-origin request blocked"}` after login | Your proxy rewrites `Host` without `X-Forwarded-Host`. The server log names the blocked host — add it to `RCONSOLE_ALLOWED_ORIGINS`. |
 | "Too many failed attempts" | Login lockout; wait the stated seconds. |
 | Hosted app exits immediately | The error shows the app's log; in VM mode install `python3`/`gunicorn` in the VM. `sudo sprocess <port>` shows logs. |
+| `uv: command not found` (or `cargo`, `bun`, …) right after installing it in a VM | Fixed: plain commands now have `~/.local/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/go/bin` on `PATH` and read `~/.profile`. Update rconsole. (Interactive `vm shell` always worked because the installer's `source` line ran there.) |
+| `expose` link gives 502 | Nothing is listening on that port yet (`expose list` shows `[down]`) — start your app. |
 | Hosted app not reachable | Ensure you used `sudo serve`/`sudo gunicorn`; access `/<folder>/<port>/`. |
 | Changes not taking effect | No auto-reload; restart the server. Hard-refresh for static assets. |
 
