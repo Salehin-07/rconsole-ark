@@ -22,6 +22,9 @@ os.environ.pop("RENDER", None)
 os.environ["RCONSOLE_LOGIN_ATTEMPTS"] = "3"
 os.environ["RCONSOLE_LOGIN_LOCKOUT"] = "30"
 os.environ["RCONSOLE_MIN_PASSWORD"] = "8"
+os.environ["RCONSOLE_SUPERVISOR"] = "0"      # tests drive services.tick() themselves
+for _v in ("RCONSOLE_BACKUP_URL", "RCONSOLE_BACKUP_DIR", "RCONSOLE_KEEPALIVE"):
+    os.environ.pop(_v, None)
 
 
 def wipe_vms():

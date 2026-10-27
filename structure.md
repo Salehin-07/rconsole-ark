@@ -5,6 +5,13 @@ rconsole/
 ├── app.py                  # Flask app: CSRF + auth guards, login throttling, confined file APIs, proxy, /ws
 ├── main.py                 # Entry point (calls app.main())
 ├── config.py               # All environment-driven settings + persisted secrets
+├── FREE_HOSTING.md         # The purpose of rconsole: free Render-tier hosting for bots/sites/workers (start here)
+├── keepalive.py            # Self-ping of the public URL so free instances never sleep (+ cmd_keepalive.py)
+├── backup.py               # Encrypted snapshots -> private git repo/folder; restore on a fresh instance (+ cmd_backup.py)
+├── bootstrap.py            # Imported first by app.py: restores a backup BEFORE secrets are generated
+├── services.py             # Supervisor: named commands that autostart + restart on crash (+ cmd_service.py)
+├── cmd_reboot.py           # `sudo reboot`: final backup, stop everything, reload in place (or --hard exit)
+├── render.paid.yaml        # Render blueprint with a persistent disk (render.yaml is the FREE plan)
 ├── LICENSE                 # MIT
 ├── _ptyexec.py             # PTY launcher: setsid + controlling terminal (job control, Ctrl+C), then exec
 ├── sandbox.py              # THE authorization choke point: host vs per-user VM (proot), path confinement

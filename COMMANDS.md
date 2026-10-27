@@ -10,6 +10,8 @@ documented here (a test fails otherwise).
 [Files and editing](#files-and-editing) ·
 [Your Linux systems (`vm`)](#your-linux-systems-vm) ·
 [Hosting and exposing apps](#hosting-and-exposing-apps) ·
+[Services: bots and workers](#services-bots-and-workers) ·
+[Staying alive: keep-alive, backups, reboot](#staying-alive-keep-alive-backups-reboot) ·
 [Background jobs](#background-jobs) ·
 [Users and administration](#users-and-administration) ·
 [Environment and AI](#environment-and-ai) ·
@@ -83,6 +85,10 @@ Legend: 🔒 = needs `sudo` (admin). `<x>` = required, `[x]` = optional.
 | [`expose`](#expose) / [`unexpose`](#unexpose) | publish a running server at `/name/` | |
 | [`sprocess`](#sprocess) | list hosted apps / show logs | 🔒 |
 | [`kprocess`](#kprocess) | stop hosted apps | 🔒 |
+| [`service`](#service) | supervised bots/workers: autostart, restart on crash | |
+| [`keepalive`](#keepalive) | stay awake on free hosting (self-ping) | |
+| [`backup`](#backup) | encrypted backups, auto-restore on a fresh instance | 🔒 |
+| [`reboot`](#reboot) | restart rconsole without redeploying | 🔒 |
 | [`jobs`](#jobs) · [`jobout`](#jobout) · [`jobtail`](#jobtail) · [`fg`](#fg) · [`kill`](#kill) | background jobs | |
 | [`suser`](#suser) · [`auser`](#auser) · [`nauser`](#nauser) | list users / grant / revoke admin | 🔒 |
 | [`muser`](#muser) · [`ruser`](#ruser) | create / delete a user | 🔒 |
@@ -120,7 +126,8 @@ Prints your username.
 Prints the rconsole version, e.g. `rconsole 1.1.0` (also in the first line of `help` and at `/healthz`).
 
 ### `cd`
-Changes the tab's working directory. Each tab remembers its own directory.
+Changes the tab's working directory. Each tab remembers its own directory. On the host new tabs start in the
+**workspace** (`<data>/workspace`), which is part of every backup.
 ```text
 cd /srv/site     # absolute
 cd ..            # up
@@ -313,6 +320,96 @@ tail (apps that exit immediately also print it automatically).
 ### `kprocess`
 🔒 Stops hosted apps: `sudo kprocess <pid>` for one, `sudo kprocess` for all of them. It refuses to kill the
 rconsole server itself.
+
+---
+
+## Services: bots and workers
+
+### `service`
+A **service** is a named command that rconsole keeps running: it **starts at boot**, is **restarted when it
+crashes**, can live in a VM or on the host, and survives redeploys (definitions are part of every
+[backup](#backup)). This is how you host a Telegram/Discord bot, a scraper, a queue worker or a web app.
+
+| Subcommand | What it does |
+|---|---|
+| `service add <name> [options] <command…>` | create and start a service |
+| `service list` | every service with state, uptime, restarts, where it runs |
+| `service start`, `stop`, `restart` `<name\|all>` | control one service or all of yours |
+| `service logs <name> [lines]` | recent output (and the last exit code) |
+| `service rm <name>` | stop and delete (also removes its `--expose`) |
+| `service help` | short usage |
+
+Options for `add` (put them **before** the command; `--` ends the options):
+
+| Option | Meaning |
+|---|---|
+| `--vm <name>` | run inside that VM (default: your current system) |
+| `--host` | run on the server itself (**admins only**) |
+| `--cwd <dir>` | working directory (default: `/root` in a VM, the workspace on the host) |
+| `--env KEY=VALUE` | environment variable (repeatable) — good for bot tokens |
+| `--expose PORT:NAME` | publish the app at `/NAME/` (like [`expose`](#expose)) |
+| `--no-autostart` | create it stopped; start with `service start` |
+
+```text
+service add tgbot --vm debian --cwd /root/bot --env BOT_TOKEN=123:abc python3 bot.py
+service add web --vm debian --cwd /root/app --expose 8000:web gunicorn -b 127.0.0.1:8000 app:app
+service add job --vm debian sh -c 'while true; do python3 run.py; sleep 3600; done'
+service list
+service logs tgbot 100
+```
+* **Restart policy:** after a crash it is restarted after 2 s, then 4, 8, … up to 60 s between attempts; a run that
+  lasted a minute resets the delay. `service list` shows `retry in …s` and the last exit code.
+* **After a redeploy or restore** services start again; if their VM is still being rebuilt they simply retry until
+  it is ready.
+* The command text is kept exactly as you typed it (quotes, `;`, `&&`). Names: lowercase letters, digits, `-` `_`.
+  Up to 10 per user. Normal users can only run services inside their VMs. Admins see everyone's services; everyone
+  else only their own.
+
+---
+
+## Staying alive: keep-alive, backups, reboot
+
+Made for free hosting tiers that sleep when idle and wipe their disk on every deploy — see
+[FREE_HOSTING.md](FREE_HOSTING.md).
+
+### `keepalive`
+Pings the site's own **public URL** (`/healthz`) every 10 minutes so a free instance never goes to sleep.
+```text
+keepalive           # status: URL, interval, last result
+keepalive now       # ping right now and show the result
+keepalive off       # (admins) pause until the next restart;  keepalive on  resumes
+```
+On by default on Render (the URL is detected). Elsewhere set `RCONSOLE_PUBLIC_URL` and `RCONSOLE_KEEPALIVE=1`;
+`RCONSOLE_KEEPALIVE_EXTRA=url1,url2` also pings your other free sites; `RCONSOLE_KEEPALIVE_INTERVAL` changes the
+period (seconds, minimum 60).
+
+### `backup`
+🔒 Encrypted snapshots of everything that matters, pushed to a **private git repo** (or a folder), restored
+**automatically** on a fresh instance.
+```text
+sudo backup                 # status: target, last backup, size, problems
+sudo backup now             # take one right now
+sudo backup restore --yes   # replace local data with the latest backup
+sudo backup help            # setup steps
+```
+* **Saved:** users and secrets, per-user state, the workspace, exposures, services, each VM's `/root`, and the list
+  of VMs and `vm setup` profiles. **Not saved:** VM system files (re-downloaded), caches, `node_modules`/venvs,
+  logs, files over 20 MB, running processes.
+* Runs every 15 min **if something changed**, and once at shutdown. Size limit: `RCONSOLE_BACKUP_MAX_MB` (default 40).
+* **Encrypted** with `RCONSOLE_BACKUP_PASSPHRASE` (required). Destination: `RCONSOLE_BACKUP_URL` +
+  `RCONSOLE_BACKUP_TOKEN` (git) or `RCONSOLE_BACKUP_DIR` (a folder).
+* On a blank instance (no users file) the latest backup is restored **before anything else starts**, then your VMs
+  are reinstalled in the background and `vm setup` profiles re-applied.
+* Restoring at boot never overwrites existing files; `sudo backup restore --yes` does.
+
+### `reboot`
+🔒 Restarts rconsole **without redeploying** — so a free host doesn't hand you a blank disk.
+```text
+sudo reboot --yes         # in place: final backup → stop everything → reload. Files and VMs stay.
+sudo reboot --hard --yes  # exit the process; the platform starts a fresh one (may need a restore)
+```
+Services start again by themselves and the page reconnects. Use it after changing environment variables on the
+host, or to recover from a wedged state. Without `--yes` it only explains what it will do.
 
 ---
 

@@ -1,32 +1,53 @@
-# rconsole — a Linux console in your browser, with a private VM per user
+# rconsole — free hosting for your bots, websites and workers
 
-> 📦 **Deploying?** → **[DEPLOY.md](DEPLOY.md)** (Render, Railway, Fly.io, VPS, Kubernetes, …) ·
-> 📖 **Every command** → **[COMMANDS.md](COMMANDS.md)** ·
-> 🧾 **What's new** → **[CHANGELOG.md](CHANGELOG.md)** ·
-> ⬇️ **Self-host from a release** → [Releases](../../releases) (source archives, compose quick-start, container image)
+> 🆓 **Start here → [FREE_HOSTING.md](FREE_HOSTING.md)** (host on Render's free tier from your phone) ·
+> 📦 **Other hosts** → [DEPLOY.md](DEPLOY.md) ·
+> 📖 **Every command** → [COMMANDS.md](COMMANDS.md) ·
+> 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
+> ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.1.0** · MIT licensed
+**Version 1.2.0** · MIT licensed
 
-rconsole is a Flask web application that exposes a **Linux console** in the
-browser. It blends two modes:
+## Why this exists
 
-1. **Line-mode console** — a stateful shell (`cd`, `help`, hosted-app
-   management, user administration, background jobs, an AI agent) implemented
-   natively in Python.
-2. **Real interactive terminal** — full-screen, real programs (`nano`, `vim`,
-   `python`, `bash`, `less`, `top`, `git`, `ssh`, ...) streamed over a
-   WebSocket-backed PTY.
+Plenty of providers give you a **free tier for a small website** — but *bot hosting* and *background workers*
+are never free. If you have no budget, that leaves you with nothing: you cannot run a Telegram bot, a scraper, a
+queue worker or an API with a background job anywhere, because every free plan sleeps, wipes its disk, and gives
+you no shell.
+
+rconsole is built for exactly that person. Put it on **one free web service** (Render's free tier is the
+reference) and you get a small always-on Linux server that you control **from your phone, from anywhere**:
+
+* **A real terminal and your own Linux systems** (Debian, Ubuntu, Kali, Alpine) where you are `root` and can
+  install anything — no host privileges needed.
+* **Run anything, keep it running**: `service add` starts bots and workers at boot and restarts them when they
+  crash. Publish websites (static *or* dynamic) with `sudo serve` / `expose`.
+* **It doesn't fall asleep**: a built-in keep-alive pings its own public URL every 10 minutes — no uptime monitor
+  needed.
+* **A wiped disk isn't the end**: encrypted backups go to a free private git repo; a fresh instance restores
+  itself, rebuilds your VMs and restarts your services. `sudo reboot` restarts in place when you just need a
+  restart, with no redeploy.
+* **Made for a thumb**: a responsive UI you can install as an app.
+
+It is designed for **one person or a small team** (default cap: 10 accounts) — not for the public — so it keeps
+things simple and small. Be honest about the limits: free instances have ~512 MB RAM, restart when the provider
+decides, and the VM is a compatibility layer rather than a hard sandbox. FREE_HOSTING.md spells out what to expect.
+
+## What it is
+
+rconsole is a Flask web application that exposes a **Linux console** in the browser. It blends two modes:
+
+1. **Line-mode console** — a stateful shell (`cd`, `help`, services, hosted-app management, user
+   administration, background jobs, an AI agent) implemented natively in Python.
+2. **Real interactive terminal** — full-screen, real programs (`nano`, `vim`, `python`, `bash`, `less`, `top`,
+   `git`, `ssh`, …) streamed over a WebSocket-backed PTY.
 
 Commands run on one of two **targets**:
 
 | Target | What it is | Who |
 |--------|------------|-----|
 | `host` | The machine rconsole runs on, with the server's privileges | admins |
-| `vm`   | **Your own Linux system** (Alpine) where you are `root` and can `apk add` anything — works even on locked-down hosts such as Render | everyone |
-
-On top of that, rconsole can **host real web apps**: run `sudo serve 8000` (or
-`sudo gunicorn …`) and the app is served at `https://your-domain/<folder>/<port>/`
-through rconsole's built-in reverse proxy — no extra port-forwarding required.
+| `vm`   | **Your own Linux system** (Debian by default) where you are `root` and can `apt install` anything — works even on locked-down hosts such as Render | everyone |
 
 ---
 
@@ -38,6 +59,11 @@ through rconsole's built-in reverse proxy — no extra port-forwarding required.
   one, some or all, each with its own root filesystem and persistent `/root`. Be
   root inside, install any package, no host privileges needed; switch with a
   dropdown (see [The VM](#the-vm-vm)).
+- **`service`**: bots and workers that **start at boot and restart when they crash** (`service add tgbot --vm
+  debian python bot.py`), with logs, env vars and optional web exposure.
+- **Free-tier survival**: built-in **keep-alive** (never sleeps), **encrypted backups + automatic restore**
+  (VMs and toolchains rebuilt, services restarted), `sudo reboot` without a redeploy.
+- **Installable on a phone** (home-screen app) with a layout built for small screens.
 - **`expose <port> <name>`**: run any server you like (`python main.py &`, `npm run dev`, …) on the host or in a
   VM and publish it at `https://<domain>/<name>/` — private by default, `--public` for admins.
 - **`neofetch` / `fetch`** that follow your target (the VM's own system in `vm`
@@ -104,6 +130,14 @@ Everything is configured through environment variables (see `config.py`).
 | `RCONSOLE_ALLOW_USER_HOST` | Let **non-admins** use the real host shell (full RCE — leave off) | `0` |
 | `RCONSOLE_USER_VM_PROC` | Expose host `/proc` to non-admin VMs (`ps`/`top` work, but see Security) | `0` |
 | `RCONSOLE_TRUST_PROXY` | Trust `X-Forwarded-*` (one proxy hop) | on when `RENDER` is set |
+| `RCONSOLE_PUBLIC_URL` | The site's public URL (auto-detected on Render, Fly, Railway, Koyeb) — what the keep-alive pings | auto |
+| `RCONSOLE_KEEPALIVE` / `..._INTERVAL` / `..._EXTRA` | Ping our own URL so a free instance never sleeps (default **on for Render**); seconds between pings (600); extra URLs to ping | auto / `600` / – |
+| `RCONSOLE_BACKUP_URL` + `RCONSOLE_BACKUP_TOKEN` | A **private git repo** (and a token with write access to it only) that receives encrypted backups; or `RCONSOLE_BACKUP_DIR` for a folder | – |
+| `RCONSOLE_BACKUP_PASSPHRASE` | **Required for backups** — encrypts them (keep a copy elsewhere!) | – |
+| `RCONSOLE_BACKUP_INTERVAL` / `RCONSOLE_BACKUP_MAX_MB` | Seconds between backups when something changed (900) · size limit (40) | `900` / `40` |
+| `RCONSOLE_MAX_USERS` | Account cap — this is a one-person / small-team tool | `10` |
+| `RCONSOLE_DEFAULT_SYSTEM` | System `vm install` uses by default (`alpine` suits 512 MB instances) | `debian` |
+| `RCONSOLE_SUPERVISOR` | Run the service supervisor | `1` |
 | `RCONSOLE_ALLOWED_ORIGINS` | Extra hostnames the console is served from (comma separated). Auto-detected via `Host`, `X-Forwarded-Host` and Render's hostname; set it only if you still see `cross-origin request blocked` | – |
 | `RCONSOLE_COOKIE_SECURE` | `Secure` session cookie (HTTPS only) | on when `RENDER` is set |
 | `RCONSOLE_LOGIN_ATTEMPTS` / `RCONSOLE_LOGIN_LOCKOUT` | Failed logins before lockout / base lockout seconds (doubles per repeat, max 15 min) | `5` / `30` |
@@ -283,6 +317,8 @@ calling the terminal websocket or the file APIs directly.
 | `cd <dir>` | Change directory (stateful; `~` supported; confined to the VM in `vm` mode). |
 | `history`, `rwhoami`, `alias`, `unalias`, `theme` | Console helpers. |
 | `edit <file>` / `fm [path]` | Built-in editor / file manager (mobile friendly). |
+| `service add\|list\|start\|stop\|restart\|logs\|rm` | Supervised bots/workers — see [COMMANDS.md](COMMANDS.md#service). Everyone. |
+| `keepalive` · `sudo backup` · `sudo reboot --yes` | Stay awake, back up/restore, restart in place — see [FREE_HOSTING.md](FREE_HOSTING.md). |
 | `expose <port> <name>` · `expose list` · `expose rm <name>` | Publish a server you started at `/<name>/` — see [Hosting web apps](#hosting-web-apps). Everyone. |
 | `version` | Print the rconsole version. |
 | `vm …` | Your systems (`vm list`, `vm install`, `vm shell`, `vm use`, `vm doctor`, …) — see above. Available to everyone. |
@@ -559,6 +595,8 @@ a locally served root filesystem (download → checksum → extract → run).
 | `{"error":"cross-origin request blocked"}` after login | Your proxy rewrites `Host` without `X-Forwarded-Host`. The server log names the blocked host — add it to `RCONSOLE_ALLOWED_ORIGINS`. |
 | "Too many failed attempts" | Login lockout; wait the stated seconds. |
 | Hosted app exits immediately | The error shows the app's log; in VM mode install `python3`/`gunicorn` in the VM. `sudo sprocess <port>` shows logs. |
+| Instance falls asleep / bots stop after a while | `keepalive` — is there a public URL and is it enabled? See [FREE_HOSTING.md](FREE_HOSTING.md#stay-awake). |
+| Everything is gone after a redeploy | Backups weren't configured (`sudo backup` shows what's missing) — see [FREE_HOSTING.md](FREE_HOSTING.md). |
 | `uv: command not found` (or `cargo`, `bun`, …) right after installing it in a VM | Fixed: plain commands now have `~/.local/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/go/bin` on `PATH` and read `~/.profile`. Update rconsole. (Interactive `vm shell` always worked because the installer's `source` line ran there.) |
 | `expose` link gives 502 | Nothing is listening on that port yet (`expose list` shows `[down]`) — start your app. |
 | Hosted app not reachable | Ensure you used `sudo serve`/`sudo gunicorn`; access `/<folder>/<port>/`. |

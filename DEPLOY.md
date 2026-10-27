@@ -1,5 +1,9 @@
 # Deploying rconsole
 
+> **No budget?** rconsole's main purpose is to run bots, websites and workers on a **free** tier. Follow
+> **[FREE_HOSTING.md](FREE_HOSTING.md)** first (Render free + a private backup repo). This guide covers every other
+> platform and paid setups.
+
 This guide takes you from "it runs on my laptop" to a public, HTTPS, persistent
 rconsole on **any** platform — a one-click PaaS, a $5 VPS, Kubernetes, or a
 Raspberry Pi at home. Pick your platform in the [table](#2-choose-a-platform),
@@ -92,7 +96,9 @@ for deployment:
 
 ## 4. Render
 
-**Best for:** the fastest start. **Needs a paid instance** for a persistent disk.
+**Best for:** the fastest start. The **free plan works** (keep-alive and backups are built in — see
+[FREE_HOSTING.md](FREE_HOSTING.md)); a **paid instance** adds a persistent disk. [`render.yaml`](render.yaml) is the
+free blueprint, [`render.paid.yaml`](render.paid.yaml) the one with a disk.
 
 1. Push the repo to GitHub.
 2. Render dashboard → **New → Blueprint** → pick the repo. Render reads

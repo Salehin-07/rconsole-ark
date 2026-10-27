@@ -1,0 +1,14 @@
+{
+  "name": "rconsole",
+  "short_name": "rconsole",
+  "description": "A Linux console in your browser: host bots, websites and workers from anywhere.",
+  "start_url": "/console",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "icons": [
+    {"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}
+  ]
+}

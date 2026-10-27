@@ -229,7 +229,9 @@ CATALOG = {
         "latest, or a branch like 3.21 / edge", "apk", ("alp",)),
 }
 
-DEFAULT_DISTRO = "debian"
+DEFAULT_DISTRO = (os.environ.get("RCONSOLE_DEFAULT_SYSTEM") or "debian").strip().lower()
+if DEFAULT_DISTRO not in CATALOG:
+    DEFAULT_DISTRO = "debian"
 
 
 def _alias_map():

@@ -25,6 +25,19 @@ Environment variables
 ``RCONSOLE_TRUST_PROXY``       Honour ``X-Forwarded-*`` headers (default on when a
                                managed platform is detected, see
                                :func:`detect_platform`).
+``RCONSOLE_PUBLIC_URL``        The site's public URL (auto-detected on most platforms);
+                               used by the keep-alive self-ping.
+``RCONSOLE_KEEPALIVE``         Ping our own public URL so free instances never sleep
+                               (default on for Render). ``..._INTERVAL`` seconds (600),
+                               ``..._EXTRA`` comma list of other URLs to ping too.
+``RCONSOLE_BACKUP_URL``        Private git repo to back the data up to (GitHub, GitLab,
+                               ...), with ``RCONSOLE_BACKUP_TOKEN`` and a required
+                               ``RCONSOLE_BACKUP_PASSPHRASE`` (backups are encrypted).
+                               ``RCONSOLE_BACKUP_DIR`` backs up to a folder instead.
+``RCONSOLE_MAX_USERS``         Account cap (default 10): this is for one person or a
+                               small team.
+``RCONSOLE_SUPERVISOR``        Run the service supervisor (default on).
+``RCONSOLE_DEFAULT_SYSTEM``    System ``vm install`` uses by default (default ``debian``).
 ``RCONSOLE_ALLOWED_ORIGINS``   Extra hostnames the console is served from (comma
                                separated). Normally auto-detected; see README.
 ``RCONSOLE_COOKIE_SECURE``     Mark the session cookie ``Secure`` (default on
@@ -59,7 +72,7 @@ def detect_platform(environ=None):
     """Recognise a managed host from its environment variables.
 
     Returns ``(name, public_hostnames, volume_path)``; ``name`` is ``None`` on a
-    plain server. Used to turn on proxy trust / secure cookies by default,
+    plain server. See also :func:`detect_public_url`. Used to turn on proxy trust / secure cookies by default,
     accept the platform's public hostname, and find an attached volume.
     """
     e = os.environ if environ is None else environ
@@ -87,7 +100,25 @@ def detect_platform(environ=None):
     return name, tuple(h.lower() for h in hosts if h), volume
 
 
+def detect_public_url(environ=None):
+    """The site's public URL as the platform reports it (or ``""``)."""
+    e = os.environ if environ is None else environ
+    explicit = (e.get("RCONSOLE_PUBLIC_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    if e.get("RENDER_EXTERNAL_URL"):
+        return e["RENDER_EXTERNAL_URL"].rstrip("/")
+    for var, fmt in (("RAILWAY_PUBLIC_DOMAIN", "https://{}"), ("KOYEB_PUBLIC_DOMAIN", "https://{}"),
+                     ("HEROKU_APP_DEFAULT_DOMAIN_NAME", "https://{}")):
+        if e.get(var):
+            return fmt.format(e[var])
+    if e.get("FLY_APP_NAME"):
+        return f"https://{e['FLY_APP_NAME']}.fly.dev"
+    return ""
+
+
 PLATFORM, PLATFORM_HOSTS, _PLATFORM_VOLUME = detect_platform()
+PUBLIC_URL = detect_public_url()
 ON_RENDER = PLATFORM == "render"          # kept for backwards compatibility
 
 DATA_DIR = Path(os.environ.get("RCONSOLE_DATA_DIR") or _PLATFORM_VOLUME
@@ -95,8 +126,37 @@ DATA_DIR = Path(os.environ.get("RCONSOLE_DATA_DIR") or _PLATFORM_VOLUME
 STATE_DIR = DATA_DIR / "state"
 VM_DIR = DATA_DIR / "vm"
 LOG_DIR = DATA_DIR / "logs"
+# Where host-mode commands start (and what backups include): anything you keep
+# here — bots, sites, scripts — is part of the data that survives a restore.
+WORKSPACE_DIR = DATA_DIR / "workspace"
 
 MIN_PASSWORD_LEN = max(4, env_int("RCONSOLE_MIN_PASSWORD", 8))
+# rconsole is built for one person or a small team on a small (often free)
+# instance, not for the public: cap the number of accounts.
+MAX_USERS = max(1, env_int("RCONSOLE_MAX_USERS", 10))
+
+# --- staying awake on free tiers (see keepalive.py) ---------------------------------
+# Free instances (Render, ...) sleep after ~15 minutes without inbound requests.
+# Pinging our own *public* URL counts as inbound traffic, so we do it ourselves.
+KEEPALIVE = env_bool("RCONSOLE_KEEPALIVE", PLATFORM == "render")
+KEEPALIVE_INTERVAL = max(60, env_int("RCONSOLE_KEEPALIVE_INTERVAL", 600))
+KEEPALIVE_EXTRA = tuple(u.strip() for u in
+                        (os.environ.get("RCONSOLE_KEEPALIVE_EXTRA") or "").split(",") if u.strip())
+
+# --- backups: make free, disk-less hosting survive redeploys (see backup.py) ----------
+BACKUP_URL = (os.environ.get("RCONSOLE_BACKUP_URL") or "").strip()        # a private git repo
+BACKUP_DIR = (os.environ.get("RCONSOLE_BACKUP_DIR") or "").strip()        # or any folder/mount
+BACKUP_TOKEN = os.environ.get("RCONSOLE_BACKUP_TOKEN") or ""
+BACKUP_USER = os.environ.get("RCONSOLE_BACKUP_USER") or "x-access-token"
+BACKUP_PASSPHRASE = os.environ.get("RCONSOLE_BACKUP_PASSPHRASE") or ""
+BACKUP_ENCRYPT = env_bool("RCONSOLE_BACKUP_ENCRYPT", True)
+BACKUP_BRANCH = os.environ.get("RCONSOLE_BACKUP_BRANCH") or "rconsole-backup"
+BACKUP_INTERVAL = max(60, env_int("RCONSOLE_BACKUP_INTERVAL", 900))
+BACKUP_MAX_MB = max(1, env_int("RCONSOLE_BACKUP_MAX_MB", 40))
+RESTORE_SETUP = env_bool("RCONSOLE_RESTORE_SETUP", True)   # re-run `vm setup` profiles after a restore
+
+# --- the service supervisor (see services.py) ---------------------------------------
+SUPERVISOR = env_bool("RCONSOLE_SUPERVISOR", True)
 
 VM_ENABLED = env_bool("RCONSOLE_VM", True)
 DEFAULT_ADMIN_MODE = (os.environ.get("RCONSOLE_DEFAULT_MODE") or "host").strip().lower()

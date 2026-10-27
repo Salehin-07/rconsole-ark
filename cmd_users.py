@@ -7,6 +7,7 @@ import commands
 import config
 import exposure
 import jobs
+import services
 import sandbox
 import state
 import termsess
@@ -84,6 +85,7 @@ def _migrate_user_data(old, new):
     state.rename_user(old, new)
     sandbox.rename_user(old, new)
     exposure.rename_owner(old, new)
+    services.rename_owner(old, new)
 
 
 def _migrate_cleanup(name):
@@ -99,6 +101,7 @@ def _migrate_cleanup(name):
     sandbox.reset(name, keep_home=False)
     state.drop_user(name)
     exposure.remove_owner(name)
+    services.remove_owner(name)
 
 
 @commands.command("rboot")
@@ -142,6 +145,7 @@ def cmd_rboot(ctx, args):
                     shutil.rmtree(d, ignore_errors=True)
         shutil.rmtree(config.LOG_DIR, ignore_errors=True)
         exposure.clear()
+        services.clear()
     except Exception:
         pass
 

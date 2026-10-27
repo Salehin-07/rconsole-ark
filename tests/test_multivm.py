@@ -417,6 +417,47 @@ class MultiVm(unittest.TestCase):
             if saved:
                 os.environ["RCONSOLE_VM_PROOT"] = saved
 
+    def test_a_redeploy_is_survivable_backup_restore_rebuilds_vms(self):
+        """The free-hosting story: wipe the machine, restore, VMs and files come back."""
+        import backup
+        self.install("debian")
+        sandbox.record_setup("alice", "debian", "tools")
+        (sandbox.home_path("alice", "debian") / "bot.py").write_text("print('my bot')")
+        saved = (config.BACKUP_DIR, config.BACKUP_PASSPHRASE, config.BACKUP_ENCRYPT, config.BACKUP_URL)
+        config.BACKUP_DIR = str(Path(tempfile.mkdtemp(prefix="bk-dest-")))
+        config.BACKUP_URL, config.BACKUP_PASSPHRASE, config.BACKUP_ENCRYPT = "", "pass phrase", True
+        try:
+            ok, msg = backup.backup_now(force=True)
+            self.assertTrue(ok, msg)
+            helpers.wipe_vms()                                       # a brand-new instance
+            self.assertEqual(sandbox.installed_vms("alice"), [])
+            ok, msg = backup.restore(force=False)
+            self.assertTrue(ok, msg)
+            # files and the *list* of VMs are back, the (large) system is not
+            self.assertEqual((sandbox.home_path("alice", "debian") / "bot.py").read_text(), "print('my bot')")
+            self.assertEqual(sandbox.installed_vms("alice"), [])
+            self.assertEqual(sandbox.missing_vms(), [("alice", "debian", "trixie")])
+            self.assertEqual(sandbox.recorded_setups("alice", "debian"), ["tools"])
+            logs = []
+            sandbox.restore_vms(log=logs.append)                     # what the boot thread does
+            self.assertEqual(sandbox.installed_vms("alice"), ["debian"])
+            self.assertEqual(sandbox.missing_vms(), [])
+            self.assertEqual(self.run_in("echo up", sid="alice").stdout.strip(), "up")
+            self.assertEqual((sandbox.home_path("alice", "debian") / "bot.py").read_text(), "print('my bot')")
+            self.assertTrue(any("rebuilding alice/debian" in m for m in logs), logs)
+            self.assertTrue(any("re-applying setup 'tools'" in m for m in logs), logs)
+        finally:
+            shutil.rmtree(config.BACKUP_DIR, ignore_errors=True)
+            config.BACKUP_DIR, config.BACKUP_PASSPHRASE, config.BACKUP_ENCRYPT, config.BACKUP_URL = saved
+
+    def test_removed_or_reset_vms_are_not_resurrected(self):
+        self.install("kali")
+        sandbox.reset("alice", "kali", keep_home=True)
+        self.assertEqual(sandbox.missing_vms(), [])                  # reset deletes distro.json
+        self.install("alpine")
+        sandbox.reset("alice", "alpine", keep_home=False)
+        self.assertEqual(sandbox.missing_vms(), [])
+
     def test_catalog_alias_install_choice(self):
         self.assertEqual(distros.parse_choice("কালী")[0].id, "kali")
         self.install("কালী")

@@ -41,8 +41,15 @@ _flusher_started = False
 
 
 def default_cwd():
-    """Real working directory where host (passthrough) commands run."""
-    return str(HERE)
+    """Where host (passthrough) commands start: the persistent workspace.
+
+    It lives in the data dir, so it is part of every backup (unlike the app
+    directory, which a redeploy replaces)."""
+    try:
+        config.WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
+        return str(config.WORKSPACE_DIR)
+    except OSError:
+        return str(HERE)
 
 
 # --------------------------------------------------------------------------- io

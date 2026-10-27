@@ -1,0 +1,22 @@
+# Render Blueprint — PAID plan with a persistent disk (no backups needed for the data dir,
+# though they are still a good safety net). Deploy with "New > Blueprint" and choose this file.
+services:
+  - type: web
+    name: rconsole
+    runtime: docker
+    plan: starter                # persistent disks need a paid plan
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: RCONSOLE_DATA_DIR
+        value: /data
+      - key: RCONSOLE_SECRET
+        generateValue: true
+      - key: RCONSOLE_PEPPER
+        generateValue: true
+      - key: RCONSOLE_ADMIN_PASSWORD
+        sync: false
+    disk:
+      name: rconsole-data
+      mountPath: /data
+      sizeGB: 5

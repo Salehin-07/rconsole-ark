@@ -6,6 +6,13 @@
   <title>rconsole — {{ username }}@rconsole</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=cache_v) }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='xterm.css', v=cache_v) }}">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icon.svg">
+  <meta name="theme-color" content="#0d1117">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="rconsole">
 </head>
 <body>
   <div id="app">

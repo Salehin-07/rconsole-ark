@@ -192,6 +192,7 @@ def _start_setup(ctx, vm, profile):
         path.chmod(0o755)
         guest = f"/tmp/rconsole-setup-{profile}.sh"
         jid, _job = jobs.start_job(sid, f"@vm:{vm} {devsetup.quoted_path_cmd(guest)}", "/root")
+        sandbox.record_setup(sid, vm, profile)      # re-applied automatically after a restore
     except sandbox.SandboxError as e:
         return f"vm setup: {e}"
     except OSError as e:

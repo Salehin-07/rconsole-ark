@@ -956,6 +956,89 @@ def reset(sid, vm=None, keep_home=True):
     return True
 
 
+# ------------------------------------------------- rebuilding VMs after a restore
+def record_setup(sid, vm, profile):
+    """Remember a `vm setup` profile so it can be re-applied after a restore."""
+    path = vm_dir(sid, vm) / "setup.json"
+    try:
+        have = json.loads(path.read_text()) if path.exists() else []
+    except (OSError, ValueError):
+        have = []
+    if profile not in have:
+        have.append(profile)
+        path.write_text(json.dumps(have))
+
+
+def recorded_setups(sid, vm):
+    try:
+        data = json.loads((vm_dir(sid, vm) / "setup.json").read_text())
+        return [p for p in data if isinstance(p, str)]
+    except (OSError, ValueError):
+        return []
+
+
+def missing_vms():
+    """VMs whose metadata survived (e.g. a backup restore) but whose system is gone.
+
+    Returns ``[(user_dir_name, vm_id, release), ...]``."""
+    out = []
+    try:
+        users = [u for u in config.VM_DIR.iterdir()
+                 if u.is_dir() and u.name not in ("bin", "cache", "tmp")]
+    except OSError:
+        return out
+    for u in users:
+        try:
+            for v in (x for x in u.iterdir() if x.is_dir()):
+                meta = v / DISTRO_FILE
+                if meta.is_file() and not (v / READY_MARKER).exists() and _valid_vm_id(v.name):
+                    info = json.loads(meta.read_text())
+                    out.append((u.name, v.name, info.get("release") or ""))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def restore_vms(log=print):
+    """Reinstall missing VMs one by one, then re-apply their recorded setups."""
+    import subprocess
+
+    import devsetup
+    for user, vm, release in missing_vms():
+        choice = f"{vm}:{release}" if release and distros.CATALOG.get(vm) \
+            and release != distros.CATALOG[vm].default_release else vm
+        log(f"[rconsole] rebuilding {user}/{vm} …")
+        ok, msg = install(user, choice, wait=True)
+        if not ok:
+            log(f"[rconsole] could not rebuild {user}/{vm}: {msg}")
+            continue
+        if not config.RESTORE_SETUP:
+            continue
+        for profile in recorded_setups(user, vm):
+            try:
+                text = devsetup.script(profile, family(user, vm))
+                path = rootfs_path(user, vm) / "tmp" / f"rconsole-setup-{profile}.sh"
+                path.write_text(text)
+                path.chmod(0o755)
+                sp = spec(user, f"@vm:{vm} sh /tmp/{path.name}", "/root")
+                log(f"[rconsole] re-applying setup '{profile}' in {user}/{vm} …")
+                subprocess.run(sp.argv, cwd=sp.cwd, env=sp.env, capture_output=True, text=True,
+                               timeout=3600)
+            except Exception as e:
+                log(f"[rconsole] setup '{profile}' for {user}/{vm} failed: {e}")
+
+
+def restore_vms_background():
+    """Start :func:`restore_vms` in a thread if anything needs rebuilding."""
+    if not supported() or not missing_vms():
+        return False
+    import sys
+    threading.Thread(target=restore_vms,
+                     kwargs={"log": lambda m: print(m, file=sys.stderr, flush=True)},
+                     name="rconsole-restore-vms", daemon=True).start()
+    return True
+
+
 def rename_user(old, new):
     """Move a user's VM directory when the account is renamed."""
     src, dst = user_dir(old), user_dir(new)

@@ -31,7 +31,7 @@ class ReleaseTests(unittest.TestCase):
                               "Someone/some-repo"], capture_output=True, text=True, check=True).stdout
         self.assertIn(f"# rconsole {__version__}", out)
         self.assertIn("### Added", out)
-        self.assertIn("### Fixed", out)
+        self.assertTrue(any(h in out for h in ("### Changed", "### Fixed", "### Security")))
         self.assertIn("## Host it yourself", out)
         for asset in (f"rconsole-{__version__}.tar.gz", "docker-compose.yml", "Caddyfile",
                       "env.example", "SHA256SUMS"):

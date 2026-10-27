@@ -56,7 +56,10 @@ source archive instead, or make the package public in the repository's *Packages
 **4. No Docker** — extract the archive, `uv sync`, then `uv run gunicorn -c gunicorn.conf.py app:app`
 (see `deploy/rconsole.service` for systemd).
 
-Deploying to Render, Railway, Fly.io, Kubernetes, AWS/GCP/Azure or a Raspberry Pi? Follow **`DEPLOY.md`**.
+**No budget?** rconsole is made to run your bots, sites and workers on a *free* tier (Render's free plan, with a
+built-in keep-alive and encrypted backups to a private git repo). Start with **`FREE_HOSTING.md`**.
+
+Deploying to Railway, Fly.io, Kubernetes, AWS/GCP/Azure, a VPS or a Raspberry Pi? Follow **`DEPLOY.md`**.
 All commands are documented in **`COMMANDS.md`**.
 
 ### Assets

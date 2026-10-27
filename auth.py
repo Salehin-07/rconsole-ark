@@ -237,6 +237,9 @@ def create_user(username, password, is_admin=False):
         err = validate_password(password)
         if err:
             return False, err
+        if len(users) >= config.MAX_USERS:
+            return False, (f"this console is limited to {config.MAX_USERS} accounts "
+                           "(RCONSOLE_MAX_USERS) — it is meant for one person or a small team")
         users[username] = {"password": _hash(password), "is_admin": is_admin}
         _save(users)
         return True, None

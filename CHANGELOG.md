@@ -3,6 +3,49 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.2.0 — 2026-10-21
+
+rconsole now has a clear purpose: **free hosting for bots, websites and background workers, for one person or a
+small team** — on free tiers such as Render's, from a phone. This release adds what that needs. See
+[FREE_HOSTING.md](FREE_HOSTING.md).
+
+### Added
+- **`service`** — a process supervisor for bots, workers and servers: named commands that **start at boot,
+  restart after crashes** (exponential backoff 2 s → 1 min), run on the host or inside a VM, keep logs, and can
+  be exposed on the web (`--expose PORT:NAME`). Definitions persist and are backed up.
+- **Encrypted backups and automatic restore** (`backup`): snapshots of users, secrets, settings, the workspace,
+  services, exposures and every VM's `/root` go — encrypted (Fernet, key from `RCONSOLE_BACKUP_PASSPHRASE`) — to a
+  private git repo or a folder, every 15 min when something changed and once at shutdown. A **fresh instance
+  restores itself at boot** (before secrets are generated), **rebuilds your VMs** and **re-applies your `vm setup`
+  toolchains**, and services start again. The git branch is replaced on each push, so it never grows.
+- **Built-in keep-alive** (`keepalive`): pings the site's own public URL so free instances never go to sleep; also
+  pings extra URLs. On by default on Render.
+- **`reboot`** — restart rconsole in place (final backup, stop everything, reload) without redeploying; `--hard`
+  to exit the process.
+- **Installable app**: web manifest and icon, so the console can be added to a phone's home screen.
+- `RCONSOLE_MAX_USERS` (default 10) keeps it a small-team tool; `RCONSOLE_DEFAULT_SYSTEM` picks the default VM
+  system (e.g. `alpine` on 512 MB instances); `RCONSOLE_PUBLIC_URL`.
+- `FREE_HOSTING.md` and a free-tier `render.yaml`.
+
+### Changed
+- Host-mode commands now start in a persistent **workspace** (`<data>/workspace`), which is part of every backup,
+  instead of the application directory.
+- `render.yaml` targets Render's **free** plan; the disk-backed variant is `render.paid.yaml`.
+- Dependabot updates are grouped into one pull request per ecosystem.
+
+### Fixed
+- **Slow shutdown/reload**: an open browser connection held gunicorn's graceful shutdown for the full 30 s timeout
+  (and the final backup only ran after that wait). Upstream keep-alive is now off, and shutdown work starts the
+  moment SIGTERM arrives. Restarts now take well under a second.
+- **Orphaned processes**: stopping or reloading the server left background jobs, services and hosted apps running,
+  and an old worker's supervisor could restart them while it was exiting ("address already in use" for the new
+  one). Shutdown now pauses the supervisor first, stops everything it started, then takes the final backup.
+
+### Security
+- Backups are encrypted by default and refuse to run without a passphrase; tokens, passphrases and URL
+  credentials are scrubbed from every message; restore only writes inside the expected folders and never follows
+  symlinks or paths outside them.
+
 ## 1.1.0 — 2026-10-20
 
 The first release of rconsole as a complete, self-hostable Linux console: private Linux VMs for every user, a

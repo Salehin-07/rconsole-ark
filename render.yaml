@@ -1,24 +1,31 @@
-# Render Blueprint — deploy with "New > Blueprint" and point it at this repo.
-# Docs: https://render.com/docs/blueprint-spec
+# Render Blueprint — FREE plan. Deploy with "New > Blueprint" and point it at this repo.
+# Docs: https://render.com/docs/blueprint-spec   Guide: FREE_HOSTING.md
+#
+# Free instances have no persistent disk and sleep when idle; rconsole works around both:
+#   * keep-alive: it pings its own public URL every 10 minutes (on by default on Render);
+#   * backups:    encrypted snapshots to a private git repo, restored automatically on boot.
+# Fill in the four `sync: false` values when Render asks (see FREE_HOSTING.md, step 1).
 services:
   - type: web
     name: rconsole
-    runtime: docker            # use the Dockerfile (installs proot, git, ... )
-    plan: starter              # persistent disks need a paid plan
+    runtime: docker
+    plan: free
     healthCheckPath: /healthz
     autoDeploy: true
     envVars:
       - key: RCONSOLE_DATA_DIR
-        value: /data           # the disk below: users, state, VMs survive deploys
+        value: /data
       - key: RCONSOLE_SECRET
-        generateValue: true    # session signing key (random, stable across deploys)
+        generateValue: true          # stable across deploys (so sessions survive)
       - key: RCONSOLE_PEPPER
-        generateValue: true    # password-hash pepper
+        generateValue: true          # stable across deploys (so password hashes stay valid)
       - key: RCONSOLE_ADMIN_PASSWORD
-        sync: false            # you are prompted for it; sets the first `ark` password
-      - key: RCONSOLE_DEFAULT_MODE
-        value: host            # admins start on the container shell; `vm mode vm` to switch
-    disk:
-      name: rconsole-data
-      mountPath: /data
-      sizeGB: 5                # VMs are ~10 MB each, plus anything users install
+        sync: false                  # first password for the `ark` admin
+      - key: RCONSOLE_BACKUP_URL
+        sync: false                  # https://github.com/YOU/rconsole-data.git  (a PRIVATE repo)
+      - key: RCONSOLE_BACKUP_TOKEN
+        sync: false                  # token with Contents: read/write on that repo only
+      - key: RCONSOLE_BACKUP_PASSPHRASE
+        sync: false                  # long passphrase; keep a copy elsewhere
+      - key: RCONSOLE_MAX_USERS
+        value: "5"                   # this is for you and a few friends

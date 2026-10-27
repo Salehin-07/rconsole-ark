@@ -9,6 +9,10 @@ focused modules and register themselves here with :func:`command`:
 - ``cmd_hosting``  serve, gunicorn, sprocess, kprocess
 - ``cmd_vm``       vm (per-user Linux VM: list, install, shell, run, mode)
 - ``cmd_expose``   expose / unexpose (publish a local port at /<name>/)
+- ``cmd_service``   service (supervised bots/workers: autostart, restart on crash)
+- ``cmd_reboot``    reboot (restart without redeploying)
+- ``cmd_backup``    backup (encrypted backups to a git repo / folder)
+- ``cmd_keepalive`` keepalive (self-ping so free instances never sleep)
 - ``cmd_fetch``    neofetch / fetch (target aware, responsive) and rfetch
 - ``cmd_users``    logout, suser/auser/nauser/ruser, muser/cpass/cuser, rboot
 - ``cmd_jobs``     jobs, jobout, jobtail, fg, kill
@@ -28,7 +32,7 @@ HERE = Path(__file__).resolve().parent
 # NOTE: `logout` is deliberately public — anyone may log themselves out.
 PROTECTED = {"rboot", "cpass", "cuser", "muser", "serve", "gunicorn",
              "sprocess", "kprocess", "suser", "auser", "nauser", "ruser",
-             "env", "opencode", "agent"}
+             "env", "opencode", "agent", "backup", "reboot"}
 
 # Registry of built-in commands.
 COMMANDS = {}
@@ -52,6 +56,10 @@ import cmd_users  # noqa: E402,F401
 import cmd_vm  # noqa: E402,F401
 import cmd_fetch  # noqa: E402,F401
 import cmd_expose  # noqa: E402,F401
+import cmd_keepalive  # noqa: E402,F401
+import cmd_backup  # noqa: E402,F401
+import cmd_reboot  # noqa: E402,F401
+import cmd_service  # noqa: E402,F401
 import editor  # noqa: E402,F401
 
 # Register the fun/novelty commands (cowsay, fortune, figlet, ...).

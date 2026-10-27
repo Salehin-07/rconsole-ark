@@ -26,9 +26,13 @@ from requests.adapters import HTTPAdapter
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+import bootstrap  # noqa: F401  (must be first: restores a backup before secrets are created)
 import auth
+import backup
 import config
 import exposure
+import keepalive
+import services
 import interp
 import jobs
 import ptyhost
@@ -971,6 +975,33 @@ try:
     auth.seed_defaults()
 except Exception as e:  # e.g. a read-only data dir shouldn't crash the whole app
     app.logger.warning("Could not seed default user: %s", e)
+
+
+def start_background_tasks():
+    """Start the things that keep a free instance useful (all no-ops unless enabled):
+
+    * keep-alive — pings our own public URL so the host never puts us to sleep;
+    * backups    — periodic encrypted snapshots to a git repo / folder;
+    * VM rebuild — after a restore, reinstall the VMs that were backed up;
+    * supervisor — start and restart the user's services (bots, workers).
+    """
+    started = []
+    try:
+        if keepalive.start_background():
+            started.append("keepalive")
+        if backup.start_background():
+            started.append("backup")
+        if sandbox.restore_vms_background():
+            started.append("vm-rebuild")
+        if services.start_background():
+            started.append("supervisor")
+    except Exception as e:                       # never stop the site from starting
+        app.logger.warning("background tasks: %s: %s", type(e).__name__, e)
+    if started:
+        app.logger.info("background tasks: %s", ", ".join(started))
+
+
+start_background_tasks()
 
 
 def main():
