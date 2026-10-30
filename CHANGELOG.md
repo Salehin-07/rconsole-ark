@@ -13,8 +13,10 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
   per file with live progress, three at a time; existing files are replaced only after you confirm once. Names are
   validated (no `..`, absolute or empty parts), writes are atomic, and a symlink at the target is replaced rather
   than written through. Limit per file: `RCONSOLE_MAX_UPLOAD_MB` (default 64).
-- **`vm setup docker`** — Docker CLI, compose and buildx. Client only: a VM runs under proot and cannot run
-  `dockerd`, so the script says so and shows how to use `DOCKER_HOST` with a remote engine.
+- **`vm setup docker`** — Docker CLI, compose and buildx, **client only** on every system (never the engine:
+  no `dockerd`, containerd, runc or iptables, which cannot run under proot and would waste ~300 MB). Where a
+  release has no `docker-cli` package, Docker's static client and the compose plugin are fetched instead. The
+  script says why there is no daemon and shows how to use `DOCKER_HOST` with a remote engine.
 - **`vm setup kali`** — Kali VMs only (refused anywhere else): the command-line Kali toolset
   (`kali-linux-headless`, no desktop) plus the basics it needs, with a smaller fallback (`kali-tools-top10`).
 

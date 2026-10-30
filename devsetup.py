@@ -58,7 +58,9 @@ _DEBIAN = {
     "node":   "nodejs npm",
     "rust":   "rustc cargo",
     "db":     "postgresql-client default-mysql-client redis-tools sqlite3",
-    "docker": "docker.io docker-cli docker-compose docker-buildx",
+    # CLI only. Never docker.io / docker / docker-engine: those pull in dockerd, containerd, runc and
+    # iptables (~300 MB) which can never run under proot.
+    "docker": "docker-cli docker-compose docker-buildx",
     # Kali: the base the toolset needs; the toolset itself is the kali-linux-headless metapackage.
     "kali":   "kali-defaults wget nano vim-tiny less procps net-tools iputils-ping dnsutils "
               "python3 python3-pip wordlists",
@@ -75,7 +77,7 @@ _ALPINE = {
     "node":   "nodejs npm",
     "rust":   "rust cargo",
     "db":     "postgresql-client mariadb-client redis sqlite",
-    "docker": "docker docker-cli docker-cli-compose docker-cli-buildx",
+    "docker": "docker-cli docker-cli-compose docker-cli-buildx",
 }
 KALI_METAPACKAGE = "kali-linux-headless"
 KALI_FALLBACK = "kali-tools-top10"
@@ -156,8 +158,10 @@ def script(profile, family):
         checks += ["docker --version", "docker compose version"]
     check_lines = "\n".join(
         f'{c} 2>/dev/null || echo "(not available: {c.split()[0]})"' for c in checks)
+    extra = ""
     if profile == "docker":
         closing = _DOCKER_NOTE
+        extra = _DOCKER_FALLBACK
     else:
         closing = 'echo "==> Done. Try: pip install psycopg2   (builds from source with the headers installed)"'
     return f"""#!/bin/sh
@@ -167,13 +171,41 @@ echo "==> Setting up '{profile}' ({len(packages(profile, family))} packages) —
 {refresh} || {{ echo "!! package index update failed (no network?)"; exit 1; }}
 {install}
 inst {pkgs}
-echo
+{extra}echo
 echo "==> Installed. Versions:"
 {check_lines}
 echo
 {closing}
 """
 
+
+# Some releases (Debian 12, Ubuntu LTS) have no docker-cli package: fall back to Docker's own static
+# client binary, and to the compose plugin from GitHub. Still no daemon, ever.
+_DOCKER_FALLBACK = r"""case "$(uname -m)" in
+  x86_64|amd64) A=x86_64; C=x86_64 ;;
+  aarch64|arm64) A=aarch64; C=aarch64 ;;
+  armv7l|armhf) A=armhf; C=armv7 ;;
+  *) A=""; C="" ;;
+esac
+if ! command -v docker >/dev/null 2>&1 && [ -n "$A" ]; then
+  echo "==> No docker-cli package here: fetching Docker's static client (no daemon)"
+  F=$(curl -fsSL "https://download.docker.com/linux/static/stable/$A/" | grep -o 'docker-[0-9][0-9.]*\.tgz' | sort -uV | tail -n 1)
+  if [ -n "$F" ] && curl -fsSL "https://download.docker.com/linux/static/stable/$A/$F" | tar -xz -C /tmp docker/docker; then
+    install -m 0755 /tmp/docker/docker /usr/local/bin/docker; rm -rf /tmp/docker
+  else
+    echo "!! could not fetch the Docker client"
+  fi
+fi
+if command -v docker >/dev/null 2>&1 && ! docker compose version >/dev/null 2>&1 && [ -n "$C" ]; then
+  echo "==> Adding the compose plugin"
+  mkdir -p /usr/local/lib/docker/cli-plugins
+  if curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$C"; then
+    chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose
+  else
+    rm -f /usr/local/lib/docker/cli-plugins/docker-compose; echo "!! could not fetch the compose plugin"
+  fi
+fi
+"""
 
 _DOCKER_NOTE = """echo "==> Done. The Docker client is installed."
 echo
