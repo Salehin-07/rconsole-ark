@@ -3,6 +3,18 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.2.3 — 2026-10-30
+
+### Added
+- **`drun`**: run Docker images without a Docker daemon, in the host shell (`drun hello-world`). A Render service
+  and every rconsole VM is an unprivileged container, so a daemon can never run there; `drun` wraps udocker
+  (proot mode) instead. It handles images that ship no `/etc` or `/root` (hello-world), reuses one container per
+  image, and refuses inside a VM (proot cannot nest). Suits command-line images, not `-d`, ports, compose or
+  desktops. Installed in the Docker image (`udocker==1.3.17`).
+
+### Changed
+- The `vm setup docker` closing note now points at `drun` as the no-engine option.
+
 ## 1.2.2 — 2026-10-30
 
 (There is no 1.2.1: its tag was withdrawn before release and cannot be reused; everything from it is here.)

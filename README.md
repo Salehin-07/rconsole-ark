@@ -6,7 +6,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.2.2** · MIT licensed
+**Version 1.2.3** · MIT licensed
 
 ## Why this exists
 
@@ -201,7 +201,7 @@ job with live progress (it keeps going if you close the tab; `jobs`, `fg %n`):
 | `rust` | Rust and cargo (for wheels that compile from source) |
 | `db` | `psql`, `mysql`, `redis-cli`, `sqlite3` |
 | `tools` | nano, vim, wget, curl, git, ps, htop, zip, jq, ssh, … |
-| `docker` | Docker CLI, compose, buildx. **Client only**: a VM (proot) can't run the Docker daemon, so point it at a remote engine with `DOCKER_HOST` |
+| `docker` | Docker CLI, compose, buildx. **Client only**: a VM (proot) can't run the Docker daemon, so point it at a remote engine with `DOCKER_HOST`. For simple images with no engine at all, use `drun <image>` in the host shell |
 | `kali` | **Kali VMs only**: the command-line Kali toolset (`kali-linux-headless`) and the basics it needs. Several GB, long install |
 | `all` | `tools`, `build`, `python`, `node`, `rust`, `db` (not `docker`/`kali`) |
 

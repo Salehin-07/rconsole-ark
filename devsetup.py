@@ -214,6 +214,9 @@ echo "      so the Docker daemon (dockerd) cannot start inside it. Use the CLI a
 echo "      remote engine instead, for example:"
 echo "        export DOCKER_HOST=ssh://user@your-server      # or tcp://host:2376 with TLS"
 echo "        docker ps"
+echo
+echo "No remote engine? In the rconsole HOST shell (not inside a VM) 'drun <image>' runs simple"
+echo "command-line images without any daemon, e.g.  drun hello-world"
 """
 
 

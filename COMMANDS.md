@@ -244,6 +244,24 @@ vm run --vm ubuntu apt update
 * Installs never stop to ask questions (`DEBIAN_FRONTEND=noninteractive`), and `pip install` works without
   `--break-system-packages`.
 
+#### `drun`: containers without a daemon
+Render (and every rconsole VM) is itself an unprivileged container, so **no Docker daemon can run there**: `docker run`
+always ends in *cannot connect to /var/run/docker.sock*. `drun` is the workaround for simple images. It wraps
+[udocker](https://github.com/indigo-dc/udocker), which unpacks an image and runs it under proot, no daemon needed.
+
+```text
+drun hello-world
+drun python:3.12-slim python -c 'print("hi")'
+DRUN_OPTS="-e FOO=bar" drun alpine sh -c 'echo $FOO'
+```
+* Run it in the **host shell** (`vm mode host`). Inside a VM it refuses, because proot cannot run inside proot.
+* It suits command-line images (hello-world, python, node, alpine, ...). It is **not Docker**: no `-d`, `--restart`,
+  `-p` port publishing, networks, compose or full desktops (the webtop image will not work).
+* The first run downloads udocker's helper tools and the image, so it is slow; later runs reuse both.
+* `DRUN_OPTS` adds `udocker run` options, `DRUN_MODE` picks the execution mode (default `P1`, try `P2` if it
+  fails), `DRUN_PULL_OPTS` adds `udocker pull` options (a private registry, for example).
+* Need real Docker? Use a remote engine: `export DOCKER_HOST=ssh://user@your-server`.
+
 #### `vm setup`
 Installs a ready-made toolchain **inside a VM** as a background job with live progress:
 
@@ -255,7 +273,7 @@ Installs a ready-made toolchain **inside a VM** as a background job with live pr
 | `rust` | Rust, cargo |
 | `db` | psql, mysql, redis-cli, sqlite3 |
 | `tools` | nano, vim, wget, curl, git, ps, htop, zip, jq, ssh … |
-| `docker` | Docker CLI, compose, buildx. **Client only:** a VM runs under proot, which has no namespaces, cgroups or netfilter, so `dockerd` cannot start inside it. Point it at a remote engine with `DOCKER_HOST` |
+| `docker` | Docker CLI, compose, buildx. **Client only:** a VM runs under proot, which has no namespaces, cgroups or netfilter, so `dockerd` cannot start inside it. Point it at a remote engine with `DOCKER_HOST`, or use [`drun`](#drun-containers-without-a-daemon) for simple images |
 | `kali` | **Kali VMs only.** The command-line Kali toolset (`kali-linux-headless`, no desktop) plus the basics it needs. Several GB and a long install; refused on any other system. Want more: `apt install kali-linux-large` |
 | `all` | `tools`, `build`, `python`, `node`, `rust`, `db` (not `docker` or `kali`) |
 
