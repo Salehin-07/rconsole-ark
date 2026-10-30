@@ -12,19 +12,24 @@ right set for each:
     node    Node.js + npm
     rust    Rust + cargo (for wheels that compile from source)
     db      database command-line clients (psql, mysql, redis-cli, sqlite3)
-    docker  Docker CLI + compose + buildx (see the note below: no local daemon in a VM)
+    docker  `docker run` without a daemon (udocker + a docker shim) + the real client for DOCKER_HOST
+    udocker the same without the real Docker client
     kali    the command-line Kali toolset (``kali-linux-headless``) — Kali VMs only
     all     tools, build, python, node, rust and db (not docker, not kali)
 
-``docker`` installs the client side only: a VM runs under proot, which has no namespaces,
-cgroups or netfilter, so ``dockerd`` cannot start inside it. Point the CLI at a remote
-engine with ``DOCKER_HOST``. ``kali`` refuses to run in any other system.
+``docker`` / ``udocker``: a VM runs under proot, which has no namespaces, cgroups or netfilter, so
+a real ``dockerd`` cannot start inside it. These profiles install udocker and a ``docker`` command
+(plus ``drun``) that runs images in userspace instead: ``docker run --rm python:3.12 python -c ...``.
+In a VM that uses fakechroot (proot cannot nest), so static binaries such as hello-world cannot run;
+the host shell runs those. ``docker`` also installs the real client so ``DOCKER_HOST=ssh://...``
+can use a remote engine. ``kali`` refuses to run in any other system.
 
 The generated script installs the whole set in one go and, if a single package is
 not available on a given release, falls back to installing them one by one and
 skips only the missing one — so one odd name can never sink the setup.
 """
 import shlex
+from pathlib import Path
 
 PROFILES = {
     "tools":  "Everyday tools: nano, vim, wget, curl, git, ps, htop, zip, jq, ssh, …",
@@ -34,8 +39,9 @@ PROFILES = {
     "node":   "Node.js and npm",
     "rust":   "Rust and cargo",
     "db":     "Database clients: psql, mysql, redis-cli, sqlite3",
-    "docker": "Docker CLI, compose and buildx (client only: dockerd can't run inside a VM — "
-              "use DOCKER_HOST for a remote engine)",
+    "docker": "`docker run` without a daemon (udocker + a docker shim; static images only on the host shell), "
+              "plus the real client for DOCKER_HOST",
+    "udocker": "Same as docker, without installing the real Docker client",
     "kali":   "Kali VM only: the command-line Kali toolset (kali-linux-headless — several GB, "
               "a long install)",
     "all":    "tools, build, python, node, rust and db (not docker or kali)",
@@ -58,10 +64,10 @@ _DEBIAN = {
     "node":   "nodejs npm",
     "rust":   "rustc cargo",
     "db":     "postgresql-client default-mysql-client redis-tools sqlite3",
-    # CLI only. Never docker.io / docker / docker-engine: those pull in dockerd, containerd, runc and
-    # iptables (~300 MB) which can never run under proot.
-    "docker": "docker-cli docker-compose docker-buildx",
-    # Kali: the base the toolset needs; the toolset itself is the kali-linux-headless metapackage.
+    # Real client only (never docker.io / docker-engine: they pull in dockerd, containerd, runc and
+    # iptables, ~300 MB that can never run under proot) + what udocker needs.
+    "docker": "docker-cli docker-compose docker-buildx python3 python3-pip tar curl",
+    "udocker": "python3 python3-pip tar curl",
     "kali":   "kali-defaults wget nano vim-tiny less procps net-tools iputils-ping dnsutils "
               "python3 python3-pip wordlists",
 }
@@ -77,8 +83,11 @@ _ALPINE = {
     "node":   "nodejs npm",
     "rust":   "rust cargo",
     "db":     "postgresql-client mariadb-client redis sqlite",
-    "docker": "docker-cli docker-cli-compose docker-cli-buildx",
+    "docker": "docker-cli docker-cli-compose docker-cli-buildx python3 py3-pip tar curl",
+    "udocker": "python3 py3-pip tar curl",
 }
+UDOCKER_VERSION = "1.3.17"            # keep in step with the Dockerfile
+VMTOOLS = Path(__file__).resolve().parent / "vmtools"
 KALI_METAPACKAGE = "kali-linux-headless"
 KALI_FALLBACK = "kali-tools-top10"
 
@@ -154,14 +163,14 @@ def script(profile, family):
         checks += ["rustc --version", "cargo --version"]
     if "db" in parts:
         checks += ["psql --version", "redis-cli --version"]
-    if "docker" in parts:
-        checks += ["docker --version", "docker compose version"]
+    if "docker" in parts or "udocker" in parts:
+        checks += ["docker --version", "udocker --version"]
     check_lines = "\n".join(
         f'{c} 2>/dev/null || echo "(not available: {c.split()[0]})"' for c in checks)
     extra = ""
-    if profile == "docker":
+    if profile in ("docker", "udocker"):
         closing = _DOCKER_NOTE
-        extra = _DOCKER_FALLBACK
+        extra = (_DOCKER_REAL_CLIENT if profile == "docker" else "") + _udocker_setup()
     else:
         closing = 'echo "==> Done. Try: pip install psycopg2   (builds from source with the headers installed)"'
     return f"""#!/bin/sh
@@ -179,24 +188,28 @@ echo
 """
 
 
-# Some releases (Debian 12, Ubuntu LTS) have no docker-cli package: fall back to Docker's own static
-# client binary, and to the compose plugin from GitHub. Still no daemon, ever.
-_DOCKER_FALLBACK = r"""case "$(uname -m)" in
+# The *real* Docker client (for DOCKER_HOST). Some releases (Debian 12, Ubuntu LTS) have no docker-cli
+# package: fall back to Docker's static client and the compose plugin from GitHub. It lives where the
+# `docker` shim can find it, never at /usr/local/bin/docker, which belongs to the shim.
+_DOCKER_REAL_CLIENT = r"""case "$(uname -m)" in
   x86_64|amd64) A=x86_64; C=x86_64 ;;
   aarch64|arm64) A=aarch64; C=aarch64 ;;
   armv7l|armhf) A=armhf; C=armv7 ;;
   *) A=""; C="" ;;
 esac
-if ! command -v docker >/dev/null 2>&1 && [ -n "$A" ]; then
+REAL=""
+for c in /usr/bin/docker /usr/local/lib/docker-real/docker; do [ -x "$c" ] && { REAL="$c"; break; }; done
+if [ -z "$REAL" ] && [ -n "$A" ]; then
   echo "==> No docker-cli package here: fetching Docker's static client (no daemon)"
-  F=$(curl -fsSL "https://download.docker.com/linux/static/stable/$A/" | grep -o 'docker-[0-9][0-9.]*\.tgz' | sort -uV | tail -n 1)
+  F=$(curl -fsSL "https://download.docker.com/linux/static/stable/$A/" | grep -o 'docker-[0-9][0-9.]*\\.tgz' | sort -uV | tail -n 1)
   if [ -n "$F" ] && curl -fsSL "https://download.docker.com/linux/static/stable/$A/$F" | tar -xz -C /tmp docker/docker; then
-    install -m 0755 /tmp/docker/docker /usr/local/bin/docker; rm -rf /tmp/docker
+    mkdir -p /usr/local/lib/docker-real && install -m 0755 /tmp/docker/docker /usr/local/lib/docker-real/docker
+    rm -rf /tmp/docker; REAL=/usr/local/lib/docker-real/docker
   else
-    echo "!! could not fetch the Docker client"
+    echo "!! could not fetch the Docker client (the docker command still works locally through udocker)"
   fi
 fi
-if command -v docker >/dev/null 2>&1 && ! docker compose version >/dev/null 2>&1 && [ -n "$C" ]; then
+if [ -n "$REAL" ] && ! "$REAL" compose version >/dev/null 2>&1 && [ -n "$C" ]; then
   echo "==> Adding the compose plugin"
   mkdir -p /usr/local/lib/docker/cli-plugins
   if curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$C"; then
@@ -207,16 +220,37 @@ if command -v docker >/dev/null 2>&1 && ! docker compose version >/dev/null 2>&1
 fi
 """
 
-_DOCKER_NOTE = """echo "==> Done. The Docker client is installed."
+
+def _udocker_setup():
+    """Shell that installs udocker and the ``docker`` / ``drun`` commands (embedded from ``vmtools/``)."""
+    shim = (VMTOOLS / "docker").read_text()
+    drun = (VMTOOLS / "drun").read_text()
+    if not shim.endswith("\n"):
+        shim += "\n"
+    if not drun.endswith("\n"):
+        drun += "\n"
+    return f"""echo "==> Installing udocker {UDOCKER_VERSION} (runs containers without a Docker daemon)"
+PIPF=""
+python3 -m pip install --help 2>/dev/null | grep -q break-system-packages && PIPF="--break-system-packages"
+python3 -m pip install $PIPF "udocker=={UDOCKER_VERSION}" || echo "!! pip could not install udocker"
+cat > /usr/local/bin/docker <<'RCONSOLE_DOCKER_SHIM'
+{shim}RCONSOLE_DOCKER_SHIM
+cat > /usr/local/bin/drun <<'RCONSOLE_DRUN'
+{drun}RCONSOLE_DRUN
+chmod 0755 /usr/local/bin/docker /usr/local/bin/drun
+if command -v udocker >/dev/null 2>&1; then
+  udocker --allow-root install || echo "!! could not fetch udocker's helper tools now; the first docker run will retry"
+fi
+"""
+
+
+_DOCKER_NOTE = """echo "==> Done. 'docker run' now works without a daemon (udocker):"
+echo "      docker run --rm python:3.12-slim python -c 'print(42)'"
 echo
-echo "NOTE: this system runs under proot, which has no namespaces, cgroups or netfilter,"
-echo "      so the Docker daemon (dockerd) cannot start inside it. Use the CLI against a"
-echo "      remote engine instead, for example:"
-echo "        export DOCKER_HOST=ssh://user@your-server      # or tcp://host:2376 with TLS"
-echo "        docker ps"
-echo
-echo "No remote engine? In the rconsole HOST shell (not inside a VM) 'drun <image>' runs simple"
-echo "command-line images without any daemon, e.g.  drun hello-world"
+echo "In a VM, containers run with fakechroot: normal (dynamically linked) programs work, but STATIC"
+echo "images such as hello-world cannot. Run those from the rconsole HOST shell (vm mode host)."
+echo "Without a daemon there is no: -d, -p, exec/logs, build, compose. For a real engine:"
+echo "      export DOCKER_HOST=ssh://user@your-server     # 'vm setup docker' installs the real client"
 """
 
 

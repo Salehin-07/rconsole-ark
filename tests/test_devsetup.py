@@ -55,24 +55,33 @@ class ProfileTests(unittest.TestCase):
         self.assertIn("DEBIAN_FRONTEND=noninteractive", text)
         self.assertIn("apk add --no-cache", devsetup.script("python", "alpine"))
 
-    def test_docker_profile_installs_the_client_only(self):
-        # nothing that carries the daemon: docker.io (Debian-family), docker / docker-engine (Alpine)
+    def test_docker_profiles_install_udocker_and_the_shim(self):
         banned = {"docker.io", "docker", "docker-engine", "docker-ce", "containerd", "runc", "iptables"}
-        deb = set(devsetup.packages("docker", "debian"))
-        self.assertIn("docker-cli", deb)
-        self.assertFalse(deb & banned, deb & banned)
-        alp = set(devsetup.packages("docker", "alpine"))
-        for pkg in ("docker-cli", "docker-cli-compose", "docker-cli-buildx"):
-            self.assertIn(pkg, alp, pkg)
-        self.assertFalse(alp & banned, alp & banned)
         for family in ("debian", "alpine"):
-            text = devsetup.script("docker", family)
-            self.assertIn("docker --version", text)
-            self.assertIn("dockerd", text)                 # says the daemon cannot run here
-            self.assertIn("DOCKER_HOST", text)             # and what to do instead
-            self.assertIn("download.docker.com/linux/static", text)   # fallback when docker-cli isn't packaged
-            self.assertNotIn("psycopg2", text)
-            self.assertNotRegex(text, r"\binst [^\n]*\b(docker\.io|docker-engine)\b")
+            for profile in ("docker", "udocker"):
+                pkgs = set(devsetup.packages(profile, family))
+                self.assertFalse(pkgs & banned, (profile, family, pkgs & banned))    # never the daemon
+                self.assertIn("tar", pkgs)
+                text = devsetup.script(profile, family)
+                self.assertIn(f"udocker=={devsetup.UDOCKER_VERSION}", text)
+                self.assertIn("> /usr/local/bin/docker <<'RCONSOLE_DOCKER_SHIM'", text)
+                self.assertIn("> /usr/local/bin/drun <<'RCONSOLE_DRUN'", text)
+                self.assertIn("udocker --allow-root install", text)
+                self.assertIn("STATIC", text)                     # the VM limit is spelled out
+                self.assertNotRegex(text, r"\binst [^\n]*\b(docker\.io|docker-engine)\b")
+        # the real client (for DOCKER_HOST) only in `docker`, and never at the shim's path
+        self.assertIn("docker-cli", devsetup.packages("docker", "debian"))
+        self.assertNotIn("docker-cli", devsetup.packages("udocker", "debian"))
+        real = devsetup.script("docker", "debian")
+        self.assertIn("download.docker.com/linux/static", real)
+        self.assertIn("/usr/local/lib/docker-real/docker", real)
+        self.assertNotIn("install -m 0755 /tmp/docker/docker /usr/local/bin/docker", real)
+        self.assertNotIn("download.docker.com", devsetup.script("udocker", "debian"))
+
+    def test_embedded_shim_matches_vmtools(self):
+        text = devsetup.script("udocker", "alpine")
+        self.assertIn((devsetup.VMTOOLS / "docker").read_text(), text)
+        self.assertIn((devsetup.VMTOOLS / "drun").read_text(), text)
 
     def test_docker_and_kali_are_not_part_of_all(self):
         allp = set(devsetup.packages("all", "debian"))

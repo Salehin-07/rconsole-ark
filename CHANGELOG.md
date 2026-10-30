@@ -3,6 +3,23 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.2.4 — 2026-10-30
+
+### Added
+- **`docker run` now works, without a daemon.** A `docker` command (a shim over udocker) is installed in the image and
+  by `vm setup docker` / `vm setup udocker`. It translates `run` (`-e -v -w -u --entrypoint --name --rm --env-file`),
+  `pull`, `images`, `ps`, `rm`, `rmi`, `inspect`, `search`, `login`; a run container is removed afterwards unless
+  named. On the host shell it uses proot (P1) and runs anything, including static images such as hello-world. Inside a
+  VM it uses fakechroot (F1), because proot cannot run inside proot: normal programs work, static binaries cannot,
+  and it says so. `-p`, `--restart` and similar are ignored with a warning; `-d`, `exec`, `logs`, `build`, `compose`
+  and the like explain that they need a daemon. `DOCKER_HOST` plus a real client forwards everything to that engine.
+- `vm setup udocker`: the same as `vm setup docker` without the real Docker client.
+
+### Changed
+- `vm setup docker` now installs udocker and the `docker`/`drun` commands as well as the real client (which moved to
+  `/usr/local/lib/docker-real` when fetched as a static binary, so it never shadows the shim).
+- `drun` is now just `docker run`, always local.
+
 ## 1.2.3 — 2026-10-30
 
 ### Added

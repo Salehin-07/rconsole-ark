@@ -244,23 +244,30 @@ vm run --vm ubuntu apt update
 * Installs never stop to ask questions (`DEBIAN_FRONTEND=noninteractive`), and `pip install` works without
   `--break-system-packages`.
 
-#### `drun`: containers without a daemon
-Render (and every rconsole VM) is itself an unprivileged container, so **no Docker daemon can run there**: `docker run`
-always ends in *cannot connect to /var/run/docker.sock*. `drun` is the workaround for simple images. It wraps
-[udocker](https://github.com/indigo-dc/udocker), which unpacks an image and runs it under proot, no daemon needed.
+#### `docker`: containers without a daemon
+Render (and every rconsole VM) is itself an unprivileged container, so **no Docker daemon can run there**, and a plain
+Docker client always ends in *cannot connect to /var/run/docker.sock*. The `docker` command here is a small shim over
+[udocker](https://github.com/indigo-dc/udocker): it unpacks the image and runs it in userspace.
 
 ```text
-drun hello-world
-drun python:3.12-slim python -c 'print("hi")'
-DRUN_OPTS="-e FOO=bar" drun alpine sh -c 'echo $FOO'
+docker run hello-world
+docker run --rm -e NAME=x -v /root/data:/data python:3.12-slim python -c 'print("hi")'
+docker pull alpine ; docker images ; docker ps ; docker rm NAME ; docker rmi alpine
+drun alpine echo hi                 # short for docker run, always local
 ```
-* Run it in the **host shell** (`vm mode host`). Inside a VM it refuses, because proot cannot run inside proot.
-* It suits command-line images (hello-world, python, node, alpine, ...). It is **not Docker**: no `-d`, `--restart`,
-  `-p` port publishing, networks, compose or full desktops (the webtop image will not work).
-* The first run downloads udocker's helper tools and the image, so it is slow; later runs reuse both.
-* `DRUN_OPTS` adds `udocker run` options, `DRUN_MODE` picks the execution mode (default `P1`, try `P2` if it
-  fails), `DRUN_PULL_OPTS` adds `udocker pull` options (a private registry, for example).
-* Need real Docker? Use a remote engine: `export DOCKER_HOST=ssh://user@your-server`.
+* **Host shell** (`vm mode host`): ready in the image, runs anything, including static images like `hello-world`.
+* **In a VM**: run `vm setup docker` (or `vm setup udocker`) once. proot cannot run inside proot, so containers use
+  fakechroot: normal programs work, **static binaries (hello-world) cannot**. The shim says so; use the host shell.
+* A container made by `docker run` is deleted afterwards unless you give `--name`.
+* Understood: `-e`, `-v`, `-w`, `-u`, `--entrypoint`, `--name`, `--rm`, `--env-file`, `-i/-t`. Ignored with a warning:
+  `-p` (containers share the host network, so an app is reachable on its own port), `--restart` and the like.
+* **Not possible without a daemon**: `-d`, `exec`, `logs`, `stop`, `build`, `compose`, networks, volumes, desktop images
+  such as webtop. Those commands explain why.
+* Real engine somewhere? `export DOCKER_HOST=ssh://user@server` (with `vm setup docker`, which also installs the real
+  client) sends every command there instead.
+* Settings: `DRUN_MODE` (udocker execution mode; default `P1` on the host, `F1` in a VM), `DRUN_PULL_OPTS` (extra
+  `udocker pull` options, e.g. a private registry), `DOCKER_SHIM_LOCAL=1` (never forward to `DOCKER_HOST`).
+* The first run downloads udocker's helper tools and the image, so it is slow.
 
 #### `vm setup`
 Installs a ready-made toolchain **inside a VM** as a background job with live progress:
@@ -273,7 +280,8 @@ Installs a ready-made toolchain **inside a VM** as a background job with live pr
 | `rust` | Rust, cargo |
 | `db` | psql, mysql, redis-cli, sqlite3 |
 | `tools` | nano, vim, wget, curl, git, ps, htop, zip, jq, ssh … |
-| `docker` | Docker CLI, compose, buildx. **Client only:** a VM runs under proot, which has no namespaces, cgroups or netfilter, so `dockerd` cannot start inside it. Point it at a remote engine with `DOCKER_HOST`, or use [`drun`](#drun-containers-without-a-daemon) for simple images |
+| `docker` | `docker run ...` **without a daemon**: installs udocker, a `docker` command and `drun` (see [`docker`](#docker-containers-without-a-daemon)), plus the real Docker client for `DOCKER_HOST`. Runs in userspace, so no `-d`, `-p`, exec, build or compose; in a VM static images such as hello-world can't run (use the host shell) |
+| `udocker` | the same as `docker`, without the real Docker client |
 | `kali` | **Kali VMs only.** The command-line Kali toolset (`kali-linux-headless`, no desktop) plus the basics it needs. Several GB and a long install; refused on any other system. Want more: `apt install kali-linux-large` |
 | `all` | `tools`, `build`, `python`, `node`, `rust`, `db` (not `docker` or `kali`) |
 

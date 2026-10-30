@@ -25,10 +25,11 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-# drun: run Docker images without a Docker daemon (udocker, proot mode). A Render service is itself an
-# unprivileged container, so a real daemon can never run in it. Not fatal if pip cannot install udocker:
-# drun then just says so.
-RUN (pip install "udocker==1.3.17" || echo "udocker could not be installed: drun is disabled") \
+# docker / drun: `docker run` without a Docker daemon (udocker, proot mode). A Render service is itself an
+# unprivileged container, so a real daemon can never run in it; this shim runs images in userspace instead.
+# Not fatal if pip cannot install udocker: the shim then just says so.
+RUN (pip install "udocker==1.3.17" || echo "udocker could not be installed: docker/drun are disabled") \
+ && install -m 0755 /app/vmtools/docker /usr/local/bin/docker \
  && install -m 0755 /app/vmtools/drun /usr/local/bin/drun
 
 # The entrypoint starts as root just long enough to make the (root-owned) data

@@ -1,0 +1,175 @@
+#!/bin/sh
+# docker - rconsole's daemon-less `docker` (a shim over udocker; there is NO Docker daemon here).
+#
+#   docker run hello-world
+#   docker run --rm -e NAME=x -v /root/data:/data python:3.12-slim python -c 'print("hi")'
+#   docker pull alpine | docker images | docker ps | docker rm NAME | docker rmi alpine
+#
+# Why a shim: Render (and every rconsole VM) is itself an unprivileged container, so a real Docker
+# daemon cannot run in it. udocker unpacks the image and runs it in userspace instead.
+#   host shell : proot mode (P1), runs anything incl. static images such as hello-world
+#   inside a VM: fakechroot mode (F1), because proot cannot run inside proot. Dynamically linked
+#                programs work; STATIC binaries (hello-world) cannot - use the host shell for those.
+# Not supported (no daemon): -d, -p/--publish (containers share the host network), restart policies,
+# exec/logs/stop/start, build, compose, networks, volumes. Unknown run options are ignored with a warning.
+# A container made by `docker run` is removed afterwards unless you pass --name.
+#
+# Env: DRUN_MODE udocker execution mode | DRUN_PULL_OPTS extra `udocker pull` options
+#      DOCKER_HOST + a real docker client installed -> every command goes to that remote engine instead
+#      DOCKER_SHIM_LOCAL=1 never forward to a remote engine
+set -eu
+
+SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+die()  { echo "docker: $*" >&2; exit 1; }
+warn() { echo "docker: $*" >&2; }
+
+usage() { sed -n '2,19p' "$SELF" | sed 's/^# \{0,1\}//' >&2; exit "${1:-2}"; }
+
+real_docker() {
+  for c in "${DOCKER_REAL:-}" /usr/bin/docker /usr/local/lib/docker-real/docker; do
+    [ -n "$c" ] && [ -x "$c" ] && [ "$(readlink -f "$c" 2>/dev/null || echo "$c")" != "$SELF" ] && { echo "$c"; return 0; }
+  done
+  return 1
+}
+
+# A remote engine was asked for and a real client exists: hand everything over.
+if [ -n "${DOCKER_HOST:-}" ] && [ -z "${DOCKER_SHIM_LOCAL:-}" ]; then
+  if r="$(real_docker)"; then exec "$r" "$@"; fi
+  warn "DOCKER_HOST is set but no real docker client is installed; running locally with udocker"
+fi
+
+case "${1:-}" in
+  ""|-h|--help|help) usage 0 ;;
+esac
+
+command -v udocker >/dev/null 2>&1 || die "udocker is not installed here (vm setup docker, or: pip install udocker)"
+
+U="udocker"
+[ "$(id -u)" = 0 ] && U="udocker --allow-root"
+if grep -q '^TracerPid:[[:space:]]*[1-9]' /proc/self/status 2>/dev/null; then
+  IN_VM=1; MODE="${DRUN_MODE:-F1}"      # proot cannot run inside proot
+else
+  IN_VM=0; MODE="${DRUN_MODE:-P1}"
+fi
+
+q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+ensure_image() {
+  if ! $U inspect "$1" >/dev/null 2>&1; then
+    echo "docker: pulling $1 ..." >&2
+    # shellcheck disable=SC2086
+    $U pull ${DRUN_PULL_OPTS:-} "$1" >&2
+  fi
+}
+
+cmd_run() {
+  OPTS=""; NAME=""; RM=0; PUBLISHED=""; IGNORED=""
+  while [ $# -gt 0 ]; do
+    a="$1"
+    case "$a" in
+      --) shift; break ;;
+      --*=*) key="${a%%=*}"; val="${a#*=}"; shift ;;
+      --*)
+        key="$a"; val=""; shift
+        case "$key" in
+          --env|--volume|--workdir|--user|--name|--entrypoint|--hostname|--publish|--label|--network|--platform|\
+          --memory|--cpus|--restart|--shm-size|--cap-add|--cap-drop|--device|--dns|--add-host|--env-file|--mount|\
+          --pull|--ulimit|--group-add|--security-opt|--log-driver|--tmpfs|--stop-signal|--pid|--ipc|--cgroupns|--runtime)
+            [ $# -gt 0 ] || die "option $key needs a value"; val="$1"; shift ;;
+        esac ;;
+      -?*)
+        letters="${a#-}"; shift
+        while [ -n "$letters" ]; do
+          c="${letters%"${letters#?}"}"; letters="${letters#?}"
+          case "$c" in
+            i|t) ;;
+            d) die "-d (detached) needs a Docker daemon. Run it in the foreground, or keep it alive with: service add <name> ... docker run ..." ;;
+            e|v|w|u|p|l|h|m|c)
+              if [ -n "$letters" ]; then val="$letters"; letters=""; else
+                [ $# -gt 0 ] || die "option -$c needs a value"; val="$1"; shift; fi
+              set_opt "-$c" "$val" ;;
+            *) IGNORED="$IGNORED -$c" ;;
+          esac
+        done
+        continue ;;
+      *) break ;;
+    esac
+    set_opt "$key" "$val"
+  done
+  [ $# -gt 0 ] || die "docker run needs an image (docker run --help)"
+  IMG="$1"; shift
+  [ -z "$PUBLISHED" ] || warn "ignoring -p$PUBLISHED: containers share the host network, so the app is reachable on its own port directly"
+  [ -z "$IGNORED" ] || warn "ignoring unsupported option(s):$IGNORED"
+
+  ensure_image "$IMG"
+  if [ -n "$NAME" ]; then CN="$NAME"; KEEP=1; else CN="dk_$$_$(date +%s)"; KEEP=0; fi
+  [ "$RM" = 1 ] && KEEP=0
+  if ! $U inspect -p "$CN" >/dev/null 2>&1; then
+    $U create --name="$CN" "$IMG" >/dev/null || die "could not create a container from $IMG"
+    $U setup --execmode="$MODE" "$CN" >/dev/null 2>&1 || warn "could not set execution mode $MODE; continuing with udocker's default"
+  fi
+  if [ "$KEEP" = 0 ]; then
+    trap '$U rm "$CN" >/dev/null 2>&1 || true' EXIT
+    trap 'exit 143' INT TERM HUP
+  fi
+  # images like hello-world ship no /etc and no /root; udocker needs both to start
+  root="$($U inspect -p "$CN" | tail -n 1)"
+  mkdir -p "$root/etc" "$root/root"
+  [ -e "$root/etc/passwd" ] || echo 'root:x:0:0:root:/root:/bin/sh' > "$root/etc/passwd"
+  [ -e "$root/etc/group" ]  || echo 'root:x:0:' > "$root/etc/group"
+  if [ "$IN_VM" = 1 ]; then
+    warn "inside a VM: using fakechroot ($MODE). Static binaries (e.g. hello-world) cannot run here; use the host shell for those."
+  fi
+  eval "set -- $OPTS $(q "$CN") \"\$@\""
+  rc=0
+  $U -q run "$@" || rc=$?
+  exit "$rc"
+}
+
+addopt() { OPTS="$OPTS $(q "$1")"; }
+
+set_opt() {   # set_opt KEY VALUE : translate one docker run option
+  case "$1" in
+    -e|--env)
+      case "$2" in *=*) addopt "--env=$2" ;; *) eval "v=\${$2-}"; [ -z "$v" ] || addopt "--env=$2=$v" ;; esac ;;
+    -v|--volume) v="$2"; v="${v%:ro}"; v="${v%:rw}"; v="${v%:z}"; v="${v%:Z}"; addopt "--volume=$v" ;;
+    -w|--workdir) addopt "--workdir=$2" ;;
+    -u|--user) addopt "--user=$2" ;;
+    --entrypoint) addopt "--entrypoint=$2" ;;
+    --env-file) [ -r "$2" ] || die "cannot read env file $2"; addopt "--env-file=$2" ;;
+    --name) NAME="$2" ;;
+    --rm) RM=1 ;;
+    -p|--publish) PUBLISHED="$PUBLISHED $2" ;;
+    -d|--detach) die "-d (detached) needs a Docker daemon. Run it in the foreground, or keep it alive with: service add <name> ... docker run ..." ;;
+    --interactive|--tty|--init|--sig-proxy|--no-healthcheck) ;;
+    *) IGNORED="$IGNORED $1" ;;
+  esac
+}
+
+unsupported() {
+  die "'docker $1' needs a Docker daemon, which cannot run here (this is an unprivileged container).
+       Point at a remote engine instead:  export DOCKER_HOST=ssh://user@server   (needs a real docker client: vm setup docker)"
+}
+
+cmd="$1"; shift
+case "$cmd" in
+  run) cmd_run "$@" ;;
+  pull) [ $# -gt 0 ] || die "docker pull needs an image"
+        for i in "$@"; do case "$i" in -*) ;; *) echo "docker: pulling $i ..." >&2
+          # shellcheck disable=SC2086
+          $U pull ${DRUN_PULL_OPTS:-} "$i" ;; esac; done ;;
+  images|image) [ "${1:-}" = "ls" ] && shift; exec $U images "$@" ;;
+  ps|container) [ "${1:-}" = "ls" ] && shift; exec $U ps ;;
+  rm) for i in "$@"; do case "$i" in -*) ;; *) $U rm "$i" ;; esac; done ;;
+  rmi) for i in "$@"; do case "$i" in -*) ;; *) $U rmi "$i" ;; esac; done ;;
+  inspect) exec $U inspect "$@" ;;
+  search) exec $U search "$@" ;;
+  login) exec $U login "$@" ;;
+  logout) exec $U logout "$@" ;;
+  version|--version|-v)
+    echo "Docker-compatible shim (rconsole) over udocker $($U version 2>/dev/null | sed -n 's/^version: //p' | head -n 1)"
+    echo "There is no Docker daemon in this environment; containers run in userspace ($MODE)." ;;
+  exec|logs|stop|start|restart|kill|attach|build|buildx|compose|network|volume|commit|push|tag|save|load|stats|top|events|cp|diff)
+        unsupported "$cmd" ;;
+  *) die "unknown command '$cmd' (docker --help)" ;;
+esac
