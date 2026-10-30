@@ -279,7 +279,7 @@ System summary that **fits your screen** (logo beside, above, or hidden on phone
 ## Hosting and exposing apps
 
 Two ways to put something on the web through rconsole's domain, and they work together. Both sit behind
-rconsole's login unless stated. (`sudo serve` and `sudo gunicorn` were removed in 1.2.1: these two cover them.)
+rconsole's login unless stated. (`sudo serve` and `sudo gunicorn` were removed in 1.2.2: these two cover them.)
 
 | | `expose` | `service` |
 |---|---|---|

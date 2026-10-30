@@ -6,7 +6,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.2.1** · MIT licensed
+**Version 1.2.2** · MIT licensed
 
 ## Why this exists
 
@@ -376,7 +376,7 @@ links in HTML/CSS). The proxy sends `X-Forwarded-Prefix`, so prefix-aware framew
 limits (no WebSockets) are in [COMMANDS.md](COMMANDS.md#expose).
 
 **`service` — rconsole starts and keeps the app running** (this replaces `sudo serve` / `sudo gunicorn`,
-removed in 1.2.1):
+removed in 1.2.2):
 
 ```text
 $ service add site --vm debian --cwd /root/site --expose 8000:site python3 -m http.server 8000

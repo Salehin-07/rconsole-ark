@@ -157,7 +157,7 @@ module registers itself via the decorator (same pattern `agent.py` uses).
 **`cmd_vm.py`** — `vm` (public): status, install, shell (`{"pty": true, "cmd": "@vm"}`),
 run, mode, reset, remove.
 
-**`cmd_hosting.py`** — `kprocess`. (`serve`, `gunicorn` and `sprocess` were removed in 1.2.1:
+**`cmd_hosting.py`** — `kprocess`. (`serve`, `gunicorn` and `sprocess` were removed in 1.2.2:
 `expose` and `service` host apps now.)
 
 **`cmd_users.py`** — logout (public), suser / auser / nauser / ruser,

@@ -2,7 +2,7 @@
 
 Hosting itself lives in ``expose`` (publish a server you started) and ``service``
 (run it under the supervisor); the old ``serve`` / ``gunicorn`` launchers were
-removed in 1.2.1.
+removed in 1.2.2.
 """
 import os
 import signal

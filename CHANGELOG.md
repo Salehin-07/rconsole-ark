@@ -3,7 +3,9 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## 1.2.1 — 2026-10-30
+## 1.2.2 — 2026-10-30
+
+(There is no 1.2.1: its tag was withdrawn before release and cannot be reused; everything from it is here.)
 
 ### Added
 - **File browser: download.** Every row has a ⬇ button. A file downloads as it is; a **folder downloads as a
