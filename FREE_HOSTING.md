@@ -27,7 +27,7 @@ three catches:
 * A Linux **terminal in the browser** with a real shell, editor and file manager.
 * **Your own Linux systems** (`vm install debian ubuntu kali alpine`) where you are root and can `apt install`
   anything — no host privileges needed.
-* **Hosting for websites** — static (`sudo serve`) or dynamic (anything you can start: Flask, Django, Node, PHP…)
+* **Hosting for websites** — static (`python3 -m http.server` under `service`) or dynamic (anything you can start: Flask, Django, Node, PHP…)
   published at `https://your-site/<name>/` with `expose`.
 * **Bots and workers** that keep running: `service add` starts them at boot, restarts them when they crash.
 * **Background jobs**, `&`, logs, `htop`, `git`, `pip`, `npm`, `cargo`…
@@ -95,9 +95,8 @@ the host): that is what gets saved.
 vm shell                               # a root shell in your Debian
 mkdir -p /root/site && echo '<h1>Hello</h1>' > /root/site/index.html
 exit
-sudo serve 8000                        # from the host: cd into the folder first, or use a service (below)
 ```
-Or keep it simple with a service and `expose`:
+Then run it as a service and publish it with `expose`:
 ```text
 service add site --vm debian --cwd /root/site --expose 8000:site python3 -m http.server 8000
 ```

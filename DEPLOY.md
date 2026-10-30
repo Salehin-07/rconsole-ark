@@ -388,7 +388,7 @@ hold users' files; the `rootfs` folders can be recreated with `vm install`.
 | `coreutils: unknown program 'prooted-…'` | A proot older than 5.5 under Ubuntu 26.04. rconsole downloads 5.5.0 automatically on x86-64 — make sure the server can reach github.com; on ARM install a newer proot. |
 | `vm install` says unsupported CPU | Prebuilt proot is x86-64. On ARM install it: `apt install proot` / `apk add proot`. The Docker image has it. |
 | `apt update` inside a Debian/Ubuntu/Kali VM prints sandbox warnings | Harmless; rconsole already sets `APT::Sandbox::User "root"`. |
-| 502 from a hosted app | The app crashed on start: `sudo sprocess <port>` shows its log. In VM mode install Python and gunicorn in the VM (`vm run …`, the error message prints the exact command). |
+| 502 from a hosted app | The app crashed on start: `service logs <name>` shows its output. In VM mode install Python and gunicorn in the VM (`vm setup python`, then `pip install gunicorn`). |
 | `Permission denied` writing `/data` | Only if you bypassed the entrypoint. Run the container as root once, or `chown -R 10001 /data`. |
 | Two people see different state | More than one instance is running. Scale to **1**. |
 | Container killed / out of memory | Raise the instance memory; Kali and big `apt install`s need a few hundred MB. |

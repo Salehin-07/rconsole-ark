@@ -57,6 +57,12 @@
                autocapitalize="off" spellcheck="false" placeholder="/absolute/path or ~/…">
         <button id="files-go" type="submit" title="Go to path">Go</button>
       </form>
+      <div id="files-xfer">
+        <button id="files-upfiles" type="button" title="Upload files into this folder">⬆ Upload files</button>
+        <button id="files-upfolder" type="button" title="Upload a whole folder (keeps its structure)">⬆ Upload folder</button>
+        <input id="files-pick" type="file" multiple hidden>
+        <input id="files-pickdir" type="file" multiple webkitdirectory hidden>
+      </div>
       <div id="files-list"></div>
       <div id="files-status"></div>
     </div>

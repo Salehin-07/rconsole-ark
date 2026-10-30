@@ -2235,7 +2235,8 @@ const elFilesCrumb = document.getElementById("files-crumb");
 const elFilesPath = document.getElementById("files-path");
 const elFilesList = document.getElementById("files-list");
 const elFilesStatus = document.getElementById("files-status");
-const filesState = { open: false, cwd: null, parent: null, entries: [], creating: null, renaming: null };
+const filesState = { open: false, cwd: null, parent: null, entries: [], creating: null, renaming: null,
+                     uploading: false, maxUploadMb: 64 };
 
 const FILE_ICONS = {
   "🖼": ["png", "jpg", "jpeg", "gif", "webp", "ico", "bmp", "tif", "tiff", "heic", "avif", "svg"],
@@ -2302,6 +2303,7 @@ async function loadDir(path) {
     filesState.cwd = j.path;
     filesState.parent = j.parent;
     filesState.entries = j.entries || [];
+    if (j.max_upload_mb) filesState.maxUploadMb = j.max_upload_mb;
     filesState.creating = null;
     filesState.renaming = null;
     elFilesStatus.textContent = "";
@@ -2333,6 +2335,13 @@ function fileRow(e) {
   meta.className = "files-meta";
   meta.textContent = e.is_dir ? "—" : fmtSize(e.size);
   row.appendChild(meta);
+  const dl = document.createElement("button");
+  dl.type = "button";
+  dl.className = "files-act files-dl";
+  dl.textContent = "⬇";
+  dl.title = e.is_dir ? "Download folder as .zip" : "Download";
+  dl.onclick = (ev) => { ev.stopPropagation(); downloadEntry(e); };
+  row.appendChild(dl);
   const rn = document.createElement("button");
   rn.type = "button";
   rn.className = "files-act";
@@ -2463,6 +2472,113 @@ async function renameEntry(e, name) {
   }
   loadDir(filesState.cwd);
 }
+// ---- download: a file as-is, a folder as a streamed .zip (the server builds it on the fly)
+function downloadEntry(e) {
+  const a = document.createElement("a");
+  a.href = "/api/download?path=" + encodeURIComponent(e.path);
+  a.download = "";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => a.remove(), 1000);
+  elFilesStatus.textContent = e.is_dir ? "Zipping " + e.name + " — the download starts shortly…"
+                                       : "Downloading " + e.name + "…";
+}
+
+// ---- upload: files or a whole folder, one request per file so progress and errors are per file
+const UPLOAD_PARALLEL = 3;
+function uploadOne(file, dir, rel, overwrite, onProgress) {
+  return new Promise((resolve) => {
+    const fd = new FormData();
+    fd.append("dir", dir);
+    fd.append("rel", rel);
+    if (overwrite) fd.append("overwrite", "1");
+    fd.append("file", file, file.name);
+    const x = new XMLHttpRequest();
+    x.open("POST", "/api/upload");
+    x.upload.onprogress = (ev) => { if (ev.lengthComputable) onProgress(ev.loaded); };
+    x.onload = () => {
+      let j = {};
+      try { j = JSON.parse(x.responseText); } catch (err) { /* not JSON (proxy error page) */ }
+      resolve({ ok: x.status === 200 && !!j.ok, status: x.status, exists: !!j.exists,
+                error: j.error || ("HTTP " + x.status) });
+    };
+    x.onerror = () => resolve({ ok: false, status: 0, exists: false, error: "network error" });
+    x.send(fd);
+  });
+}
+async function uploadFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  if (filesState.uploading) { elFilesStatus.textContent = "An upload is already running."; return; }
+  const dir = filesState.cwd;
+  if (!dir) { elFilesStatus.textContent = "Open a folder first."; return; }
+  filesState.uploading = true;
+  document.getElementById("files-upfiles").disabled = true;
+  document.getElementById("files-upfolder").disabled = true;
+  const limit = filesState.maxUploadMb * 1048576;
+  const failed = [];
+  const items = [];
+  files.forEach((f) => {
+    if (f.size > limit) failed.push((f.webkitRelativePath || f.name) + ": too large (limit " + filesState.maxUploadMb + " MB per file)");
+    else items.push({ file: f, rel: f.webkitRelativePath || f.name, loaded: 0 });
+  });
+  const total = items.reduce((n, it) => n + it.file.size, 0);
+  let done = 0, doneBytes = 0;
+  const conflicts = [];
+  const refresh = () => {
+    const live = items.reduce((n, it) => n + it.loaded, 0);
+    elFilesStatus.textContent = "Uploading " + done + "/" + items.length + " · " +
+      fmtSize(doneBytes + live) + " of " + fmtSize(total);
+  };
+  const pool = async (list, overwrite) => {
+    let next = 0;
+    const worker = async () => {
+      while (next < list.length) {
+        const it = list[next++];
+        const r = await uploadOne(it.file, dir, it.rel, overwrite, (n) => { it.loaded = n; refresh(); });
+        it.loaded = 0;
+        if (r.ok) { done++; doneBytes += it.file.size; }
+        else if (r.status === 409 && r.exists && !overwrite) conflicts.push(it);
+        else failed.push(it.rel + ": " + r.error);
+        refresh();
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(UPLOAD_PARALLEL, list.length) }, worker));
+  };
+  let skipped = 0;
+  try {
+    refresh();
+    await pool(items, false);
+    if (conflicts.length) {
+      const again = conflicts.splice(0, conflicts.length);
+      if (confirm(again.length + " file(s) already exist in " + dir + ". Overwrite them?")) await pool(again, true);
+      else skipped = again.length;
+    }
+  } finally {
+    filesState.uploading = false;
+    document.getElementById("files-upfiles").disabled = false;
+    document.getElementById("files-upfolder").disabled = false;
+  }
+  let msg = "Uploaded " + done + " file(s)" + (done ? " (" + fmtSize(doneBytes) + ")" : "") + ".";
+  if (skipped) msg += " Skipped " + skipped + " existing.";
+  if (failed.length) msg += " " + failed.length + " failed — " + failed[0];
+  elFilesStatus.textContent = msg;
+  if (filesState.open) {
+    const keep = elFilesStatus.textContent;
+    await loadDir(filesState.cwd);
+    elFilesStatus.textContent = keep;
+  }
+}
+function pickAndUpload(input) {
+  const files = input.files;
+  uploadFiles(files).finally(() => { input.value = ""; });
+}
+document.getElementById("files-upfiles").addEventListener("click", () => document.getElementById("files-pick").click());
+document.getElementById("files-upfolder").addEventListener("click", () => document.getElementById("files-pickdir").click());
+document.getElementById("files-pick").addEventListener("change", (ev) => pickAndUpload(ev.target));
+document.getElementById("files-pickdir").addEventListener("change", (ev) => pickAndUpload(ev.target));
+
 async function deleteEntry(e) {
   if (!confirm("Delete " + e.path + "?")) return;
   elFilesStatus.textContent = "Deleting…";

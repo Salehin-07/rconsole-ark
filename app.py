@@ -13,14 +13,17 @@ import os
 import posixpath
 import re
 import shutil
+import stat
 import threading
 import time
+import uuid
+import zipfile
 from datetime import timedelta
 from urllib.parse import urlsplit
 
 import requests
 from flask import (Flask, Response, abort, jsonify, redirect, render_template,
-                   request, session, url_for)
+                   request, send_file, session, url_for)
 from flask_sock import Sock
 from requests.adapters import HTTPAdapter
 from werkzeug.exceptions import HTTPException
@@ -52,8 +55,8 @@ app.config.update(
     SESSION_COOKIE_SECURE=config.COOKIE_SECURE,
     # Static assets change only on deploy; let browsers cache them for a week.
     SEND_FILE_MAX_AGE_DEFAULT=7 * 24 * 3600,
-    # Bounds request bodies (editor saves, proxied uploads).
-    MAX_CONTENT_LENGTH=64 * 1024 * 1024,
+    # Bounds request bodies (editor saves, file-browser uploads, proxied uploads).
+    MAX_CONTENT_LENGTH=max(64, config.MAX_UPLOAD_MB + 1) * 1024 * 1024,
 )
 # Long-lived sessions: a user should be able to return days later and log back
 # in to the exact same state. Forced logout only clears the cookie; server-side
@@ -784,7 +787,8 @@ def api_dir():
     parent = posixpath.dirname(vpath) if not view.unrestricted else os.path.dirname(vpath)
     if not parent or parent == vpath:
         parent = vpath
-    return {"path": vpath, "parent": parent, "entries": entries, "truncated": truncated}
+    return {"path": vpath, "parent": parent, "entries": entries, "truncated": truncated,
+            "max_upload_mb": config.MAX_UPLOAD_MB}
 
 
 @app.route("/api/fs", methods=["POST"])
@@ -845,6 +849,190 @@ def api_fs():
         return {"ok": False, "error": str(e)}, 400
     except FileNotFoundError as e:
         return {"ok": False, "error": str(e)}, 404
+    except (OSError, sandbox.SandboxError) as e:
+        return {"ok": False, "error": str(e)}, 500
+
+
+# ---------------------------------------------------------------------------
+# File browser: download (a file, or a folder as a streamed .zip) and upload
+# (files or whole folders). Both go through the same confinement as the rest of
+# the file APIs: ``_map`` for the path, and symlinks are never followed out of it.
+# ---------------------------------------------------------------------------
+def _content_disposition(filename):
+    """``attachment`` header that survives non-ASCII and quote characters."""
+    from urllib.parse import quote
+    ascii_name = re.sub(r'[^A-Za-z0-9._ -]', "_", filename) or "download"
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+
+
+class _ZipSink:
+    """Write-only, unseekable buffer: ``zipfile`` fills it, the response drains it."""
+
+    def __init__(self):
+        self._chunks = []
+        self._pos = 0
+
+    def write(self, data):
+        self._chunks.append(bytes(data))
+        self._pos += len(data)
+        return len(data)
+
+    def tell(self):
+        return self._pos
+
+    def flush(self):
+        pass
+
+    def pending(self):
+        return sum(len(c) for c in self._chunks)
+
+    def drain(self):
+        out = b"".join(self._chunks)
+        self._chunks = []
+        return out
+
+
+def _zip_stream(root, top_name):
+    """Yield a .zip of the directory ``root`` as it is built (constant memory).
+
+    Walks with directory file descriptors and ``O_NOFOLLOW`` so a symlink inside
+    the folder can never pull in a file from outside it (not even by swapping a
+    link in mid-walk). Symlinks, sockets, FIFOs and devices are skipped.
+    """
+    sink = _ZipSink()
+    zf = zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED, compresslevel=3)
+    try:
+        for dirpath, dirnames, filenames, dirfd in os.fwalk(root, follow_symlinks=False):
+            rel_dir = os.path.relpath(dirpath, root)
+            prefix = top_name if rel_dir == "." else top_name + "/" + rel_dir.replace(os.sep, "/")
+            if not dirnames and not filenames:
+                zi = zipfile.ZipInfo(prefix + "/", time.localtime(time.time())[:6])
+                zi.external_attr = (0o40755 << 16) | 0x10
+                zf.writestr(zi, b"")
+                if sink.pending():
+                    yield sink.drain()
+            for name in filenames:
+                try:
+                    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dirfd)
+                except OSError:
+                    continue
+                try:
+                    st = os.fstat(fd)
+                    if not stat.S_ISREG(st.st_mode):
+                        continue
+                    zi = zipfile.ZipInfo(prefix + "/" + name, time.localtime(st.st_mtime)[:6])
+                    zi.compress_type = zipfile.ZIP_DEFLATED
+                    zi.external_attr = (stat.S_IMODE(st.st_mode) | 0o100000) << 16
+                    zi.file_size = st.st_size
+                    with zf.open(zi, "w", force_zip64=st.st_size > 0x7FFFFFFF) as dest:
+                        while True:
+                            chunk = os.read(fd, 256 * 1024)
+                            if not chunk:
+                                break
+                            dest.write(chunk)
+                            if sink.pending() >= 64 * 1024:
+                                yield sink.drain()
+                finally:
+                    os.close(fd)
+                if sink.pending():
+                    yield sink.drain()
+        zf.close()
+        yield sink.drain()
+    finally:
+        try:
+            zf.close()
+        except Exception:
+            pass
+
+
+@app.route("/api/download")
+def api_download():
+    """Download a file, or a folder as ``<name>.zip``."""
+    if "username" not in session:
+        return {"error": "unauthorized"}, 401
+    path = request.args.get("path", "")
+    if not path:
+        return {"error": "missing path"}, 400
+    view, err = _fs_view()
+    if err:
+        return err
+    try:
+        p = _map(view, path)
+        if p.is_dir():
+            if p.parent == p or (view.root is not None and p == view.host("/")):
+                return {"error": "download a folder inside the root, not the root itself"}, 400
+            name = (p.name or "folder") + ".zip"
+            resp = Response(_zip_stream(str(p), p.name or "folder"), mimetype="application/zip")
+            resp.headers["Content-Disposition"] = _content_disposition(name)
+            resp.headers["Cache-Control"] = "no-store"
+            return resp
+        if not p.is_file():
+            return {"error": "not a regular file" if p.exists() else f"no such file: {view.virt(p)}"}, 404
+        # octet-stream on purpose: the response compressor must never buffer a big download.
+        resp = send_file(p, mimetype="application/octet-stream", conditional=True, max_age=0)
+        resp.headers["Content-Disposition"] = _content_disposition(p.name)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    except (OSError, sandbox.SandboxError) as e:
+        return {"error": str(e)}, 500
+
+
+def _upload_target(view, folder, rel):
+    """Virtual path for ``rel`` (``a/b/c.txt``) under ``folder``; ``None`` if unsafe."""
+    rel = rel or ""
+    if not rel or "\x00" in rel or "\\" in rel or rel.startswith("/"):
+        return None
+    parts = rel.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        return None
+    target = folder
+    for part in parts:
+        target = view.child_virt(target, part)
+    return target
+
+
+@app.route("/api/upload", methods=["POST"])
+def api_upload():
+    """Receive one file (``file``) into ``dir``; ``rel`` keeps a folder upload's layout."""
+    if "username" not in session:
+        return {"ok": False, "error": "unauthorized"}, 401
+    view, err = _fs_view()
+    if err:
+        return err
+    limit = config.MAX_UPLOAD_MB * 1024 * 1024
+    if (request.content_length or 0) > limit + 1024 * 1024:
+        return {"ok": False, "error": f"file too large (limit {config.MAX_UPLOAD_MB} MB per file)"}, 413
+    upload = request.files.get("file")
+    if upload is None:
+        return {"ok": False, "error": "missing file"}, 400
+    folder = request.form.get("dir", "")
+    rel = request.form.get("rel") or upload.filename or ""
+    overwrite = request.form.get("overwrite") in ("1", "true", "yes")
+    try:
+        base = view.virt(_map(view, folder))
+        if not _map(view, folder).is_dir():
+            return {"ok": False, "error": f"not a directory: {base}"}, 400
+        vpath = _upload_target(view, base, rel)
+        if vpath is None:
+            return {"ok": False, "error": f"unsafe file name: {rel!r}"}, 400
+        dest = _map(view, vpath, follow_last=False)          # replace a symlink, never write through it
+        if os.path.lexists(dest):
+            if dest.is_dir() and not dest.is_symlink():
+                return {"ok": False, "error": f"{view.virt(dest)} is a folder"}, 409
+            if not overwrite:
+                return {"ok": False, "exists": True, "path": view.virt(dest),
+                        "error": f"{view.virt(dest)} already exists"}, 409
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(f".{dest.name}.upload-{uuid.uuid4().hex[:8]}")
+        try:
+            upload.save(tmp)
+            if tmp.stat().st_size > limit:
+                return {"ok": False, "error": f"file too large (limit {config.MAX_UPLOAD_MB} MB per file)"}, 413
+            os.replace(tmp, dest)
+        finally:
+            if tmp.exists():
+                tmp.unlink()
+        return {"ok": True, "path": view.virt(dest), "size": dest.stat().st_size}
     except (OSError, sandbox.SandboxError) as e:
         return {"ok": False, "error": str(e)}, 500
 

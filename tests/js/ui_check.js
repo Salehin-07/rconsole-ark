@@ -43,6 +43,9 @@ async function load(phone) {
     if (url.startsWith("/api/tabs")) return ok({ tabs: [{ id: "main", name: "main", cwd: "/root", is_terminal: false, alive: false, cmd: "" }] });
     if (url.startsWith("/api/targets")) return ok(targets);
     if (url.startsWith("/api/target")) return ok({ ok: true, ...targets, current: "vm:debian", label: "debian", cwds: { main: "/root" } });
+    if (url.startsWith("/api/dir")) return ok({ path: "/root", parent: "/", truncated: false, max_upload_mb: 1, entries: [
+      { name: "proj", path: "/root/proj", is_dir: true, size: 0, mtime: 0 },
+      { name: "a b.txt", path: "/root/a b.txt", is_dir: false, size: 12, mtime: 0 }] });
     if (url.startsWith("/api/run")) {
       const cmd = JSON.parse(opts.body).cmd;
       sent.push(cmd);
@@ -85,6 +88,63 @@ async function load(phone) {
       JSON.stringify(sent));
     check("picker is disabled after use", pick.disabled === true);
     check("no JS errors (picker)", errors.length === 0, errors.join("; "));
+  }
+  // ---- file browser: download + upload buttons -------------------------------------------------
+  {
+    const { w, d, errors } = await load(false);
+    d.getElementById("filesbtn").click();
+    await sleep(120);
+    const rows = d.querySelectorAll(".files-row");
+    check("file browser lists the entries", rows.length === 2, "rows=" + rows.length);
+    const dls = d.querySelectorAll(".files-dl");
+    check("every row has a download button", dls.length === 2);
+    check("folder download is labelled .zip", /zip/i.test(dls[0].title) && !/zip/i.test(dls[1].title), dls[0].title + " | " + dls[1].title);
+    const hrefs = [];
+    d.addEventListener("click", (ev) => {
+      const a = ev.target.closest && ev.target.closest("a[download]");
+      if (a) { hrefs.push(a.getAttribute("href")); ev.preventDefault(); }
+    }, true);
+    dls[1].click();
+    dls[0].click();
+    check("download points at /api/download with the encoded path",
+      hrefs[0] === "/api/download?path=%2Froot%2Fa%20b.txt" && hrefs[1] === "/api/download?path=%2Froot%2Fproj", JSON.stringify(hrefs));
+    check("download does not open the file in the editor", !d.getElementById("editor") || d.getElementById("editor").hidden);
+
+    check("upload files + upload folder buttons exist", !!d.getElementById("files-upfiles") && !!d.getElementById("files-upfolder"));
+    check("folder picker is a directory picker", d.getElementById("files-pickdir").hasAttribute("webkitdirectory"));
+    check("file picker allows several files", d.getElementById("files-pick").multiple === true);
+
+    // fake XHR so we can see what the browser would send
+    const posts = [];
+    let conflictOnce = true;
+    w.XMLHttpRequest = class {
+      open(m, u) { this.m = m; this.u = u; this.upload = {}; }
+      send(fd) {
+        const rec = { m: this.m, u: this.u, dir: fd.get("dir"), rel: fd.get("rel"), over: fd.get("overwrite"), name: fd.get("file").name };
+        posts.push(rec);
+        const clash = conflictOnce && rec.rel === "proj/b.txt" && !rec.over;
+        setTimeout(() => {
+          this.status = clash ? 409 : 200;
+          this.responseText = JSON.stringify(clash ? { ok: false, exists: true, error: "exists" } : { ok: true });
+          this.onload();
+        }, 5);
+      }
+    };
+    w.confirm = () => true;
+    const mk = (name, rel, size) => { const f = new w.File(["x".repeat(size)], name); if (rel) Object.defineProperty(f, "webkitRelativePath", { value: rel }); return f; };
+    const input = d.getElementById("files-pickdir");
+    Object.defineProperty(input, "files", { value: [mk("a.txt", "proj/a.txt", 3), mk("b.txt", "proj/b.txt", 3), mk("big.bin", "proj/big.bin", 1048576 + 5)], configurable: true });
+    input.dispatchEvent(new w.Event("change"));
+    await sleep(250);
+    const rels = posts.map((p) => p.rel + (p.over ? "!" : "")).sort();
+    check("folder upload keeps relative paths and sends to the current folder",
+      posts.every((p) => p.dir === "/root" && p.m === "POST" && p.u === "/api/upload") && rels.includes("proj/a.txt") && rels.includes("proj/b.txt"), JSON.stringify(rels));
+    check("existing file is re-sent only after confirming overwrite", rels.includes("proj/b.txt!"), JSON.stringify(rels));
+    check("a file over the limit is not sent", !rels.some((r) => r.startsWith("proj/big")), JSON.stringify(rels));
+    const st = d.getElementById("files-status").textContent;
+    check("status reports the result", /Uploaded 2 file/.test(st) && /1 failed/.test(st) && /too large/.test(st), st);
+    check("buttons are enabled again afterwards", d.getElementById("files-upfiles").disabled === false);
+    check("no JS errors (file browser)", errors.length === 0, errors.join("; "));
   }
   // ---- phone vs desktop layout + ✕ ---------------------------------------------------------
   for (const phone of [true, false]) {

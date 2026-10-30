@@ -6,7 +6,7 @@ interp.py. The console-native commands that need special handling live in
 focused modules and register themselves here with :func:`command`:
 
 - ``cmd_basic``    help, clear, history, rwhoami, cd, alias, theme
-- ``cmd_hosting``  serve, gunicorn, sprocess, kprocess
+- ``cmd_hosting``  kprocess
 - ``cmd_vm``       vm (per-user Linux VM: list, install, shell, run, mode)
 - ``cmd_expose``   expose / unexpose (publish a local port at /<name>/)
 - ``cmd_service``   service (supervised bots/workers: autostart, restart on crash)
@@ -30,8 +30,8 @@ HERE = Path(__file__).resolve().parent
 
 # Console-native commands that MUST be prefixed with `sudo` (admin only).
 # NOTE: `logout` is deliberately public — anyone may log themselves out.
-PROTECTED = {"rboot", "cpass", "cuser", "muser", "serve", "gunicorn",
-             "sprocess", "kprocess", "suser", "auser", "nauser", "ruser",
+PROTECTED = {"rboot", "cpass", "cuser", "muser",
+             "kprocess", "suser", "auser", "nauser", "ruser",
              "env", "opencode", "agent", "backup", "reboot"}
 
 # Registry of built-in commands.

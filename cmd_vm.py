@@ -16,7 +16,7 @@ Subcommands::
     vm mode [host|vm [name]]       choose where plain commands run
     vm reset [name] --yes          recreate a VM's system files (keeps /root)
     vm remove <name|all> --yes     delete a VM and its /root
-    vm setup <profile> [name]      install Python/build tools/Node/... (see `vm setup`)
+    vm setup <profile> [name]      install Python/build tools/Node/Docker/Kali tools (see `vm setup`)
     vm doctor [name]      check that a VM works and show what is wrong if not
 
 With a single VM you never need to type its name. With several, commands that
@@ -48,7 +48,7 @@ _USAGE = """\
   vm mode [host|vm [n]] where plain commands run
   vm reset [name] --yes recreate system files (keeps /root)
   vm remove <name|all> --yes   delete a VM and its /root
-  vm setup <profile> [n] install python, build tools, node ... (`vm setup` lists them)
+  vm setup <profile> [n] install python, build tools, node, docker, kali ... (`vm setup` lists them)
   vm doctor [name]      diagnose a VM"""
 
 
@@ -185,6 +185,9 @@ def _start_setup(ctx, vm, profile):
     sid = ctx["sid"]
     try:
         sandbox.resolve(sid, f"vm:{vm}")           # authorizes + checks the VM is ready
+        refused = devsetup.check_target(profile, (sandbox.distro_info(sid, vm) or {}).get("id"))
+        if refused:
+            return f"vm setup: {refused}"
         text = devsetup.script(profile, sandbox.family(sid, vm))
         path = sandbox.rootfs_path(sid, vm) / "tmp" / f"rconsole-setup-{profile}.sh"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -383,7 +386,9 @@ def cmd_vm(ctx, args):
             return ("Install a ready-made toolchain inside a VM:\n\n" + devsetup.describe() +
                     "\n\nUsage: vm setup <profile> [name]      e.g. vm setup python\n"
                     "It runs as a background job and shows progress; `vm setup python` is what "
-                    "you need for pip packages such as psycopg2, Pillow, lxml or mysqlclient.")
+                    "you need for pip packages such as psycopg2, Pillow, lxml or mysqlclient.\n"
+                    "`vm setup docker` installs the client only (no daemon can run in a VM); "
+                    "`vm setup kali` works in a Kali VM only.")
         profile = rest[0].lower()
         if profile not in devsetup.PROFILES:
             return (f"vm setup: unknown profile '{profile}'.\n\n" + devsetup.describe())

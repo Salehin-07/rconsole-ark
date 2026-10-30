@@ -36,6 +36,7 @@ Environment variables
                                ``RCONSOLE_BACKUP_DIR`` backs up to a folder instead.
 ``RCONSOLE_MAX_USERS``         Account cap (default 10): this is for one person or a
                                small team.
+``RCONSOLE_MAX_UPLOAD_MB``     Largest single file the file browser will accept (default 64).
 ``RCONSOLE_SUPERVISOR``        Run the service supervisor (default on).
 ``RCONSOLE_DEFAULT_SYSTEM``    System ``vm install`` uses by default (default ``debian``).
 ``RCONSOLE_ALLOWED_ORIGINS``   Extra hostnames the console is served from (comma
@@ -134,6 +135,8 @@ MIN_PASSWORD_LEN = max(4, env_int("RCONSOLE_MIN_PASSWORD", 8))
 # rconsole is built for one person or a small team on a small (often free)
 # instance, not for the public: cap the number of accounts.
 MAX_USERS = max(1, env_int("RCONSOLE_MAX_USERS", 10))
+# Largest single file the file browser's upload button accepts (one request per file).
+MAX_UPLOAD_MB = max(1, env_int("RCONSOLE_MAX_UPLOAD_MB", 64))
 
 # --- staying awake on free tiers (see keepalive.py) ---------------------------------
 # Free instances (Render, ...) sleep after ~15 minutes without inbound requests.

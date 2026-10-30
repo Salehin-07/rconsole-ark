@@ -2,9 +2,11 @@
 import http.server
 import json
 import os
+import io
 import shutil
 import threading
 import unittest
+import zipfile
 
 import helpers  # noqa: F401
 
@@ -276,6 +278,126 @@ class HostModeTests(Base):
         self.assertIn("refusing", out)
 
 
+class FileTransferTests(Base):
+    """The file browser's download (file / folder-as-zip) and upload (file / folder) endpoints."""
+
+    def setUp(self):
+        super().setUp()
+        self.login()
+        self.root = os.path.join(os.environ["RCONSOLE_DATA_DIR"], "xfer")
+        shutil.rmtree(self.root, ignore_errors=True)
+        os.makedirs(self.root)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def upload(self, name, data=b"hello", folder=None, rel=None, overwrite=False, client=None):
+        form = {"dir": folder if folder is not None else self.root, "file": (io.BytesIO(data), name)}
+        if rel is not None:
+            form["rel"] = rel
+        if overwrite:
+            form["overwrite"] = "1"
+        return (client or self.c).post("/api/upload", data=form, content_type="multipart/form-data")
+
+    def test_download_file(self):
+        p = os.path.join(self.root, "n\u00e4me \"q\".txt")
+        open(p, "wb").write(b"payload")
+        r = self.c.get("/api/download", query_string={"path": p})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data, b"payload")
+        self.assertIn("attachment", r.headers["Content-Disposition"])
+        self.assertIn("filename*=UTF-8''n%C3%A4me", r.headers["Content-Disposition"])
+        self.assertEqual(r.mimetype, "application/octet-stream")
+        self.assertNotIn("Content-Encoding", r.headers)           # never run through the compressor
+
+    def test_download_needs_login_and_a_real_file(self):
+        anon = rapp.app.test_client()
+        self.assertEqual(anon.get("/api/download", query_string={"path": self.root}).status_code, 401)
+        self.assertEqual(self.c.get("/api/download").status_code, 400)
+        self.assertEqual(self.c.get("/api/download", query_string={"path": self.root + "/nope"}).status_code, 404)
+
+    def test_download_folder_as_zip_skips_symlinks(self):
+        os.makedirs(os.path.join(self.root, "site", "sub", "empty"))
+        open(os.path.join(self.root, "site", "index.html"), "w").write("<h1>hi</h1>")
+        open(os.path.join(self.root, "site", "sub", "a.txt"), "w").write("a")
+        secret = os.path.join(self.root, "secret.txt")
+        open(secret, "w").write("top secret")
+        os.symlink(secret, os.path.join(self.root, "site", "leak.txt"))
+        os.symlink(self.root, os.path.join(self.root, "site", "loop"))
+        r = self.c.get("/api/download", query_string={"path": os.path.join(self.root, "site")})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.mimetype, "application/zip")
+        self.assertIn("site.zip", r.headers["Content-Disposition"])
+        zf = zipfile.ZipFile(io.BytesIO(r.data))
+        self.assertIsNone(zf.testzip())
+        self.assertEqual(sorted(zf.namelist()),
+                         ["site/index.html", "site/sub/a.txt", "site/sub/empty/"])
+        self.assertEqual(zf.read("site/index.html"), b"<h1>hi</h1>")
+
+    def test_upload_single_file(self):
+        r = self.upload("one.txt", b"first")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertTrue(r.get_json()["ok"])
+        self.assertEqual(open(os.path.join(self.root, "one.txt"), "rb").read(), b"first")
+        self.assertEqual([n for n in os.listdir(self.root) if n.startswith(".")], [])   # no temp file left
+
+    def test_upload_existing_needs_overwrite(self):
+        self.upload("one.txt", b"first")
+        r = self.upload("one.txt", b"second")
+        self.assertEqual(r.status_code, 409)
+        self.assertTrue(r.get_json()["exists"])
+        self.assertEqual(open(os.path.join(self.root, "one.txt"), "rb").read(), b"first")
+        self.assertEqual(self.upload("one.txt", b"second", overwrite=True).status_code, 200)
+        self.assertEqual(open(os.path.join(self.root, "one.txt"), "rb").read(), b"second")
+
+    def test_upload_folder_keeps_layout(self):
+        r = self.upload("c.txt", b"deep", rel="proj/src/c.txt")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(open(os.path.join(self.root, "proj", "src", "c.txt"), "rb").read(), b"deep")
+
+    def test_upload_rejects_unsafe_names(self):
+        for rel in ("../evil.txt", "a/../../evil.txt", "/abs/evil.txt", "a//b.txt", "a\\b.txt", "./x", "a/."):
+            r = self.upload("x", rel=rel)
+            self.assertEqual(r.status_code, 400, rel)
+        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(self.root), "evil.txt")))
+
+    def test_upload_errors(self):
+        anon = rapp.app.test_client()
+        self.assertEqual(self.upload("x", client=anon).status_code, 401)
+        self.assertEqual(self.upload("x", folder=self.root + "/missing").status_code, 400)
+        self.assertEqual(self.c.post("/api/upload", data={"dir": self.root}).status_code, 400)
+        os.makedirs(os.path.join(self.root, "adir"))
+        self.assertEqual(self.upload("x", rel="adir", overwrite=True).status_code, 409)   # a folder is in the way
+
+    def test_upload_replaces_a_symlink_instead_of_writing_through_it(self):
+        outside = os.path.join(self.root, "outside.txt")
+        open(outside, "w").write("untouched")
+        os.makedirs(os.path.join(self.root, "d"))
+        os.symlink(outside, os.path.join(self.root, "d", "link.txt"))
+        r = self.upload("link.txt", b"new", folder=os.path.join(self.root, "d"), overwrite=True)
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(open(outside).read(), "untouched")
+        self.assertFalse(os.path.islink(os.path.join(self.root, "d", "link.txt")))
+
+    def test_upload_size_limit(self):
+        import config
+        old = config.MAX_UPLOAD_MB
+        config.MAX_UPLOAD_MB = 1
+        try:
+            r = self.upload("big.bin", b"x" * (1024 * 1024 + 10))
+            self.assertEqual(r.status_code, 413)
+            self.assertFalse(os.path.exists(os.path.join(self.root, "big.bin")))
+            self.assertEqual([n for n in os.listdir(self.root) if n.startswith(".")], [])
+        finally:
+            config.MAX_UPLOAD_MB = old
+
+    def test_upload_is_csrf_protected(self):
+        r = self.c.post("/api/upload", data={"dir": self.root, "file": (io.BytesIO(b"x"), "x.txt")},
+                        content_type="multipart/form-data", headers={"Origin": "http://evil.example"})
+        self.assertEqual(r.status_code, 403)
+        self.assertFalse(os.path.exists(os.path.join(self.root, "x.txt")))
+
+
 class UpstreamHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         body = json.dumps({"cookie": self.headers.get("Cookie", "")}).encode()
@@ -379,26 +501,24 @@ class VmApiTests(Base):
         self.assertIn("admins", self.run_cmd("vm mode host", client=self.uc)["output"])
         self.assertIn("--yes", self.run_cmd("vm reset", client=self.uc)["output"])
 
-    def test_serve_static_from_vm(self):
-        self.run_cmd("sudo id", client=self.uc)
-        admin = rapp.app.test_client()
-        self.login(client=admin)
-        self.assertTrue(sandbox.install("ark", wait=True)[0])    # admin may use the VM too
-        self.assertIn("mode: vm", self.run_cmd("vm mode vm", client=admin)["output"])
-        self.run_cmd("mkdir -p /root/site", client=admin)
-        self.run_cmd("echo '<h1>vm site</h1>' > /root/site/index.html", client=admin)
-        self.run_cmd("cd /root/site", client=admin)
-        out = self.run_cmd("sudo serve 18765", client=admin)["output"]
-        self.assertIn("Hosting", out, out)
-        try:
-            import time
-            time.sleep(0.3)
-            body = admin.get("/site/18765/").data
-            self.assertIn(b"vm site", body)
-        finally:
-            self.run_cmd("sudo kprocess", client=admin)
-            self.run_cmd("vm mode host", client=admin)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_download_and_upload_are_confined_to_the_vm(self):
+        uc = self.uc
+        r = uc.post("/api/upload", data={"dir": "/root", "rel": "up/one.txt", "file": (io.BytesIO(b"vm"), "one.txt")},
+                    content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(self.run_cmd("cat /root/up/one.txt", client=uc)["output"].strip(), "vm")   # visible in the VM
+        r = uc.get("/api/download", query_string={"path": "/root/up/one.txt"})
+        self.assertEqual(r.data, b"vm")
+        r = uc.post("/api/upload", data={"dir": "/root", "rel": "../../escape.txt", "file": (io.BytesIO(b"x"), "x")},
+                    content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 400)
+        # a symlink inside a downloaded folder must not pull in a host file
+        home = sandbox.home_path("alice", sandbox.active_vm("alice") or sandbox.installed_vms("alice")[0])
+        os.symlink("/etc/hostname", os.path.join(home, "up", "leak"))
+        z = zipfile.ZipFile(io.BytesIO(uc.get("/api/download", query_string={"path": "/root/up"}).data))
+        self.assertEqual(z.namelist(), ["up/one.txt"])

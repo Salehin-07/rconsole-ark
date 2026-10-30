@@ -22,8 +22,6 @@ def cmd_help(ctx, args):
         ("vm [install|shell|run|mode]", "your personal Linux VM (root, apk add anything)"),
     ]
     sudo = [
-        ("sudo serve <port>", "host cwd as a static site"),
-        ("sudo gunicorn <spec> [-b :p]", "host a WSGI app (prompts for port)"),
         ("sudo cpass / cuser", "change password / rename user"),
         ("sudo muser / ruser", "create / delete a user"),
         ("sudo suser / auser / nauser", "list / grant / revoke admin"),
@@ -69,8 +67,8 @@ def cmd_help(ctx, args):
     out.append("  ls  pwd  mkdir  cat  rm  cp  mv  echo  whoami  id")
     out.append("  python  pip  git  apk/apt  ...    (cd is native & stateful)")
     out.append("")
-    out.append("Hosting is served at /<folder>/<port>/ through rconsole's proxy,")
-    out.append("so no extra port-forwarding is needed.")
+    out.append("To host something: start it (or `service add` it), then `expose <port> <name>`;")
+    out.append("it is served at /<name>/ through rconsole's proxy, no port-forwarding needed.")
     out.append("")
     out.append("On a phone, prefer 'edit'/'fm' over nano/vim: the soft keyboard")
     out.append("plus xterm can be fragile for full-screen TUIs (or tap the")

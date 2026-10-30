@@ -6,7 +6,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.2.0** · MIT licensed
+**Version 1.2.1** · MIT licensed
 
 ## Why this exists
 
@@ -21,7 +21,7 @@ reference) and you get a small always-on Linux server that you control **from yo
 * **A real terminal and your own Linux systems** (Debian, Ubuntu, Kali, Alpine) where you are `root` and can
   install anything — no host privileges needed.
 * **Run anything, keep it running**: `service add` starts bots and workers at boot and restarts them when they
-  crash. Publish websites (static *or* dynamic) with `sudo serve` / `expose`.
+  crash. Publish websites (static *or* dynamic) with `service add … --expose` / `expose`.
 * **It doesn't fall asleep**: a built-in keep-alive pings its own public URL every 10 minutes — no uptime monitor
   needed.
 * **A wiped disk isn't the end**: encrypted backups go to a free private git repo; a fresh instance restores
@@ -75,8 +75,10 @@ Commands run on one of two **targets**:
 - Visual file navigator (📁 button): browse, open, create/rename/delete — in the
   host filesystem (admins) or confined to your VM.
 - Built-in code editor with syntax highlighting for ~65 languages.
-- Hosted web apps (static sites and WSGI apps) behind a path-based proxy, with
-  per-app logs and fast failure reports.
+- Hosted web apps behind a path-based proxy: start them yourself and `expose` them, or let
+  the `service` supervisor run them (autostart, crash restart, logs).
+- Visual file browser (📁) with **download** (files, or whole folders as a `.zip`) and
+  **upload** (files or entire folders).
 - Accounts with admin/non-admin roles, brute-force protection, forced
   replacement of the factory password, session timeout, and factory reset.
 - Native **AI agent** (`sudo agent`) with file and shell tools.
@@ -136,6 +138,7 @@ Everything is configured through environment variables (see `config.py`).
 | `RCONSOLE_BACKUP_PASSPHRASE` | **Required for backups** — encrypts them (keep a copy elsewhere!) | – |
 | `RCONSOLE_BACKUP_INTERVAL` / `RCONSOLE_BACKUP_MAX_MB` | Seconds between backups when something changed (900) · size limit (40) | `900` / `40` |
 | `RCONSOLE_MAX_USERS` | Account cap — this is a one-person / small-team tool | `10` |
+| `RCONSOLE_MAX_UPLOAD_MB` | Largest single file the file browser's upload accepts | `64` |
 | `RCONSOLE_DEFAULT_SYSTEM` | System `vm install` uses by default (`alpine` suits 512 MB instances) | `debian` |
 | `RCONSOLE_SUPERVISOR` | Run the service supervisor | `1` |
 | `RCONSOLE_ALLOWED_ORIGINS` | Extra hostnames the console is served from (comma separated). Auto-detected via `Host`, `X-Forwarded-Host` and Render's hostname; set it only if you still see `cross-origin request blocked` | – |
@@ -198,11 +201,15 @@ job with live progress (it keeps going if you close the tab; `jobs`, `fg %n`):
 | `rust` | Rust and cargo (for wheels that compile from source) |
 | `db` | `psql`, `mysql`, `redis-cli`, `sqlite3` |
 | `tools` | nano, vim, wget, curl, git, ps, htop, zip, jq, ssh, … |
-| `all` | everything above |
+| `docker` | Docker CLI, compose, buildx. **Client only**: a VM (proot) can't run the Docker daemon, so point it at a remote engine with `DOCKER_HOST` |
+| `kali` | **Kali VMs only**: the command-line Kali toolset (`kali-linux-headless`) and the basics it needs. Several GB, long install |
+| `all` | `tools`, `build`, `python`, `node`, `rust`, `db` (not `docker`/`kali`) |
 
 ```text
 $ vm setup python            # (add a name if you have several: vm setup python kali)
 $ pip install psycopg2 mysqlclient Pillow lxml      # builds from source, no flags needed
+$ vm setup docker            # Docker client + compose
+$ vm setup kali              # in a Kali VM (vm install kali first): the Kali tools
 ```
 
 The right package names are used for each system (`libpq-dev` on Debian-family,
@@ -273,9 +280,8 @@ Things to know:
   and shows exactly which step fails.
 - Other CPU architectures: install `proot` 5.5+ yourself (the Dockerfile adds the
   distro one, which may be older). Debian, Ubuntu and Kali publish arm64 images too.
-- Hosted apps in a VM: static sites are served by the server (nothing needed in
-  the VM); `sudo gunicorn app:app` runs `python3 -m gunicorn` **inside** the VM —
-  the error message prints the exact install command for your system.
+- Hosted apps in a VM: run them inside the VM (`vm setup python`, then
+  `service add app --vm debian --cwd /root/app --expose 8000:app gunicorn -b 127.0.0.1:8000 app:app`).
 
 ### `neofetch` / `fetch`
 
@@ -329,10 +335,7 @@ calling the terminal websocket or the file APIs directly.
 | `sudo muser` / `ruser` | Create / delete a user (their VM and state are removed too). |
 | `sudo suser` / `auser <u>` / `nauser <u>` | List users / grant / revoke admin. |
 | `sudo rboot` | Factory reset: kill apps, wipe state and VMs, reset users. |
-| `sudo serve <port>` | Host the **current directory** as a static site. |
-| `sudo gunicorn <module:app> -b :<port>` | Host a WSGI app (gunicorn, or wsgiref fallback). |
-| `sudo sprocess [port]` | List hosted processes, or show one app's log tail. |
-| `sudo kprocess [pid]` | Stop a hosted process (or all). Refuses to kill the server itself. |
+| `sudo kprocess [pid]` | Kill a process (or everything this session hosts). Refuses to kill the server itself. |
 | `sudo env …`, `sudo agent`, `sudo opencode` | Per-user env vars, AI agent, opencode launcher. |
 
 Commands prefixed with `sudo` require an **admin** account; a non-admin who types
@@ -372,18 +375,17 @@ Apps that don't know they live under a path prefix can use `expose 8000 myapp --
 links in HTML/CSS). The proxy sends `X-Forwarded-Prefix`, so prefix-aware frameworks work natively. Details and
 limits (no WebSockets) are in [COMMANDS.md](COMMANDS.md#expose).
 
-**`sudo serve` / `sudo gunicorn` — rconsole starts and manages the app:**
+**`service` — rconsole starts and keeps the app running** (this replaces `sudo serve` / `sudo gunicorn`,
+removed in 1.2.1):
 
 ```text
-ark@rconsole:/srv/mysite$ sudo serve 8000
-Hosting '/srv/mysite' (host) at /mysite/8000/
-Open: /mysite/8000/  (pid 1234, backend: http.server)
-Logs: sudo sprocess 8000
+$ service add site --vm debian --cwd /root/site --expose 8000:site python3 -m http.server 8000
+$ service add app  --vm debian --cwd /root/app  --expose 8000:app  gunicorn -b 127.0.0.1:8000 app:app
+$ service logs app
 ```
 
-- The **folder name** is the basename of the current directory.
 - Apps bind `127.0.0.1:<port>` and are reachable only through the proxy at
-  `https://<your-domain>/<folder>/<port>/…`, and only by logged-in users.
+  `https://<your-domain>/<name>/…`, and only by logged-in users.
 - The proxy never forwards rconsole's own session cookie to your app, and
   passes multiple `Set-Cookie` headers through intact (Django's `csrftoken` +
   `sessionid` work).
@@ -594,12 +596,12 @@ a locally served root filesystem (download → checksum → extract → run).
 | Logged out after every deploy | No persistent disk / `RCONSOLE_DATA_DIR`; the generated secrets were lost. Mount a disk or set `RCONSOLE_SECRET`. |
 | `{"error":"cross-origin request blocked"}` after login | Your proxy rewrites `Host` without `X-Forwarded-Host`. The server log names the blocked host — add it to `RCONSOLE_ALLOWED_ORIGINS`. |
 | "Too many failed attempts" | Login lockout; wait the stated seconds. |
-| Hosted app exits immediately | The error shows the app's log; in VM mode install `python3`/`gunicorn` in the VM. `sudo sprocess <port>` shows logs. |
+| Hosted app exits immediately | The error shows the app's log; in VM mode install `python3`/`gunicorn` in the VM (`vm setup python`). `service logs <name>` shows its output. |
 | Instance falls asleep / bots stop after a while | `keepalive` — is there a public URL and is it enabled? See [FREE_HOSTING.md](FREE_HOSTING.md#stay-awake). |
 | Everything is gone after a redeploy | Backups weren't configured (`sudo backup` shows what's missing) — see [FREE_HOSTING.md](FREE_HOSTING.md). |
 | `uv: command not found` (or `cargo`, `bun`, …) right after installing it in a VM | Fixed: plain commands now have `~/.local/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/go/bin` on `PATH` and read `~/.profile`. Update rconsole. (Interactive `vm shell` always worked because the installer's `source` line ran there.) |
 | `expose` link gives 502 | Nothing is listening on that port yet (`expose list` shows `[down]`) — start your app. |
-| Hosted app not reachable | Ensure you used `sudo serve`/`sudo gunicorn`; access `/<folder>/<port>/`. |
+| Hosted app not reachable | Is it running (`service list`) and exposed (`expose list`)? Open `/<name>/`. |
 | Changes not taking effect | No auto-reload; restart the server. Hard-refresh for static assets. |
 
 ---

@@ -702,6 +702,27 @@ body.touch #editor-bar button { font-size: 15px; padding: 12px 16px; }
   white-space: nowrap;
 }
 #files-crumb .crumb:last-child { color: var(--fg); font-weight: 600; }
+#files-xfer {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+#files-xfer button {
+  flex: 1 1 0;
+  background: #0c141d;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#files-xfer button:hover { border-color: var(--blue); }
+#files-xfer button:disabled { opacity: .5; cursor: default; }
 #files-bar button {
   flex: 0 0 auto;
   background: #0c141d;

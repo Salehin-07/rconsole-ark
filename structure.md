@@ -19,7 +19,7 @@ rconsole/
 ├── interp.py               # Command parsing/dispatch; interactive detection; host passthrough
 ├── commands.py             # Thin registry (COMMANDS/PROTECTED/@command) + module wiring
 ├── cmd_basic.py            # help, clear, history, rwhoami, cd, alias, theme
-├── cmd_hosting.py          # serve / gunicorn / sprocess / kprocess (+port parsing, launcher)
+├── cmd_hosting.py          # kprocess (kill a process by PID)
 ├── cmd_users.py            # logout, suser/auser/nauser/ruser, muser/cpass/cuser, rboot
 ├── cmd_vm.py               # vm: list / install <name> / shell / run / mode / reset / remove / status
 ├── devsetup.py             # `vm setup <profile>`: per-family package sets + install scripts (python, build, node, ...)
@@ -38,9 +38,7 @@ rconsole/
 ├── shellutil.py            # Shared shell detection + subprocess/PTY environment builder
 ├── state.py                # In-memory session/tab/host state + JSON persistence
 ├── auth.py                 # User auth & persistence (data/users.json, PBKDF2 hashes)
-├── _static_host.py         # Bootstrap: serves a directory over HTTP (used by `serve`)
-├── _wsgi_host.py           # Bootstrap: wsgiref fallback WSGI server (used by `gunicorn` when real gunicorn is unavailable)
-├── examples/               # Example hosted apps (try them with `sudo serve` / `sudo gunicorn`)
+├── examples/               # Example hosted apps (run them with `service add … --expose`)
 │   └── guestbook/app.py    # Single-file Flask guestbook demo
 ├── gunicorn.conf.py        # Production server settings (1 worker + threads: state is in-memory)
 ├── Dockerfile              # Image with proot/git/tini preinstalled (Render, any Docker host)
@@ -125,6 +123,8 @@ the browser reports (`cols` in `/api/run`).
   30-day inactivity timeout, user-still-exists, forced default-password change.
 - `login` (throttled per ip+user and per ip), `console_page`, `/healthz`.
 - `/api/run`: dispatches a line of input to `interp.process`.
+- `/api/download` (a file, or a folder as a streamed zip built with `os.fwalk` + `O_NOFOLLOW`) and
+  `/api/upload` (one file per request, `rel` keeps a folder upload's layout, temp file + `os.replace`).
 - `/api/file` (GET/POST), `/api/dir`, `/api/fs`: editor + navigator, all mapped
   through `sandbox.fs` (admins: whole host; others: their VM only).
 - `/<folder>/<int:port>/…`: pooled reverse proxy to the hosted app; never
@@ -157,8 +157,8 @@ module registers itself via the decorator (same pattern `agent.py` uses).
 **`cmd_vm.py`** — `vm` (public): status, install, shell (`{"pty": true, "cmd": "@vm"}`),
 run, mode, reset, remove.
 
-**`cmd_hosting.py`** — serve / gunicorn (+ bind/port parsing, process launcher
-with real-gunicorn vs wsgiref fallback) and sprocess / kprocess.
+**`cmd_hosting.py`** — `kprocess`. (`serve`, `gunicorn` and `sprocess` were removed in 1.2.1:
+`expose` and `service` host apps now.)
 
 **`cmd_users.py`** — logout (public), suser / auser / nauser / ruser,
 muser / cpass / cuser (interactive prompts), rboot (global factory reset).
@@ -215,15 +215,6 @@ Path helpers (`_resolve_path`, …) also used by `fun.py`'s `rev`/`wc`.
 - `LoginThrottle`: exponential lockout used by the login route.
 - `verify`, `get_user`, `list_users`, `create_user`, `set_password`, `set_username`,
   `set_admin`, `delete_user`, `reset_to_defaults`.
-
-**`_static_host.py`** — Hosts a directory over HTTP
-(`SimpleHTTPRequestHandler`) on `127.0.0.1:<port>`. Used by `serve`;
-`--confine` (VM directories) refuses symlinks that leave the directory.
-
-**`_wsgi_host.py`** — wsgiref fallback server for WSGI apps. `sudo gunicorn`
-prefers the real `gunicorn` module (`python -m gunicorn <spec> -b
-127.0.0.1:<port> --chdir <cwd>`); when gunicorn cannot run on the current
-platform, this wsgiref server is used instead.
 
 ### Front-end (static/ + templates/)
 

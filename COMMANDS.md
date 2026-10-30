@@ -80,11 +80,8 @@ Legend: 🔒 = needs `sudo` (admin). `<x>` = required, `[x]` = optional.
 | [`fm`](#fm) | file manager | |
 | [`vm`](#vm) | your Linux systems | |
 | [`neofetch`](#neofetch--fetch--rfetch) / `fetch` / `rfetch` | system summary | |
-| [`serve`](#serve) | host a folder as a website | 🔒 |
-| [`gunicorn`](#gunicorn) | host a Python web app | 🔒 |
 | [`expose`](#expose) / [`unexpose`](#unexpose) | publish a running server at `/name/` | |
-| [`sprocess`](#sprocess) | list hosted apps / show logs | 🔒 |
-| [`kprocess`](#kprocess) | stop hosted apps | 🔒 |
+| [`kprocess`](#kprocess) | kill a process by PID | 🔒 |
 | [`service`](#service) | supervised bots/workers: autostart, restart on crash | |
 | [`keepalive`](#keepalive) | stay awake on free hosting (self-ping) | |
 | [`backup`](#backup) | encrypted backups, auto-restore on a fresh instance | 🔒 |
@@ -175,6 +172,20 @@ edit /etc/hosts
 ```
 Works on the host (admins) or inside the VM you are in. Files over 5 MB are refused.
 
+### The 📁 file browser: download and upload
+The 📁 button (tab bar) opens a visual file browser. Besides browsing, creating, renaming, deleting and editing:
+* **⬇ Download** on every row: a file downloads as it is; a **folder downloads as a `.zip`** that is built while it
+  streams (symlinks inside it are skipped, so a link can never pull in a file from outside the folder).
+* **⬆ Upload files** adds one or many files to the folder you are looking at. **⬆ Upload folder** uploads a whole
+  folder and keeps its structure (empty sub-folders are not sent: a browser only reports files).
+* Files that already exist are not replaced until you confirm once for the whole batch. Each file is its own request,
+  so one failure does not stop the rest; the status line shows progress and what failed.
+* The per-file limit is **64 MB** by default (`RCONSOLE_MAX_UPLOAD_MB`). For bigger things use `git clone`, `curl`
+  or `wget` inside a VM, or upload a `.zip` and `unzip` it.
+* Folder upload needs a browser that supports folder pickers (desktop Chrome, Edge, Firefox, Safari; on phones it
+  varies, in which case upload a `.zip` and unzip it).
+* Everything goes through the same confinement as the rest of the console: in a VM you only see that VM.
+
 ### `fm`
 An in-console **file manager** (also available as the 📁 button).
 ```text
@@ -244,12 +255,16 @@ Installs a ready-made toolchain **inside a VM** as a background job with live pr
 | `rust` | Rust, cargo |
 | `db` | psql, mysql, redis-cli, sqlite3 |
 | `tools` | nano, vim, wget, curl, git, ps, htop, zip, jq, ssh … |
-| `all` | everything |
+| `docker` | Docker CLI, compose, buildx. **Client only:** a VM runs under proot, which has no namespaces, cgroups or netfilter, so `dockerd` cannot start inside it. Point it at a remote engine with `DOCKER_HOST` |
+| `kali` | **Kali VMs only.** The command-line Kali toolset (`kali-linux-headless`, no desktop) plus the basics it needs. Several GB and a long install; refused on any other system. Want more: `apt install kali-linux-large` |
+| `all` | `tools`, `build`, `python`, `node`, `rust`, `db` (not `docker` or `kali`) |
 
 ```text
 vm setup                  # list profiles
 vm setup python           # then: pip install psycopg2 mysqlclient Pillow
 vm setup python kali      # a specific VM
+vm setup docker           # Docker client + compose
+vm setup kali             # in a Kali VM: the Kali toolset (`vm install kali` first)
 ```
 
 ### `neofetch` / `fetch` / `rfetch`
@@ -263,30 +278,22 @@ System summary that **fits your screen** (logo beside, above, or hidden on phone
 
 ## Hosting and exposing apps
 
-Three ways to put something on the web through rconsole's domain. All of them sit behind rconsole's login unless
-stated.
+Two ways to put something on the web through rconsole's domain, and they work together. Both sit behind
+rconsole's login unless stated. (`sudo serve` and `sudo gunicorn` were removed in 1.2.1: these two cover them.)
 
-| | `serve` / `gunicorn` | `expose` |
+| | `expose` | `service` |
 |---|---|---|
-| Who starts the program | rconsole | **you** (`python main.py &`, `npm run dev`, …) |
-| URL | `/<folder>/<port>/` | `/<name>/` (you choose) |
-| Who can use it | admins 🔒 | everyone (public: admins) |
+| What it does | publishes a server that is **already running** at `/<n>/` | **keeps it running** (autostart, restart on crash, logs) |
+| Who starts the program | **you** (`python main.py &`, `npm run dev`, …) | rconsole's supervisor |
+| Combine | | `service add … --expose PORT:NAME` does both in one line |
 
-### `serve`
-🔒 Hosts the **current directory** as a static website.
 ```text
-cd /srv/mysite
-sudo serve 8000          # -> /mysite/8000/
+# a static site
+service add site --vm debian --cwd /root/site --expose 8000:site python3 -m http.server 8000
+# a Python web app (install it once: vm setup python, then pip install gunicorn)
+service add app --vm debian --cwd /root/app --expose 8000:app gunicorn -b 127.0.0.1:8000 app:app
+service logs app                  # what it printed (replaces `sprocess`)
 ```
-Port 1024–65535. In VM mode the folder is the VM's. Output tells you the URL, pid and log command.
-
-### `gunicorn`
-🔒 Hosts a **Python WSGI app** (gunicorn when available, a lightweight fallback otherwise).
-```text
-sudo gunicorn app:app -b :8001
-sudo gunicorn app:app             # prompts for the port
-```
-In a VM it runs `python3 -m gunicorn` **inside** the VM (the error message prints the exact install command).
 
 ### `expose`
 Publishes a server you already started — on the host or in any VM — at `https://<your-domain>/<name>/`.
@@ -313,13 +320,9 @@ expose rm myapp                   # stop exposing
 ### `unexpose`
 Same as `expose rm`: `unexpose myapp` (several names allowed; `unexpose all` removes all of yours).
 
-### `sprocess`
-🔒 Lists hosted apps started with `serve`/`gunicorn` (name, port, pid). `sudo sprocess <port>` shows that app's log
-tail (apps that exit immediately also print it automatically).
-
 ### `kprocess`
-🔒 Stops hosted apps: `sudo kprocess <pid>` for one, `sudo kprocess` for all of them. It refuses to kill the
-rconsole server itself.
+🔒 Kills a process: `sudo kprocess <pid>` for one, `sudo kprocess` for everything this session still hosts. It
+refuses to kill the rconsole server itself. For anything you started with `service`, use `service stop <n>`.
 
 ---
 

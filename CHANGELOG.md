@@ -3,6 +3,29 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.2.1 — 2026-10-30
+
+### Added
+- **File browser: download.** Every row has a ⬇ button. A file downloads as it is; a **folder downloads as a
+  `.zip`** that streams while it is built (constant memory). Symlinks inside a folder are skipped and opened
+  with `O_NOFOLLOW`, so a link can never pull in a file from outside the folder or the VM.
+- **File browser: upload.** **⬆ Upload files** and **⬆ Upload folder** (keeps the folder's structure). One request
+  per file with live progress, three at a time; existing files are replaced only after you confirm once. Names are
+  validated (no `..`, absolute or empty parts), writes are atomic, and a symlink at the target is replaced rather
+  than written through. Limit per file: `RCONSOLE_MAX_UPLOAD_MB` (default 64).
+- **`vm setup docker`** — Docker CLI, compose and buildx. Client only: a VM runs under proot and cannot run
+  `dockerd`, so the script says so and shows how to use `DOCKER_HOST` with a remote engine.
+- **`vm setup kali`** — Kali VMs only (refused anywhere else): the command-line Kali toolset
+  (`kali-linux-headless`, no desktop) plus the basics it needs, with a smaller fallback (`kali-tools-top10`).
+
+### Removed
+- **`sudo serve`, `sudo gunicorn` and `sudo sprocess`.** `service add … --expose PORT:NAME` (keeps it running) and
+  `expose` (publishes something you started) cover them; `service logs <name>` replaces `sprocess`. The unused
+  `_static_host.py` and `_wsgi_host.py` helpers went with them. `kprocess` stays.
+
+### Changed
+- `vm setup` lists `docker` and `kali`; `vm setup all` still means tools, build, python, node, rust and db; it does not include `docker` or `kali`.
+
 ## 1.2.0 — 2026-10-21
 
 rconsole now has a clear purpose: **free hosting for bots, websites and background workers, for one person or a
