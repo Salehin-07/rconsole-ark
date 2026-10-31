@@ -45,6 +45,7 @@ rconsole/
 ├── examples/               # Example hosted apps (run them with `service add … --expose`)
 │   └── guestbook/app.py    # Single-file Flask guestbook demo
 ├── gunicorn.conf.py        # Production server settings (1 worker + threads: state is in-memory)
+├── vmupdate.py             # `vm update`: lock, snapshot (hard links), upgrade, verify, rollback, crash recovery
 ├── serve.py                # Launcher: gunicorn if usable, else built-in threaded server (Windows)
 ├── Dockerfile              # Image with proot/git/tini preinstalled (Render, any Docker host)
 ├── docker-entrypoint.sh    # Fixes root-owned volumes, then drops to uid 10001 (RCONSOLE_RUN_AS_ROOT=1 keeps root)
@@ -57,6 +58,8 @@ rconsole/
 │   ├── test_auth.py        # Hashing + migration, policy, quarantine, throttle
 │   ├── test_serve.py       # serve.py: server choice, gunicorn command, built-in fallback + shutdown
 │   ├── test_sandbox.py     # Path confinement (symlink/.. escapes), authorization
+│   ├── test_vmupdate.py    # vm update: snapshot/rollback, lock, who may update, recovery (fake package manager)
+│   ├── test_vmupdate_e2e.py # vm update in a real proot VM with a fake apt-get
 │   ├── test_multivm.py     # Several VMs per user: separation, picker, targets API, migration, doctor
 │   ├── test_devsetup.py    # Every profile script is valid sh and has the headers psycopg2 & co. need
 │   ├── test_distros.py     # Catalog, aliases, mirror resolvers (HTTP faked)

@@ -17,6 +17,7 @@ Subcommands::
     vm reset [name] --yes          recreate a VM's system files (keeps /root)
     vm remove <name|all> --yes     delete a VM and its /root
     vm setup <profile> [name]      install Python/build tools/Node/Docker/Kali tools (see `vm setup`)
+    vm update [name]      update a VM to the latest packages of its release, safely
     vm doctor [name]      check that a VM works and show what is wrong if not
 
 With a single VM you never need to type its name. With several, commands that
@@ -34,6 +35,7 @@ import devsetup
 import distros
 import jobs
 import sandbox
+import vmupdate
 
 RUN_TIMEOUT = 90      # under Render's 100 s HTTP limit; use `vm shell` or `&` for more
 
@@ -49,6 +51,7 @@ _USAGE = """\
   vm reset [name] --yes recreate system files (keeps /root)
   vm remove <name|all> --yes   delete a VM and its /root
   vm setup <profile> [n] install python, build tools, node, docker, kali ... (`vm setup` lists them)
+  vm update [name]      update a VM safely (locks it; rolls back on any problem)
   vm doctor [name]      diagnose a VM"""
 
 
@@ -116,13 +119,16 @@ def _status(sid, cols, only=None):
         lines += [f"Your systems ({len(infos)})", "-----------------"]
         for i in infos:
             mark = "*" if i["vm"] == active and mode == sandbox.VM else " "
-            st = {"ready": "", "installing": " (installing…)", "failed": " (install FAILED)",
-                  "absent": ""}[i["state"]]
+            st = {"ready": "", "installing": " (installing…)", "updating": " (updating…, locked)",
+                  "failed": " (install FAILED)", "absent": ""}[i["state"]]
             title = i["distro"] or i["label"] or i["vm"]
             size = f" · {_human(i['disk'])}" if i["disk"] is not None else ""
             lines.append(f"{mark} {i['vm']:<8}{title}{size}{st}")
-            if i["message"] and i["state"] in ("installing", "failed"):
+            if i["message"] and i["state"] in ("installing", "updating", "failed"):
                 lines.append(_wrap(i["message"], cols or 80, 11))
+            last = vmupdate.summary(sid, i["vm"]) if i["state"] == "ready" else ""
+            if last and (only or i["vm"] == active):
+                lines.append(_wrap(last, cols or 80, 11))
         if only and infos[0]["family"]:
             pm = "apk add <pkg>" if infos[0]["family"] == "alpine" else "apt install -y <pkg>"
             lines.append(f"  packages : {pm}")
@@ -269,6 +275,43 @@ def _doctor(ctx, vm):
     return "\n".join(lines)
 
 
+def _update(ctx, rest):
+    """``vm update [name] [--yes] [--log]`` — see :mod:`vmupdate` for the whole story."""
+    sid = ctx["sid"]
+    if not sandbox.supported():
+        return "vm: the VM is unavailable (needs Linux and RCONSOLE_VM=1)."
+    yes = "--yes" in rest or "-y" in rest
+    want_log = "--log" in rest
+    names = [r for r in rest if not r.startswith("-")]
+    vms = sandbox.installed_vms(sid)
+    if not vms:
+        return _no_vm_reply(sid)
+    if names:
+        vm = names[0]
+        if vm not in vms:
+            hint = f"Run `vm install {vm}` first." if vm in distros.CATALOG else "See `vm`."
+            return f"vm: '{vm}' is not installed. {hint}"
+    elif len(vms) == 1:
+        vm = vms[0]                                  # the name is optional with a single system
+    else:
+        return _picker(sid, "Which system should be updated?", "vm update {vm}", install=False)
+    if want_log:
+        text = vmupdate.log_tail(sid, vm)
+        return text or f"vm: no update log for {vm} yet."
+    why = vmupdate.can_start(sid, vm)
+    if why:
+        return f"vm update: {why}"
+    everything = vmupdate.stops_everything(sid, vm)
+    running = vmupdate.running_in(sid, vm, everything)
+    if vmupdate.has_running(running) and not yes:
+        scope = "everything you have running" if everything else f"what runs in {vm}"
+        return (f"Updating {vm} locks it until it is done and stops {scope}: "
+                f"{vmupdate.describe_running(running)}.\n"
+                f"Services restart by themselves afterwards. Continue with: vm update {vm} --yes")
+    ok, msg = vmupdate.start(sid, vm, everything)
+    return msg if ok else f"vm update: {msg}"
+
+
 # ------------------------------------------------------------------- command
 @commands.command("vm")
 def cmd_vm(ctx, args):
@@ -373,6 +416,10 @@ def cmd_vm(ctx, args):
             return (f"This deletes {what} of: {', '.join(targets)}.\n"
                     f"Re-run with --yes to confirm: vm {sub} {' '.join(names)} --yes".replace("  ", " "))
         for vm in targets:
+            reason = sandbox.busy_reason(sid, vm)
+            if reason:
+                return f"vm: {reason}"
+        for vm in targets:
             sandbox.reset(sid, vm, keep_home=(sub == "reset"))
         if sandbox.effective_mode(sid) == sandbox.VM and not sandbox.installed(sid) \
                 and sandbox.host_allowed(sid):
@@ -397,6 +444,9 @@ def cmd_vm(ctx, args):
             return reply
         return _start_setup(ctx, vm, profile)
 
+    if sub in ("update", "upgrade"):
+        return _update(ctx, rest)
+
     if sub in ("doctor", "check", "diagnose"):
         vms = sandbox.installed_vms(sid)
         name = rest[0] if rest else sandbox.active_vm(sid)
@@ -406,6 +456,9 @@ def cmd_vm(ctx, args):
             return _picker(sid, "Which system should I check?", "vm doctor {vm}", install=False)
         if name not in vms:
             return f"vm: '{name}' is not installed (see `vm`)."
+        reason = sandbox.busy_reason(sid, name)
+        if reason:
+            return f"vm: {reason}"
         return _doctor(ctx, name)
 
     return f"vm: unknown subcommand '{sub}'\n{_USAGE}"

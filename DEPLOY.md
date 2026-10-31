@@ -386,6 +386,7 @@ hold users' files; the `rootfs` folders can be recreated with `vm install`.
 | Terminal connects, then drops after ~60 s | Proxy idle timeout. nginx: `proxy_read_timeout 3600s`. AWS ALB: raise idle timeout. Cloudflare: use the proxy's websocket support and avoid free-plan idle limits via a tunnel. |
 | `vm install` fails with "could not reach …" | No outbound internet, or the mirror is blocked. Set `RCONSOLE_VM_ROOTFS_URL` to a reachable tarball (and `RCONSOLE_VM_ROOTFS_SHA256`). |
 | `vm install` fails: "proot cannot run" | The platform blocks `ptrace`. Use a VPS/microVM (Fly.io, any VM) instead. |
+| `vm update` says it needs free disk, or rolled back | An update needs ~200 MB free on the data disk (the snapshot is hard links, so it is small) and network access to the distro mirror. A rollback leaves the VM exactly as before; `vm update <name> --log` shows why. A restart in the middle is rolled back automatically at the next start. |
 | A VM misbehaves and you don't know why | Run **`vm doctor <name>`**: it checks shell, programs, root, write access, DNS, internet and the package manager, and prints which step fails. Paste its output when asking for help. |
 | `coreutils: unknown program 'prooted-…'` | A proot older than 5.5 under Ubuntu 26.04. rconsole downloads 5.5.0 automatically on x86-64 — make sure the server can reach github.com; on ARM install a newer proot. |
 | `vm install` says unsupported CPU | Prebuilt proot is x86-64. On ARM install it: `apt install proot` / `apk add proot`. The Docker image has it. |

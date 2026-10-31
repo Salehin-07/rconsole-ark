@@ -122,7 +122,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.3.0` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.3.2` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -229,6 +229,7 @@ its own `/root`**. Inside one you are `root` and can install anything. Debian is
 | `vm reset [name] --yes` | recreate a VM's system files, **keep** its `/root` |
 | `vm remove <name\|all> --yes` | delete a VM **and** its `/root` |
 | `vm setup <profile> [name]` | install Python / build tools / Node … (below) |
+| `vm update [name] [--yes] [--log]` | update a VM to the latest packages of its release, **safely**: locks it, snapshots, upgrades, verifies, and restores the snapshot on any problem. Name optional with one VM. Admins: from the host shell. `--yes` confirms stopping running terminals/jobs; `--log` shows the last run |
 | `vm doctor [name]` | step-by-step health check (shell, programs, root, write, DNS, internet, packages) |
 | `vm help` | short usage |
 

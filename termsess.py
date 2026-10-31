@@ -40,6 +40,20 @@ def kill_all_for(sid):
             pass
 
 
+def kill_vm(sid, vm):
+    """Kill this user's terminals that run inside ``vm``. Returns how many."""
+    with SESSIONS_LOCK:
+        keys = [k for k, s in SESSIONS.items() if k[0] == sid and getattr(s, "vm", "") == vm]
+        sessions = [SESSIONS.pop(k, None) for k in keys]
+    for s in sessions:
+        try:
+            if s is not None:
+                s.kill()
+        except Exception:
+            pass
+    return len(keys)
+
+
 class TermSession:
     def __init__(self, sid, tab_id, cmd, cwd, cols=80, rows=24):
         self.sid = sid
@@ -54,6 +68,7 @@ class TermSession:
         self.stop = threading.Event()
         self.alive = True
         self.exited = False
+        self.vm = ""                # the VM this terminal runs in ("" = the host)
         self._spawn()
         threading.Thread(target=self._reader, daemon=True).start()
         threading.Thread(target=self._watchdog, daemon=True).start()
@@ -90,6 +105,7 @@ class TermSession:
         # sandbox.spec authorizes the launch (host vs VM) before any process
         # exists, so a forged websocket command can't bypass the admin gate.
         sp = sandbox.spec(self.sid, self.cmd, self.cwd, tty=True)
+        self.vm = sp.vm if sp.mode == sandbox.VM else ""
         argv = sp.argv
         master_fd, slave_fd = pty_mod.openpty()
         try:

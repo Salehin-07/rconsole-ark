@@ -280,6 +280,32 @@ def _reap(name, svc, rt, job, now):
     rt["restarts"] += 1
 
 
+def _target_busy(owner, target):
+    """Why a service's VM cannot be used right now (installing/updating), else ``None``."""
+    if not (target or "").startswith("vm:"):
+        return None
+    try:
+        return sandbox.busy_reason(owner, target[3:])
+    except Exception:
+        return None
+
+
+def stop_for(owner, target=None):
+    """Stop this user's running services (only those on ``target`` when given).
+
+    They stay *enabled*: the supervisor starts them again once their VM is usable.
+    Returns the names that were stopped.
+    """
+    stopped = []
+    with _lock:
+        for name, s in _read().items():
+            if s["owner"] != owner or (target and s["target"] != target):
+                continue
+            _kill(name, owner)
+            stopped.append(name)
+    return stopped
+
+
 def tick(now=None):
     """One supervisor pass: start what should run, restart what died."""
     now = time.time() if now is None else now
@@ -297,6 +323,13 @@ def tick(now=None):
                 _rt.setdefault(name, _new_rt())["last_error"] = "host access is admin-only"
                 continue
             rt = _rt.setdefault(name, _new_rt())
+            busy = _target_busy(owner, svc["target"])
+            if busy:
+                # The VM is being installed/updated: wait quietly (no restart storm,
+                # no growing back-off); it starts again as soon as the VM is usable.
+                rt["last_error"] = busy
+                rt["next"] = now + BACKOFF_MIN
+                continue
             if rt["running"]:
                 job = jobs.get_job(owner, rt["jid"])
                 if job is not None and job.alive:

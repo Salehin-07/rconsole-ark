@@ -19,6 +19,7 @@ import jobs
 import services
 import state
 import termsess
+import vmupdate
 
 _lock = threading.Lock()
 _done = threading.Event()
@@ -55,6 +56,7 @@ def begin_shutdown():
         return
     try:
         stop_everything()
+        vmupdate.abort_all()            # roll an update in progress back before the final backup
         backup.final(timeout=FINAL_BACKUP_TIMEOUT)
     finally:
         _done.set()
@@ -77,3 +79,4 @@ def reset():
         _started = False
         _done.clear()
     services.resume()
+    vmupdate.reset()

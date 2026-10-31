@@ -3,6 +3,42 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.2 — 2026-11-01
+
+### Added
+- **`vm update [name]`: update a VM to the latest packages of its release, safely.** The new module `vmupdate.py`:
+  1. **locks** the VM (nothing can start in it: commands, terminals, files, services, `vm run/shell/setup/doctor`
+     and `vm remove/reset/install` all answer "being updated") and stops what ran in it;
+  2. health-checks the package database (a VM that is already broken is not touched);
+  3. refreshes the package lists and counts what is new (nothing new: says so, changes nothing);
+  4. takes a **snapshot** of the system files: hard links for the big files (almost no extra disk), real copies
+     of `/etc` and the dpkg/apk databases that packages edit in place; needs ~200 MB free and refuses otherwise;
+  5. upgrades with no questions and existing config files kept (`apt-get upgrade`, `full-upgrade` on Kali,
+     `apk upgrade`; it never removes packages);
+  6. **verifies**: programs still start and the package database is consistent;
+  7. on success drops the snapshot; on *any* problem (failed command, 1 h timeout, the server shutting down,
+     even a crash) **puts the snapshot back**, so the VM is exactly as before. A crash is rolled back by itself at
+     the next start, and the VM stays locked until then.
+  `/root` is never touched and the update runs without the user's own environment variables.
+- **Who and what:** admins must be in the host shell (`vm mode host`). A normal user with a single system has
+  everything they run stopped meanwhile (it all lives in it; services restart by themselves afterwards) and may
+  omit the name. With several systems only the updating one is locked and stopped, the others keep working, and
+  the name is required (a picker offers them). Running terminals/jobs ask for `--yes` first. `vm status`
+  shows progress and the last result, `vm update <name> --log` the last run's output.
+- Services whose VM is installing or updating now wait quietly (no restart storm) and start when it is usable.
+- `tests/test_vmupdate.py` (fake package manager on real files: snapshot, rollback, lock, rules, recovery,
+  shutdown) and `tests/test_vmupdate_e2e.py` (a real proot VM with a fake apt-get: success, failure, broken
+  database, timeout, lock, environment).
+
+### Changed
+- Server shutdown (reboot, self-update, SIGTERM) interrupts a running VM update and rolls it back *before* the
+  final backup. Renaming or deleting an account, and `vm remove/reset`, wait while its VM is updating.
+- Jobs and terminals remember which VM they run in (needed to stop exactly the right ones).
+
+### Not included
+- `vm update` keeps the release (trixie stays trixie). Moving to a newer release is a fresh install next to it,
+  e.g. `vm install ubuntu:26.04`.
+
 ## 1.3.1 — 2026-10-31
 
 ### Added

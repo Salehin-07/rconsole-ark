@@ -6,7 +6,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.3.1** · MIT licensed
+**Version 1.3.2** · MIT licensed
 
 ## Why this exists
 
@@ -183,6 +183,7 @@ vm list               systems you can install             vm mode [host|vm [n]] 
 vm install <name>...  e.g. debian ubuntu:24.04 | all      vm reset [name] --yes recreate system files (keeps /root)
 vm shell [name]       interactive shell in a VM           vm remove <name|all> --yes   delete it and its /root
 vm run [--vm n] <cmd> run one command in a VM             vm doctor [name]      diagnose a VM
+vm update [name]      update a VM to the latest packages, safely (locks it; rolls back on any problem)
 vm setup <profile>    install Python / build tools / Node / … in a VM (see below)
 ```
 
@@ -289,6 +290,20 @@ Things to know:
 - No `systemd`, no mounting, no raw sockets/kernel features; some syscalls are
   emulated and a few programs misbehave. If something needs a real kernel, use a
   VPS or QEMU — see [DEPLOY.md](DEPLOY.md).
+- **Updating a system: `vm update [name]`.** Brings the VM to the latest packages of its
+  release (security fixes, point releases; your `/root` is never touched). It is built to
+  be uneventful: the VM is **locked** meanwhile (nothing can start in it), the package
+  database is health-checked first, a **snapshot** is taken (hard links, so it costs almost
+  no disk), the upgrade runs without questions, and the result is **verified**. If anything
+  fails, times out, the server restarts, or even crashes, the snapshot is put back and the VM
+  is exactly as it was. Nothing new? It says so and changes nothing. Progress: `vm status <name>`;
+  details: `vm update <name> --log`. Who: **admins** must be in the host shell
+  (`vm mode host`); a **normal user with one system** loses everything they had running (it all
+  lives in it) and gets it back afterwards (services restart by themselves) — the name is
+  optional then; with **several systems** only the updating one is locked, and the others keep
+  working (name required, a picker offers them). If terminals or jobs would be stopped it asks
+  for `--yes` first. It keeps the release: for a new release (`ubuntu:26.04`) install it
+  alongside.
 - **proot needs `ptrace`.** If your host blocks it, `vm install` reports why and
   removes the half-built VM instead of leaving it broken. **`vm doctor`** runs a
   checklist (shell, programs, root, write access, DNS, internet, package manager)

@@ -44,6 +44,7 @@ import sandbox
 import state
 import termsess
 import updater
+import vmupdate
 from version import __version__
 
 app = Flask(__name__)
@@ -1219,6 +1220,8 @@ def start_background_tasks():
             started.append("keepalive")
         if backup.start_background():
             started.append("backup")
+        if vmupdate.recover_background():
+            started.append("vm-update-recovery")
         if sandbox.restore_vms_background():
             started.append("vm-rebuild")
         if services.start_background():

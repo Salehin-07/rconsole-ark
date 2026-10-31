@@ -61,6 +61,8 @@ def cmd_ruser(ctx, args):
     """Delete a user: sudo ruser <username>."""
     if not args:
         return "Usage: sudo ruser <username>"
+    if sandbox.updating(args[0]):
+        return f"ruser: {args[0]}'s system is being updated; try again when it has finished."
     ok, err = auth.delete_user(args[0])
     if not ok:
         return f"ruser: {err}"
@@ -210,6 +212,8 @@ def cmd_cuser(ctx, args):
         if not new:
             return "cuser: empty username"
         old = ctx["username"]
+        if sandbox.updating(old):
+            return "cuser: your system is being updated; try again when it has finished."
         ok, err = auth.set_username(old, new)
         if not ok:
             return f"cuser: {err}"

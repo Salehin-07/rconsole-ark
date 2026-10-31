@@ -379,8 +379,9 @@ def resolve(sid, forced=None):
     elif vm not in vms:
         have = ", ".join(vms) or "none"
         raise SandboxError(f"VM '{vm}' is not installed (installed: {have}). See `vm list`.")
-    if install_state(sid, vm)["state"] == "installing":
-        raise SandboxError(f"{vm} is still installing; check `vm status`.")
+    reason = busy_reason(sid, vm)
+    if reason:
+        raise SandboxError(reason)
     _ensure_pinned_proot()
     if not find_proot():
         raise SandboxError("proot is missing. Run `vm install` to fetch it.")
@@ -615,10 +616,10 @@ _installs_lock = threading.Lock()
 
 
 def install_state(sid, vm):
-    """State of one VM: ``installing`` / ``failed`` / ``ready`` / ``absent``."""
+    """State of one VM: ``installing`` / ``updating`` / ``failed`` / ``ready`` / ``absent``."""
     with _installs_lock:
         rec = dict(_installs.get((sid, vm)) or {})
-    if rec.get("state") in ("installing", "failed"):
+    if rec.get("state") in ("installing", "updating", "failed"):
         return rec
     return {"state": "ready" if installed(sid, vm) else "absent", "message": ""}
 
@@ -628,6 +629,30 @@ def installing(sid):
     with _installs_lock:
         return [vm for (s, vm), rec in _installs.items()
                 if s == sid and rec.get("state") == "installing"]
+
+
+def updating(sid):
+    """Names of this user's VMs that ``vm update`` is working on (they are locked)."""
+    with _installs_lock:
+        return [vm for (s, vm), rec in _installs.items()
+                if s == sid and rec.get("state") == "updating"]
+
+
+def any_updating():
+    """Is any user's VM being updated right now? (the server must not restart mid-update)"""
+    with _installs_lock:
+        return any(rec.get("state") == "updating" for rec in _installs.values())
+
+
+def busy_reason(sid, vm):
+    """Why ``vm`` cannot be used right now (installing / updating), or ``None``."""
+    st = install_state(sid, vm)["state"]
+    if st == "installing":
+        return f"{vm} is still installing; check `vm status`."
+    if st == "updating":
+        return (f"{vm} is being updated and is locked until it finishes (`vm status` shows "
+                f"progress). Use another system meanwhile, e.g. `vm use <name>`.")
+    return None
 
 
 def _set_install(sid, vm, st, msg=""):
@@ -697,6 +722,8 @@ def install_many(sid, choices, wait=False, skip_installed=False):
     busy = installing(sid)
     if busy:
         return False, f"already installing {', '.join(busy)}; check `vm status`."
+    if updating(sid):
+        return False, f"{', '.join(updating(sid))} is being updated; wait for it to finish (`vm status`)."
     for distro, _ in plan:
         _set_install(sid, distro.id, "installing", "queued")
     t = threading.Thread(target=_install_worker, args=(sid, plan), daemon=True)
@@ -944,6 +971,8 @@ def reset(sid, vm=None, keep_home=True):
     base = vm_dir(sid, vm)
     if not base.exists():
         return False
+    if install_state(sid, vm)["state"] == "updating":
+        raise SandboxError(f"{vm} is being updated; wait for it to finish (`vm status`).")
     (base / READY_MARKER).unlink(missing_ok=True)
     (base / DISTRO_FILE).unlink(missing_ok=True)
     shutil.rmtree(rootfs_path(sid, vm), ignore_errors=True)
@@ -1042,6 +1071,8 @@ def restore_vms_background():
 def rename_user(old, new):
     """Move a user's VM directory when the account is renamed."""
     src, dst = user_dir(old), user_dir(new)
+    if updating(old):
+        raise SandboxError(f"{old}'s system is being updated; wait for it to finish.")
     if src.exists() and not dst.exists():
         os.replace(src, dst)
     with _installs_lock:
@@ -1116,6 +1147,7 @@ def targets(sid):
         "label": target_label(sid),
         "targets": items,
         "installing": installing(sid),
+        "updating": updating(sid),
         "installable": [{"id": d.id, "name": d.name, "size": d.size}
                         for d in installable(sid)],
         "supported": supported(),

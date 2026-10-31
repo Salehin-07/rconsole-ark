@@ -32,6 +32,7 @@ class Job:
         self.start = time.time()
         self.end = None
         self.pid = None
+        self.vm = ""             # the VM it runs in ("" = the host)
         self._lock = threading.Lock()
         popen_kwargs = dict(
             stdout=subprocess.PIPE,
@@ -51,6 +52,7 @@ class Job:
             self.proc = subprocess.Popen(
                 sp.argv, cwd=sp.cwd, env=sp.env, **popen_kwargs)
             self.pid = self.proc.pid
+            self.vm = sp.vm if sp.mode == sandbox.VM else ""
         except sandbox.NeedVmChoice:
             raise                      # interp turns this into a system picker
         except Exception as e:
@@ -201,6 +203,18 @@ def kill_job(sid, jid):
         return False
     job.kill()
     return True
+
+
+def kill_vm(sid, vm):
+    """Kill this user's running jobs that live in ``vm``. Returns how many."""
+    with JOBS_LOCK:
+        mine = [j for (s, _k), j in JOBS.items() if s == sid and j.alive and j.vm == vm]
+    for j in mine:
+        try:
+            j.kill()
+        except Exception:
+            pass
+    return len(mine)
 
 
 def kill_all_jobs(sid):

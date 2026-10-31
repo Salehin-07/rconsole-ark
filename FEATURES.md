@@ -1,6 +1,6 @@
 # rconsole features
 
-Every feature of rconsole 1.3.1, by area. This is the **map**; the details live in
+Every feature of rconsole 1.3.2, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.
@@ -90,6 +90,7 @@ persistent `/root`. You are `root` inside and can install anything; no host priv
 | **`vm reset [name] --yes`** | Recreates a VM's system files and **keeps its `/root`**. |
 | **`vm remove <name\|all> --yes`** | Deletes a VM and its `/root`. |
 | **`vm setup <profile> [name]`** | Ready-made toolchains installed as a background job with live progress: `python` (with headers for psycopg2, mysqlclient, Pillow, lxml, cryptography…), `build`, `node`, `rust`, `db`, `tools`, `docker`, `udocker`, `kali` (Kali toolset), `all`. Profiles are remembered and re-applied after a restore. |
+| **`vm update [name]`** | Updates a VM to the latest packages of its release, safely: **locks** it (nothing can start in it, what ran there stops), checks the package database, takes a **snapshot** (hard links: almost no disk), upgrades without questions (config files kept), **verifies**, and on *any* problem — failure, timeout, shutdown, even a crash — **restores the snapshot**. `/root` is never touched. Admins must be in the host shell; a normal user with one system has everything stop while it runs (name optional), with several only that VM is locked. `--yes` confirms, `--log` shows the run, `vm status` shows progress. |
 | **`vm doctor [name]`** | Step-by-step health check: shell, programs, root, write, DNS, internet, packages. |
 | **`vm help`** | Short usage. |
 | **No questions asked** | Installs are non-interactive (`DEBIAN_FRONTEND=noninteractive`); `pip install` works without `--break-system-packages`; Kali gets a writable `/dev/net` and no banner; user tool directories (`~/.local/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/go/bin`) are on `PATH`. |
