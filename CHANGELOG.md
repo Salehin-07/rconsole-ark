@@ -19,6 +19,8 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
 - `vm setup docker` now installs udocker and the `docker`/`drun` commands as well as the real client (which moved to
   `/usr/local/lib/docker-real` when fetched as a static binary, so it never shadows the shim).
 - `drun` is now just `docker run`, always local.
+- On Alpine, `vm setup docker`/`udocker` also installs GNU `findutils` (busybox `find` makes udocker print "while
+  modifying attributes of image layer" for every layer) and the shim warns if it finds only busybox `find`.
 
 ## 1.2.3 — 2026-10-30
 

@@ -1,5 +1,4 @@
 """``docker`` / ``drun`` (vmtools/): the daemon-less docker shim built on udocker."""
-import os
 import stat
 import subprocess
 import tempfile
@@ -87,6 +86,15 @@ class DockerShimTests(unittest.TestCase):
         self.assertTrue((e.dir / "root/etc/passwd").exists())  # images like hello-world have no /etc
         self.assertTrue((e.dir / "root/etc/group").exists())
         self.assertTrue((e.dir / "root/root").is_dir())
+
+    def test_warns_when_find_is_busybox(self):
+        e = Env(self)
+        fakefind = e.bindir / "find"
+        fakefind.write_text("#!/bin/sh\nexit 1\n")                # what busybox find does with GNU's comma operator
+        fakefind.chmod(0o755)
+        r = e.run(["run", "img"])
+        self.assertIn("apk add findutils", r.stderr)
+        self.assertEqual(r.returncode, 0)
 
     def test_pull_only_when_the_image_is_missing(self):
         e = Env(self)

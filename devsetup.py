@@ -83,8 +83,9 @@ _ALPINE = {
     "node":   "nodejs npm",
     "rust":   "rust cargo",
     "db":     "postgresql-client mariadb-client redis sqlite",
-    "docker": "docker-cli docker-cli-compose docker-cli-buildx python3 py3-pip tar curl",
-    "udocker": "python3 py3-pip tar curl",
+    # findutils: udocker's layer fix-up needs GNU find; busybox find fails with "while modifying attributes of image layer"
+    "docker": "docker-cli docker-cli-compose docker-cli-buildx python3 py3-pip tar findutils curl",
+    "udocker": "python3 py3-pip tar findutils curl",
 }
 UDOCKER_VERSION = "1.3.17"            # keep in step with the Dockerfile
 VMTOOLS = Path(__file__).resolve().parent / "vmtools"

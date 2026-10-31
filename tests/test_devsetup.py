@@ -62,6 +62,8 @@ class ProfileTests(unittest.TestCase):
                 pkgs = set(devsetup.packages(profile, family))
                 self.assertFalse(pkgs & banned, (profile, family, pkgs & banned))    # never the daemon
                 self.assertIn("tar", pkgs)
+                if family == "alpine":
+                    self.assertIn("findutils", pkgs)          # busybox find breaks udocker's layer fix-up
                 text = devsetup.script(profile, family)
                 self.assertIn(f"udocker=={devsetup.UDOCKER_VERSION}", text)
                 self.assertIn("> /usr/local/bin/docker <<'RCONSOLE_DOCKER_SHIM'", text)

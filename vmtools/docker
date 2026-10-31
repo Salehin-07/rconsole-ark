@@ -101,6 +101,10 @@ cmd_run() {
   [ -z "$PUBLISHED" ] || warn "ignoring -p$PUBLISHED: containers share the host network, so the app is reachable on its own port directly"
   [ -z "$IGNORED" ] || warn "ignoring unsupported option(s):$IGNORED"
 
+  # udocker's layer fix-up needs GNU find; busybox find (Alpine) fails and spams "while modifying attributes"
+  if ! find / -maxdepth 0 \( -type d \) , \( -type d \) >/dev/null 2>&1; then
+    warn "this system's find is busybox: udocker needs GNU find. Fix: apk add findutils tar   (vm setup docker does it)"
+  fi
   ensure_image "$IMG"
   if [ -n "$NAME" ]; then CN="$NAME"; KEEP=1; else CN="dk_$$_$(date +%s)"; KEEP=0; fi
   [ "$RM" = 1 ] && KEEP=0
