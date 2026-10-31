@@ -46,6 +46,10 @@ Environment variables
 ``RCONSOLE_VM_ROOTFS_URL``     Override the root filesystem tarball URL.
 ``RCONSOLE_VM_ROOTFS_SHA256``  Expected sha256 for the override tarball.
 ``RCONSOLE_VM_PROOT``          Path to a proot binary (default: auto-detect).
+``RCONSOLE_UPDATE_REPO``       GitHub ``owner/repo`` that ``rconsole update`` reads releases from
+                               (default ``Salehin-07/rconsole-ark``; point it at your fork).
+``RCONSOLE_UPDATE_TOKEN``      Optional GitHub token for ``rconsole update`` (private forks, or to
+                               avoid the anonymous API rate limit). Never passed to user commands.
 """
 import os
 import secrets
@@ -183,9 +187,18 @@ LOGIN_MAX_ATTEMPTS = env_int("RCONSOLE_LOGIN_ATTEMPTS", 5)
 LOGIN_LOCKOUT_BASE = env_int("RCONSOLE_LOGIN_LOCKOUT", 30)
 LOGIN_LOCKOUT_MAX = 15 * 60
 
+# --- self-update (see updater.py): `rconsole update` ---------------------------------
+UPDATE_REPO = (os.environ.get("RCONSOLE_UPDATE_REPO") or "Salehin-07/rconsole-ark").strip()
+UPDATE_TOKEN = (os.environ.get("RCONSOLE_UPDATE_TOKEN") or "").strip()
+# The GitHub API base. Only ever changed by the test-suite / a GitHub Enterprise mirror.
+UPDATE_API = (os.environ.get("RCONSOLE_UPDATE_API") or "https://api.github.com").rstrip("/")
+# Everything the updater keeps (downloaded releases, the rollback copy, its state) lives here. It is
+# never part of a backup and never touched by anything else.
+UPDATE_DIR = DATA_DIR / "update"
+
 # Environment variables that must never leak into user commands or hosted apps.
 SECRET_ENV_VARS = (
-    "RCONSOLE_SECRET", "RCONSOLE_PEPPER", "RCONSOLE_ADMIN_PASSWORD",
+    "RCONSOLE_SECRET", "RCONSOLE_PEPPER", "RCONSOLE_ADMIN_PASSWORD", "RCONSOLE_UPDATE_TOKEN",
 )
 
 

@@ -985,3 +985,19 @@ body.touch #editor-bar button { font-size: 15px; padding: 12px 16px; }
   #settingsbtn { display: inline-flex; align-items: center; justify-content: center;
                  min-width: 40px; font-size: 18px; }
 }
+
+/* ---- update lock (rconsole update) ---- */
+.update-overlay {
+  position: fixed; inset: 0; z-index: 99999; display: grid; place-items: center;
+  background: rgba(6, 10, 14, 0.94); color: var(--fg);
+}
+.update-box { width: min(92vw, 34rem); padding: 1.4rem; background: var(--panel); border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12); }
+.update-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 0.3rem; }
+.update-sub { opacity: 0.7; font-size: 0.9rem; margin-bottom: 1rem; }
+.update-bar { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.update-fill { height: 100%; width: 3%; background: #4cc38a; transition: width 0.6s ease; }
+.update-failed .update-fill { background: #e5534b; }
+.update-msg { margin-top: 0.8rem; font-size: 0.95rem; }
+.update-log { margin: 0.8rem 0 0; max-height: 9rem; overflow: auto; font-size: 0.75rem; opacity: 0.7;
+  white-space: pre-wrap; }

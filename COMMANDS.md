@@ -12,6 +12,7 @@ documented here (a test fails otherwise).
 [Hosting and exposing apps](#hosting-and-exposing-apps) ·
 [Services: bots and workers](#services-bots-and-workers) ·
 [Staying alive: keep-alive, backups, reboot](#staying-alive-keep-alive-backups-reboot) ·
+[Updating rconsole](#updating-rconsole) ·
 [Background jobs](#background-jobs) ·
 [Users and administration](#users-and-administration) ·
 [Environment and AI](#environment-and-ai) ·
@@ -86,6 +87,7 @@ Legend: 🔒 = needs `sudo` (admin). `<x>` = required, `[x]` = optional.
 | [`keepalive`](#keepalive) | stay awake on free hosting (self-ping) | |
 | [`backup`](#backup) | encrypted backups, auto-restore on a fresh instance | 🔒 |
 | [`reboot`](#reboot) | restart rconsole without redeploying | 🔒 |
+| [`rconsole`](#rconsole) | version info and `rconsole update`: check for a new release and install it safely | admins to update |
 | [`jobs`](#jobs) · [`jobout`](#jobout) · [`jobtail`](#jobtail) · [`fg`](#fg) · [`kill`](#kill) | background jobs | |
 | [`suser`](#suser) · [`auser`](#auser) · [`nauser`](#nauser) | list users / grant / revoke admin | 🔒 |
 | [`muser`](#muser) · [`ruser`](#ruser) | create / delete a user | 🔒 |
@@ -120,7 +122,8 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.1.0` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.3.0` (also in the first line of `help` and at `/healthz`).
+`rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
 Changes the tab's working directory. Each tab remembers its own directory. On the host new tabs start in the
@@ -439,6 +442,55 @@ sudo reboot --hard --yes  # exit the process; the platform starts a fresh one (m
 ```
 Services start again by themselves and the page reconnects. Use it after changing environment variables on the
 host, or to recover from a wedged state. Without `--yes` it only explains what it will do.
+
+---
+
+## Updating rconsole
+
+### `rconsole`
+Version information and the **self-update**. Checking is open to everyone; installing needs an administrator (no
+`sudo` prefix needed).
+```text
+rconsole                      # short help
+rconsole version              # running version, install directory, last update, rollback available?
+rconsole update --check       # is a newer release published? shows what is new, changes nothing
+rconsole update               # check, show what is new, ask, then update to the latest release
+rconsole update --yes         # the same without the question
+rconsole update --rollback    # go back to the version that was installed before the last update
+rconsole update --force       # also update a git checkout, or reinstall the same version / a rolled-back one
+```
+**What `rconsole update` does**, in order:
+1. **Locks the console.** From the first step until the restart, every request except the health probe is answered
+   with `503`: no command can run, no terminal, file edit, login or hosted app can be used, in any tab or browser. Open
+   tabs show a progress screen and reload themselves when it is over.
+2. **Downloads** the release archive from the GitHub release (`RCONSOLE_UPDATE_REPO`, default
+   `Salehin-07/rconsole-ark`) and **verifies its SHA-256** against the release's `SHA256SUMS`. No checksum, or a
+   mismatch: it stops.
+3. **Tests the new version before touching anything**: strict unpack (no links, no `..`, size limits), correct
+   version, every file compiles, and the app is imported in a separate process with a throw-away data directory.
+   Changed Python dependencies are installed into `<data>/update/site-<version>`, never into the system.
+4. **Quiets the server:** stops services, jobs and terminals and takes a final backup.
+5. **Replaces the program files** one by one, atomically, after saving a rollback copy of every file it replaces
+   or removes. Any failure puts the old files back.
+6. **Restarts in place** (like `sudo reboot --yes`): services start again by themselves and the page reconnects.
+
+**Your data is never touched**: users, secrets, VMs and their `/root`, the workspace, services, exposures, settings
+and backups live in the data directory, not in the program files. A failure in steps 1–3 changes nothing and stops
+nothing; the console simply unlocks.
+
+* **Safety nets.** A new version that never becomes healthy (it must stay up for ~25 s) and keeps failing to start is
+  rolled back automatically at the next container start; `python updater.py rollback` does it by hand even when the
+  server will not start. A version rolled back this way is not offered again until you use `--force`.
+* **Containers.** A redeploy rebuilds the image from your repository, which would undo an in-place update, so the
+  verified release is kept in `<data>/update/releases` (and in the encrypted backups). `docker-entrypoint.sh` re-applies
+  it at boot when the image is older. Changes to the image itself (the `Dockerfile`: system packages) need a
+  redeploy; the update tells you when a release has some.
+* **Git checkouts** are refused (use `git pull`); add `--force` to overwrite files from the release archive anyway.
+  A read-only install directory is refused too.
+* Private fork or rate limit? Set `RCONSOLE_UPDATE_TOKEN` (a GitHub token with read access) and point
+  `RCONSOLE_UPDATE_REPO` at your fork. The token is never passed to your commands.
+* Only one update runs at a time. If the restart does not happen, the lock is released after 90 s and the output says
+  to run `sudo reboot --yes`.
 
 ---
 

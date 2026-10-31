@@ -11,6 +11,7 @@ focused modules and register themselves here with :func:`command`:
 - ``cmd_expose``   expose / unexpose (publish a local port at /<name>/)
 - ``cmd_service``   service (supervised bots/workers: autostart, restart on crash)
 - ``cmd_reboot``    reboot (restart without redeploying)
+- ``cmd_update``    rconsole version / update (self-update from GitHub releases)
 - ``cmd_backup``    backup (encrypted backups to a git repo / folder)
 - ``cmd_keepalive`` keepalive (self-ping so free instances never sleep)
 - ``cmd_fetch``    neofetch / fetch (target aware, responsive) and rfetch
@@ -59,6 +60,7 @@ import cmd_expose  # noqa: E402,F401
 import cmd_keepalive  # noqa: E402,F401
 import cmd_backup  # noqa: E402,F401
 import cmd_reboot  # noqa: E402,F401
+import cmd_update  # noqa: E402,F401
 import cmd_service  # noqa: E402,F401
 import editor  # noqa: E402,F401
 

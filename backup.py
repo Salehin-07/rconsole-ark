@@ -126,6 +126,11 @@ def iter_files():
             yield name, p
     for sub in ("state", "workspace"):
         yield from _walk(d / sub, sub)
+    # `rconsole update` keeps the release it installed here (a few hundred KB) so that a restore on a
+    # disk-less instance re-applies it (see updater.after_restore). Scratch and rollback copies stay out.
+    if (d / "update" / "state.json").is_file():
+        yield "update/state.json", d / "update" / "state.json"
+    yield from _walk(d / "update" / "releases", "update/releases")
     vm = d / "vm"
     try:
         users = [u for u in vm.iterdir() if u.is_dir() and u.name not in ("bin", "cache", "tmp")]
@@ -378,6 +383,8 @@ def _allowed(name):
         return True
     if parts[0] in ("state", "workspace") and len(parts) >= 2:
         return True
+    if parts[0] == "update":
+        return name == "update/state.json" or (len(parts) >= 4 and parts[1] == "releases")
     if parts[0] == "vm" and len(parts) >= 4:
         return parts[3] in ("distro.json", "setup.json", "home")
     return False

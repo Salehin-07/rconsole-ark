@@ -16,6 +16,7 @@ def cmd_help(ctx, args):
         ("history", "command history for this tab"),
         ("rwhoami", "print the current user"),
         ("version", "print the rconsole version"),
+        ("rconsole update", "check for a new release and update (admins)"),
         ("expose <port> <name>", "publish a running server at /<name>/"),
         ("edit <file>", "built-in code editor (great on phones)"),
         ("fm [path]", "in-console file manager + editor"),

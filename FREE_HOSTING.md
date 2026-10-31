@@ -185,6 +185,20 @@ Changed an environment variable on the host (e.g. the backup passphrase)? Update
 
 ---
 
+## Updating to a new release
+
+```text
+rconsole update --check    # anyone: is there a newer release?
+rconsole update            # admins: check, confirm, update, restart in place
+```
+The console is locked while it runs (nothing else can be done), the release is checksum-verified and tested before it
+replaces anything, and your data is not touched. On the free plan the disk is wiped on every restart, so the verified
+release is also part of the **encrypted backup**: after the restore at boot rconsole applies it again and restarts once.
+That needs backups to be configured (step 1). A release that changes the `Dockerfile` (system packages) needs a normal
+redeploy; the update says so. Prefer the dashboard? Point the service at the new release and redeploy: same result.
+
+---
+
 ## Working from your phone
 
 * Open the site → browser menu → **Add to Home screen / Install app**. It opens full-screen like an app.

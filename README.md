@@ -6,7 +6,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.2.4** · MIT licensed
+**Version 1.3.0** · MIT licensed
 
 ## Why this exists
 
@@ -63,6 +63,9 @@ Commands run on one of two **targets**:
   debian python bot.py`), with logs, env vars and optional web exposure.
 - **Free-tier survival**: built-in **keep-alive** (never sleeps), **encrypted backups + automatic restore**
   (VMs and toolchains rebuilt, services restarted), `sudo reboot` without a redeploy.
+- **`rconsole update`**: checks GitHub for a new release and installs it safely — console locked while it runs,
+  checksum-verified, tested before it is applied, data untouched, automatic rollback. See
+  [Updating rconsole](#updating-rconsole).
 - **Installable on a phone** (home-screen app) with a layout built for small screens.
 - **`expose <port> <name>`**: run any server you like (`python main.py &`, `npm run dev`, …) on the host or in a
   VM and publish it at `https://<domain>/<name>/` — private by default, `--public` for admins.
@@ -136,7 +139,9 @@ Everything is configured through environment variables (see `config.py`).
 | `RCONSOLE_KEEPALIVE` / `..._INTERVAL` / `..._EXTRA` | Ping our own URL so a free instance never sleeps (default **on for Render**); seconds between pings (600); extra URLs to ping | auto / `600` / – |
 | `RCONSOLE_BACKUP_URL` + `RCONSOLE_BACKUP_TOKEN` | A **private git repo** (and a token with write access to it only) that receives encrypted backups; or `RCONSOLE_BACKUP_DIR` for a folder | – |
 | `RCONSOLE_BACKUP_PASSPHRASE` | **Required for backups** — encrypts them (keep a copy elsewhere!) | – |
+| `RCONSOLE_BACKUP_BRANCH` / `RCONSOLE_BACKUP_USER` / `RCONSOLE_BACKUP_ENCRYPT` / `RCONSOLE_RESTORE_SETUP` | Branch that receives snapshots · git user paired with the token · encrypt snapshots · re-run `vm setup` profiles after a restore | `rconsole-backup` / `x-access-token` / `1` / `1` |
 | `RCONSOLE_BACKUP_INTERVAL` / `RCONSOLE_BACKUP_MAX_MB` | Seconds between backups when something changed (900) · size limit (40) | `900` / `40` |
+| `RCONSOLE_UPDATE_REPO` / `RCONSOLE_UPDATE_TOKEN` | Where `rconsole update` looks for releases (`owner/repo`, your fork) · optional GitHub token (private fork, rate limit) | `Salehin-07/rconsole-ark` / – |
 | `RCONSOLE_MAX_USERS` | Account cap — this is a one-person / small-team tool | `10` |
 | `RCONSOLE_MAX_UPLOAD_MB` | Largest single file the file browser's upload accepts | `64` |
 | `RCONSOLE_DEFAULT_SYSTEM` | System `vm install` uses by default (`alpine` suits 512 MB instances) | `debian` |
@@ -328,6 +333,7 @@ calling the terminal websocket or the file APIs directly.
 | `keepalive` · `sudo backup` · `sudo reboot --yes` | Stay awake, back up/restore, restart in place — see [FREE_HOSTING.md](FREE_HOSTING.md). |
 | `expose <port> <name>` · `expose list` · `expose rm <name>` | Publish a server you started at `/<name>/` — see [Hosting web apps](#hosting-web-apps). Everyone. |
 | `version` | Print the rconsole version. |
+| `rconsole update [--check\|--yes\|--rollback]` | Check for a new release and update to it (admins) — see [Updating rconsole](#updating-rconsole). |
 | `vm …` | Your systems (`vm list`, `vm install`, `vm shell`, `vm use`, `vm doctor`, …) — see above. Available to everyone. |
 | `neofetch` / `fetch` / `rfetch` | System summary: your VM's (in `vm` mode) or rconsole's (`host` mode); `rfetch` is always rconsole's. Fits your screen width. |
 | `<cmd> &`, `jobs`, `jobout %n`, `jobtail %n`, `fg %n`, `kill %n` | Background jobs. |
@@ -472,6 +478,7 @@ Flask app (app.py)   ── before_request: Origin/CSRF check → auth guard
    │                           └─ shell passthrough
    ├── /ws       → ptyhost.py → termsess.py (persistent PTY)
    ├── /api/file|dir|fs  (editor + file navigator)
+   ├── /api/update/status (progress of `rconsole update`; the console is locked while it runs)
    └── /<folder>/<port>/…  → proxy → hosted app process
                 │
    every launch and every file access goes through
@@ -565,7 +572,7 @@ What rconsole enforces, and what it does not.
 ## Testing
 
 ```bash
-uv run python -m unittest discover -s tests          # ~100 tests
+uv run python -m unittest discover -s tests          # ~340 tests
 RCONSOLE_VM_PROOT=/path/to/proot RCONSOLE_TEST_BUSYBOX=/path/to/busybox \
   uv run python -m unittest discover -s tests -v     # include real-VM end-to-end tests
 uv run ruff check .
@@ -575,6 +582,22 @@ The suite covers hashing/migration, throttling, path-confinement (symlink and
 `..` escapes), authorization of every entry point, CSRF, the file APIs, the
 proxy, and — when proot and a static busybox are present — a real VM built from
 a locally served root filesystem (download → checksum → extract → run).
+
+---
+
+## Updating rconsole
+
+```text
+rconsole update --check     # is a newer release available? (everyone)
+rconsole update             # check, show what is new, ask, update (admins)
+rconsole update --rollback  # back to the previous version
+```
+The update **locks the whole console** while it runs (nothing else can be done, no command can run), downloads the
+release, **verifies its SHA-256**, **tests it in a separate process before touching anything**, stops services and
+terminals, takes a final backup, swaps the program files atomically (keeping a rollback copy) and restarts in place.
+**Your data is never touched.** A new version that keeps failing to start is rolled back automatically. Details,
+options and limits (git checkouts, image-level changes, private forks): [COMMANDS.md → Updating
+rconsole](COMMANDS.md#updating-rconsole). Every feature is catalogued in [FEATURES.md](FEATURES.md).
 
 ---
 
@@ -603,13 +626,16 @@ a locally served root filesystem (download → checksum → extract → run).
 | `uv: command not found` (or `cargo`, `bun`, …) right after installing it in a VM | Fixed: plain commands now have `~/.local/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/go/bin` on `PATH` and read `~/.profile`. Update rconsole. (Interactive `vm shell` always worked because the installer's `source` line ran there.) |
 | `expose` link gives 502 | Nothing is listening on that port yet (`expose list` shows `[down]`) — start your app. |
 | Hosted app not reachable | Is it running (`service list`) and exposed (`expose list`)? Open `/<name>/`. |
+| `rconsole update` says "this is a git checkout" | Update that install with `git pull` (or `git checkout vX.Y.Z`); `--force` overwrites its files from the release archive. |
+| `rconsole update`: "GitHub refused the request" | Anonymous API limit or a private repo: set `RCONSOLE_UPDATE_TOKEN` (and `RCONSOLE_UPDATE_REPO` for a fork). |
+| After a redeploy the version went back | The image was rebuilt from older code and no saved release could be re-applied (no persistent disk or backups): redeploy from the new release, or run `rconsole update` again. |
 | Changes not taking effect | No auto-reload; restart the server. Hard-refresh for static assets. |
 
 ---
 
 ## File reference
 
-See [`structure.md`](structure.md) for every module and what it does.
+See [`structure.md`](structure.md) for every module and what it does, and [`FEATURES.md`](FEATURES.md) for every feature.
 
 ---
 

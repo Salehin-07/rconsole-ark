@@ -11,6 +11,10 @@ rconsole/
 ├── bootstrap.py            # Imported first by app.py: restores a backup BEFORE secrets are generated
 ├── services.py             # Supervisor: named commands that autostart + restart on crash (+ cmd_service.py)
 ├── cmd_reboot.py           # `sudo reboot`: final backup, stop everything, reload in place (or --hard exit)
+├── cmd_update.py           # `rconsole version` / `rconsole update`: check, confirm, start the self-update
+├── updater.py              # self-update engine: lock, download+verify, test, atomic swap, rollback, boot safety
+├── _pathfix.py             # imported first by app.py: puts dependencies installed by an update on sys.path
+├── FEATURES.md             # every feature, by area
 ├── render.paid.yaml        # Render blueprint with a persistent disk (render.yaml is the FREE plan)
 ├── LICENSE                 # MIT
 ├── _ptyexec.py             # PTY launcher: setsid + controlling terminal (job control, Ctrl+C), then exec
@@ -78,6 +82,7 @@ rconsole/
 │   ├── secret.key, pepper.key  # Generated secrets (0600) unless set via env
 │   ├── state/              # Per-user persisted tab/alias/theme/env/mode state
 │   ├── logs/               # Hosted-app logs (<folder>-<port>.log)
+│   ├── update/             # `rconsole update`: state.json, releases/<ver>/, previous/ (rollback), site-<ver>/ (deps)
 │   └── vm/                 # bin/proot, cache/ (rootfs tarballs), <user>/{rootfs,home}
 └── .venv/                  # Virtual environment (gitignored)
 ```
@@ -113,6 +118,20 @@ random secrets once and stores them `0600` so restarts/workers agree.
 (`কালী` → kali), and one resolver per system that finds the newest image and its
 published SHA-256 (Alpine release index, Ubuntu `SHA256SUMS`, linuxcontainers
 mirrors for Debian, kali.download for Kali).
+
+**`updater.py`** — Self-update (`rconsole update`); stdlib only at import so the entrypoint can run it first.
+- `check()` reads the latest GitHub release; `start()` / `start_rollback()` lock the console and run `_run_update()` in a
+  thread: download → SHA-256 against `SHA256SUMS` → `safe_extract` → `check_tree` → optional `install_deps` (into
+  `data/update/site-<ver>`) → `smoke_test` (import in a subprocess) → **only then** `lifecycle.begin_shutdown()` →
+  `apply_tree` (per-file atomic replace, rollback copy in `data/update/previous`, manifest-based removal of stale files,
+  never `data/`, `.venv`, `.git`, `.env`) → state → reload.
+- `is_locked()` / `status()` drive `app.update_gate` and `/api/update/status`.
+- Boot safety: `sync()` (run by `docker-entrypoint.sh`) re-applies the saved release over an older image and rolls a
+  version back after `MAX_BOOTS` failed starts; `confirm_boot()` marks a healthy one; `after_restore()` does the
+  re-apply after a backup restore on a blank disk. `python updater.py sync|check|rollback|status` works without the server.
+
+**`cmd_update.py`** — the `rconsole` command (`version`, `update [--check|--yes|--force|--rollback]`); a generator
+that asks for confirmation. **`_pathfix.py`** — first import of `app.py`; calls `updater.activate_deps()`.
 
 **`cmd_fetch.py`** — `neofetch`/`fetch` pick the VM's `rfetch` (vm mode) or
 rconsole's own summary (host mode); `layout()` fits logo + details to the width

@@ -57,7 +57,7 @@ async function load(phone) {
     }
     return ok({});
   };
-  w.eval(fs.readFileSync(jsPath, "utf8") + "\n;window.__t = { tabs, openPty };");
+  w.eval(fs.readFileSync(jsPath, "utf8") + "\n;window.__t = { tabs, openPty, showUpdateOverlay };");
   await sleep(150);
   return { w, d: w.document, errors, sent };
 }
@@ -88,6 +88,20 @@ async function load(phone) {
       JSON.stringify(sent));
     check("picker is disabled after use", pick.disabled === true);
     check("no JS errors (picker)", errors.length === 0, errors.join("; "));
+  }
+  // ---- the update lock screen -------------------------------------------------------------------
+  {
+    const { w, d, errors } = await load(false);
+    check("no update screen normally", !d.getElementById("updateOverlay"));
+    w.__t.showUpdateOverlay();
+    const ov = d.getElementById("updateOverlay");
+    check("update screen covers the console", !!ov && !!ov.querySelector(".update-fill") && /updating/i.test(ov.textContent));
+    w.__t.showUpdateOverlay();
+    await sleep(100);   // the mocked status says "not updating": a stale 503, so the screen goes away again
+    check("a stale lock screen removes itself", !d.getElementById("updateOverlay"));
+    w.__t.showUpdateOverlay(); w.__t.showUpdateOverlay();
+    check("it is only shown once", d.querySelectorAll("#updateOverlay").length === 1);
+    check("no JS errors (update screen)", errors.length === 0, errors.join("; "));
   }
   // ---- file browser: download + upload buttons -------------------------------------------------
   {

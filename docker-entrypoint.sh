@@ -11,6 +11,11 @@
 #                         single-owner deployment — see DEPLOY.md.
 set -e
 
+# `rconsole update` keeps the release it installed in $DATA/update. A redeploy rebuilds the image from
+# whatever code you deployed, which may be older: `updater.py sync` re-applies the newer release (and
+# rolls back a new version that keeps failing to start). Never fatal: the server must still come up.
+SYNC="python /app/updater.py sync"
+
 DATA="${RCONSOLE_DATA_DIR:-/data}"
 mkdir -p "$DATA"
 
@@ -19,7 +24,9 @@ if [ "$(id -u)" = "0" ] && [ "${RCONSOLE_RUN_AS_ROOT:-0}" != "1" ]; then
         chown -R 10001:10001 "$DATA"
     fi
     export HOME=/home/rconsole
+    setpriv --reuid=10001 --regid=10001 --init-groups $SYNC || echo "[rconsole] update sync skipped" >&2
     exec setpriv --reuid=10001 --regid=10001 --init-groups "$@"
 fi
 
+$SYNC || echo "[rconsole] update sync skipped" >&2
 exec "$@"

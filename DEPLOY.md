@@ -208,7 +208,9 @@ a Contabo box** — anything with Docker.
 6. Open `https://console.example.com`. Caddy gets the certificate on its own.
 
 Everything persists in the `rconsole-data` Docker volume. Update with
-`git pull && docker compose up -d --build`.
+`git pull && docker compose up -d --build`, or from inside rconsole with `rconsole update` (admins; locks the console,
+verifies and tests the release, keeps your data, restarts in place). The volume keeps the downloaded release, so the
+update survives container re-creation; a changed `Dockerfile` still needs the rebuild.
 
 **Prefer nginx over Caddy?** Use [`deploy/nginx.conf`](deploy/nginx.conf) and get
 a certificate with `certbot --nginx`; it already contains the websocket headers
@@ -404,7 +406,7 @@ hold users' files; the `rootfs` folders can be recreated with `vm install`.
 * Remember **admins are root-equivalent on the container** and the VM is a
   convenience sandbox, **not** a hard boundary — only create accounts for people you
   trust.
-* Keep the image updated (`git pull` + redeploy) and enable Dependabot (already in
+* Keep rconsole updated (`rconsole update`, or `git pull` + redeploy) and enable Dependabot (already in
   `.github/dependabot.yml`).
 * Back up `/data`, and never commit `data/` or `.env` files.
 

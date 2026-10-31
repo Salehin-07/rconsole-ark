@@ -10,6 +10,88 @@ let activeId = null;
 let renderedTabId = null;
 
 // ---------------------------------------------------------------------------
+// Update lock. While `rconsole update` runs the server answers every request with 503 (header
+// X-Rconsole-Updating) so nothing else can be done. Any such answer — or the command's own reply —
+// puts this full-screen progress view over the console; it follows /api/update/status, waits through
+// the restart, then reloads the page by itself.
+// ---------------------------------------------------------------------------
+const rcUpdate = { el: null, timer: null, seenActive: false, seenDown: false, since: 0 };
+const rcRawFetch = typeof window.fetch === "function" ? window.fetch.bind(window) : null;
+if (rcRawFetch) {
+  window.fetch = async function (...args) {
+    const r = await rcRawFetch(...args);
+    try {
+      if (r && r.status === 503 && r.headers && r.headers.get("X-Rconsole-Updating")) showUpdateOverlay();
+    } catch (e) { /* never break a request over the overlay */ }
+    return r;
+  };
+}
+function showUpdateOverlay() {
+  if (rcUpdate.el || !rcRawFetch) return;
+  rcUpdate.since = Date.now() / 1000;
+  const el = document.createElement("div");
+  el.id = "updateOverlay";
+  el.className = "update-overlay";
+  el.innerHTML = '<div class="update-box"><div class="update-title">rconsole is updating</div>' +
+    '<div class="update-sub">Nothing else can be done until it is finished. This page reloads by itself.</div>' +
+    '<div class="update-bar"><div class="update-fill"></div></div>' +
+    '<div class="update-msg">starting…</div><pre class="update-log"></pre></div>';
+  document.body.appendChild(el);
+  rcUpdate.el = el;
+  rcUpdate.timer = setInterval(pollUpdate, 1500);
+  pollUpdate();
+}
+function hideUpdateOverlay() {
+  clearInterval(rcUpdate.timer);
+  if (rcUpdate.el) rcUpdate.el.remove();
+  rcUpdate.el = null;
+  rcUpdate.seenActive = rcUpdate.seenDown = false;
+}
+async function pollUpdate() {
+  const el = rcUpdate.el;
+  if (!el) return;
+  const fill = el.querySelector(".update-fill");
+  const msg = el.querySelector(".update-msg");
+  let d = null;
+  try {
+    const r = await rcRawFetch("/api/update/status", { cache: "no-store", credentials: "same-origin" });
+    d = r.ok ? await r.json() : null;
+  } catch (e) { d = null; }
+  if (!d) {                                    // the server is restarting
+    rcUpdate.seenDown = true;
+    msg.textContent = "restarting rconsole…";
+    return;
+  }
+  if (d.updating) {
+    rcUpdate.seenActive = true;
+    fill.style.width = Math.max(3, d.pct || 0) + "%";
+    const what = d.mode === "rollback" ? "rolling back to " : "updating to ";
+    msg.textContent = what + (d.to || "") + " — " + (d.stage || "working") + "…";
+    if (d.log) el.querySelector(".update-log").textContent = d.log.slice(-8).join("\n");
+    return;
+  }
+  const last = d.last || {};
+  const fresh = last.at && last.at >= rcUpdate.since - 10;       // a result from this very update
+  if (!rcUpdate.seenActive && !rcUpdate.seenDown && !fresh) { hideUpdateOverlay(); return; }   // stale 503
+  clearInterval(rcUpdate.timer);
+  fill.style.width = "100%";
+  const ok = last.ok !== false;
+  el.classList.toggle("update-failed", !ok);
+  if (ok) {
+    msg.textContent = "Done: " + (last.message || ("now running " + d.version)) + " — reloading…";
+    setTimeout(() => window.location.reload(), 1800);
+    return;
+  }
+  msg.textContent = "Update failed: " + (last.message || "see the log") + " — the previous version keeps running and your data was not touched.";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "btn";
+  btn.textContent = "Back to the console";
+  btn.onclick = () => window.location.reload();
+  el.querySelector(".update-box").appendChild(btn);
+}
+
+// ---------------------------------------------------------------------------
 // xterm.js is heavy and only needed for live terminal tabs (nano, vim, REPLs).
 // Load it on demand (once) so line-mode users don't pay the download/parse or
 // memory cost on first paint. Consoles then cache it for subsequent visits.
@@ -621,6 +703,7 @@ function handleResponse(tabId, data) {
     window.location = data.redirect;
     return;
   }
+  if (data.updating) showUpdateOverlay();
 
   // Intermediate "tick" from a streaming generator (e.g. the AI agent's
   // "thinking…" / tool activity). Render it and keep advancing the generator

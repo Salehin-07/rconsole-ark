@@ -3,6 +3,39 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.0 — 2026-10-31
+
+### Added
+- **`rconsole update`**: checks GitHub for a newer release and updates the whole program to it, safely. `--check`
+  only reports (everyone), `--yes` skips the question, `--rollback` returns to the previous version, `--force` also
+  allows a git checkout or reinstalling the same / a rolled-back version. Admins install; no `sudo` prefix needed.
+  - **The console is locked while it runs.** Every request except `/healthz`, static files and the status endpoint
+    gets `503` (header `X-Rconsole-Updating`): no command can run, no terminal, file operation, login or hosted app can
+    be used, in any tab. Open tabs show a progress screen and reload when it is over (`/api/update/status`).
+  - **Safe by construction:** the release's SHA-256 is checked against its `SHA256SUMS` (no checksum, no update); the
+    archive is unpacked strictly (no links, `..`, absolute paths; size limits); the new tree must have the right version,
+    compile and **import in a separate process** with a throw-away data directory *before* anything is stopped or
+    replaced. Failure up to that point changes nothing and stops nothing.
+  - **Data stays intact:** only program files are replaced (per file, atomically), after a rollback copy of each is
+    saved; `data/`, `.venv`, `.git`, `.env` are never touched, and only files a previous release installed are ever
+    removed. Services, jobs and terminals are stopped and a final backup is taken first; then rconsole restarts in
+    place and services start again.
+  - **Changed Python dependencies** are installed into `<data>/update/site-<version>`, never into the system.
+  - **Rollback and boot safety:** `rconsole update --rollback`, `python updater.py rollback` (works with a dead
+    server), and an automatic rollback when a new version keeps failing to start (it must stay up ~25 s to count as
+    healthy).
+  - **Survives container re-creation:** the verified release is kept in `<data>/update/releases`, is part of the
+    encrypted backups, and is re-applied at boot (`docker-entrypoint.sh` → `updater.py sync`, or after a restore on a
+    blank disk) when the image was rebuilt from older code.
+  - `RCONSOLE_UPDATE_REPO` (use your fork) and `RCONSOLE_UPDATE_TOKEN` (private repo / rate limit; never passed to user
+    commands) settings.
+- **`FEATURES.md`**: documents every feature, area by area.
+- `rconsole version`: running version, install directory, last update result, rollback availability.
+
+### Changed
+- README, COMMANDS.md, DEPLOY.md, FREE_HOSTING.md and structure.md describe the update; a test now keeps the README
+  version, FEATURES.md and the command reference in step with the code.
+
 ## 1.2.4 — 2026-10-30
 
 ### Added

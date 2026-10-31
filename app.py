@@ -6,6 +6,7 @@ access is authorized by :mod:`sandbox`, never by this module, so every entry
 point — the line console, the terminal websocket and the file APIs — enforces
 the same rules.
 """
+import _pathfix  # noqa: F401  (first: makes dependencies installed by `rconsole update` importable)
 import functools
 import gzip
 import logging
@@ -42,6 +43,7 @@ import ptyhost
 import sandbox
 import state
 import termsess
+import updater
 from version import __version__
 
 app = Flask(__name__)
@@ -198,6 +200,44 @@ def _own_hosts():
     hosts.update(h.strip().lower() for h in fwd.split(",") if h.strip())
     hosts.update(config.PLATFORM_HOSTS)   # e.g. rconsole.onrender.com, app.fly.dev
     return hosts
+
+
+_UPDATE_OK = {"healthz", "update_status", "static"}
+_UPDATE_PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="5"><title>rconsole is updating</title>
+<body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#0b0f14;color:#d6e2ef;font:16px system-ui">
+<div style="max-width:30em;padding:2em;text-align:center"><h2>rconsole is updating</h2>
+<p>Nothing else can be done until the update is finished. This page reloads by itself.</p>
+<p style="opacity:.6">{what}</p></div>"""
+
+
+@app.before_request
+def update_gate():
+    """While ``rconsole update`` runs, the console accepts nothing: no command, terminal, file operation,
+    login or hosted app. Only the health probe, static files and the status endpoint answer."""
+    if not updater.is_locked() or request.endpoint in _UPDATE_OK:
+        return None
+    st = updater.status()
+    headers = {"Retry-After": "10", "X-Rconsole-Updating": "1", "Cache-Control": "no-store"}
+    wants_html = (request.method == "GET" and not request.path.startswith("/api")
+                  and "text/html" in request.headers.get("Accept", "")
+                  and request.headers.get("Upgrade", "").lower() != "websocket")
+    if wants_html:
+        what = f"{st['mode']} {st['from']} → {st['to']}: {st['stage']}"
+        return Response(_UPDATE_PAGE.replace("{what}", what), 503, headers=headers, mimetype="text/html")
+    body = jsonify(error="rconsole is being updated; nothing else can be done until it finishes",
+                   updating=True, stage=st["stage"], pct=st["pct"])
+    body.status_code = 503
+    body.headers.update(headers)
+    return body
+
+
+@app.get("/api/update/status")
+def update_status():
+    """Progress of a running update (also tells a freshly restarted server's last result)."""
+    resp = jsonify(updater.status(detail="username" in session))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.before_request
@@ -1190,6 +1230,7 @@ def start_background_tasks():
 
 
 start_background_tasks()
+updater.schedule_confirm()          # a freshly updated process confirms itself once it has stayed up
 
 
 def main():
