@@ -6,7 +6,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.3.0** · MIT licensed
+**Version 1.3.1** · MIT licensed
 
 ## Why this exists
 
@@ -94,7 +94,8 @@ Commands run on one of two **targets**:
 - [`uv`](https://docs.astral.sh/uv/) for dependency management (or `pip install -r requirements.txt`).
 - **VM**: Linux. `proot` is fetched automatically on x86-64 (checksum-verified);
   on other CPUs install it (`apt install proot` / `apk add proot`).
-- **Windows**: `pywinpty` (ConPTY) is installed automatically; the VM is unavailable there.
+- **Windows**: `pywinpty` (ConPTY) is installed automatically; the VM is unavailable there, and gunicorn is not
+  installed — use `uv run python serve.py` (built-in server fallback).
 
 ---
 
@@ -112,8 +113,14 @@ entirely, set `RCONSOLE_ADMIN_PASSWORD` before the first start.
 Production (single worker + threads — see [Deployment](#deployment)):
 
 ```bash
-uv run gunicorn -c gunicorn.conf.py app:app
+uv run python serve.py                              # works everywhere (recommended)
+uv run gunicorn -c gunicorn.conf.py app:app         # the same thing on Linux/macOS
 ```
+
+`serve.py` runs gunicorn when it can, and **falls back to a built-in threaded server when it cannot — on Windows
+gunicorn does not exist** (it needs `fcntl`), so `gunicorn …` fails there. The fallback is one process, serves the
+terminal websockets and runs the same orderly shutdown (stop services, final backup) on Ctrl+C. `RCONSOLE_SERVER=gunicorn|builtin`
+forces one, `RCONSOLE_HOST` (built-in server only) sets the bind address (default `0.0.0.0`).
 
 ---
 
@@ -150,6 +157,8 @@ Everything is configured through environment variables (see `config.py`).
 | `RCONSOLE_COOKIE_SECURE` | `Secure` session cookie (HTTPS only) | on when `RENDER` is set |
 | `RCONSOLE_LOGIN_ATTEMPTS` / `RCONSOLE_LOGIN_LOCKOUT` | Failed logins before lockout / base lockout seconds (doubles per repeat, max 15 min) | `5` / `30` |
 | `RCONSOLE_THREADS` | gunicorn threads (≈ open terminals) | `64` |
+| `RCONSOLE_SERVER` | `serve.py` only: force `gunicorn` or `builtin` (default: gunicorn where it works, else built-in) | auto |
+| `RCONSOLE_HOST` | `serve.py` built-in server only: bind address | `0.0.0.0` |
 | `RCONSOLE_VM_ROOTFS_URL` / `RCONSOLE_VM_ROOTFS_SHA256` | Use your own root filesystem tarball (e.g. Debian) | Alpine latest-stable |
 | `RCONSOLE_VM_PROOT` | Path to a `proot` binary | auto-detect / download |
 

@@ -3,6 +3,23 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.1 — 2026-10-31
+
+### Added
+- **`serve.py`, a launcher with a gunicorn fallback.** `uv run python serve.py` starts gunicorn
+  (`gunicorn -c gunicorn.conf.py app:app`) where it works, and otherwise serves the same app with a built-in
+  threaded server, so testing on a Windows device no longer fails with a missing gunicorn. The fallback is one
+  process, serves the terminal websockets, and on Ctrl+C / Ctrl+Break / SIGTERM runs the same orderly shutdown
+  (pause the supervisor, stop children, final backup). `RCONSOLE_SERVER=gunicorn|builtin` forces a server and
+  `RCONSOLE_HOST` sets the built-in server's bind address.
+- `tests/test_serve.py`: server choice, the gunicorn command, and the fallback (requests answered, shutdown run).
+
+### Changed
+- gunicorn is no longer installed on Windows (`sys_platform != 'win32'` in `pyproject.toml`, `uv.lock`,
+  `requirements.txt`), because it cannot run there.
+- README, FEATURES.md, DEPLOY.md and structure.md describe `serve.py`. Docker, systemd and Render are unchanged:
+  they still run gunicorn directly.
+
 ## 1.3.0 — 2026-10-31
 
 ### Added

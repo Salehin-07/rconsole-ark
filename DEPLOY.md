@@ -297,7 +297,7 @@ Never set `replicas` above 1, and do not use an autoscaler.
 ## 12. Home server, Raspberry Pi or phone
 
 * **Raspberry Pi / home PC (arm64 or x86-64):** run it with Docker Compose
-  (section 8, skip Caddy) or `uv run gunicorn -c gunicorn.conf.py app:app`. On ARM,
+  (section 8, skip Caddy) or `uv run python serve.py` (gunicorn on Linux; a built-in fallback on Windows). On ARM,
   install proot from the package manager (`sudo apt install proot`), since the
   prebuilt download is x86-64 only; the Docker image already includes it.
 * **Reach it from outside without opening ports:**

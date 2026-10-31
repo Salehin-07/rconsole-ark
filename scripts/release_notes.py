@@ -53,7 +53,7 @@ docker run -d -p 5000:5000 -v rconsole-data:/data \\
 (The image is built for amd64 and arm64. If `docker pull` is denied, the package is private: build from the
 source archive instead, or make the package public in the repository's *Packages* settings.)
 
-**4. No Docker** — extract the archive, `uv sync`, then `uv run gunicorn -c gunicorn.conf.py app:app`
+**4. No Docker** — extract the archive, `uv sync`, then `uv run python serve.py`
 (see `deploy/rconsole.service` for systemd).
 
 **No budget?** rconsole is made to run your bots, sites and workers on a *free* tier (Render's free plan, with a

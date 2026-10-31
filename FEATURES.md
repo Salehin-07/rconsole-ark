@@ -1,6 +1,6 @@
 # rconsole features
 
-Every feature of rconsole 1.3.0, by area. This is the **map**; the details live in
+Every feature of rconsole 1.3.1, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.
@@ -221,6 +221,7 @@ Any word that is not a built-in is run by a real shell in your current target (6
 | **Render** | `render.yaml` (free plan, keep-alive + backups) and `render.paid.yaml` (persistent disk); detection of the public URL and trusted proxy. |
 | **VPS** | `docker compose` with Caddy (automatic HTTPS) or nginx (`deploy/nginx.conf`), systemd notes — see [DEPLOY.md](DEPLOY.md). |
 | **Local** | `uv run python main.py` (Python ≥ 3.14; the tests also pass on 3.12); Windows supported (ConPTY, no VM). |
+| **`serve.py` launcher** | `uv run python serve.py` runs gunicorn where it works (Linux, macOS, containers) and **falls back to a built-in threaded server where it does not (Windows)**, with the same shutdown work. `RCONSOLE_SERVER=gunicorn\|builtin` forces one; `RCONSOLE_HOST` sets the built-in server's bind address. gunicorn is not installed on Windows. |
 | **CI and releases** | GitHub Actions runs lint and the test-suite; pushing a `vX.Y.Z` tag publishes a release with `rconsole-X.Y.Z.tar.gz`, a `.zip` and `SHA256SUMS` from the changelog — the archive `rconsole update` installs. Dependabot keeps dependencies current. |
 | **Tests** | ~340 tests, including HTTP-level, authorization, path confinement, backups, the updater and documentation drift guards; real-VM end-to-end tests run when `proot` and a static `busybox` exist. |
 

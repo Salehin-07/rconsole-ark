@@ -45,6 +45,7 @@ rconsole/
 ├── examples/               # Example hosted apps (run them with `service add … --expose`)
 │   └── guestbook/app.py    # Single-file Flask guestbook demo
 ├── gunicorn.conf.py        # Production server settings (1 worker + threads: state is in-memory)
+├── serve.py                # Launcher: gunicorn if usable, else built-in threaded server (Windows)
 ├── Dockerfile              # Image with proot/git/tini preinstalled (Render, any Docker host)
 ├── docker-entrypoint.sh    # Fixes root-owned volumes, then drops to uid 10001 (RCONSOLE_RUN_AS_ROOT=1 keeps root)
 ├── DEPLOY.md               # Full deployment guide: Render, Railway, Fly, VPS, k8s, cloud, home server
@@ -54,6 +55,7 @@ rconsole/
 ├── tests/                  # unittest suite (run: python -m unittest discover -s tests)
 │   ├── helpers.py          # Isolated temp data dir; must be imported first
 │   ├── test_auth.py        # Hashing + migration, policy, quarantine, throttle
+│   ├── test_serve.py       # serve.py: server choice, gunicorn command, built-in fallback + shutdown
 │   ├── test_sandbox.py     # Path confinement (symlink/.. escapes), authorization
 │   ├── test_multivm.py     # Several VMs per user: separation, picker, targets API, migration, doctor
 │   ├── test_devsetup.py    # Every profile script is valid sh and has the headers psycopg2 & co. need
