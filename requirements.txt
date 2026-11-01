@@ -37,7 +37,7 @@ markupsafe==3.0.4
     #   werkzeug
 pycparser==3.12 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
     # via cffi
-pywinpty==3.1.0 ; sys_platform == 'win32'
+pywinpty==3.1.2 ; sys_platform == 'win32'
     # via rconsole
 requests==2.34.2
     # via rconsole
