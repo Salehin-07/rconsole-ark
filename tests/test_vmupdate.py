@@ -500,6 +500,13 @@ class ReleaseUpgradeTests(Base):
         self.assertIn("--stay", out)
         self.assertEqual(sandbox.install_state("alice", "alpine")["state"], "ready")
 
+    def test_install_with_a_space_passes_the_release_along(self):
+        seen = []
+        with mock.patch.object(sandbox, "install_many", lambda sid, choices, **k: (seen.append(choices), (True, "ok"))[1]):
+            self.run_vm("alice", ["install", "alpine", "3.23.5"])
+            self.run_vm("alice", ["install", "debian", "alpine", "3.24"])
+        self.assertEqual(seen, [["alpine:3.23.5"], ["debian", "alpine:3.24"]])
+
     def test_debian_family_says_it_stays_on_its_release(self):
         root = make_vm("alice", "debian")
         with mock.patch.object(vmupdate, "_exec", FakeApt(root)):

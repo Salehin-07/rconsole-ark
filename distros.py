@@ -114,11 +114,24 @@ def parse_alpine_release(text, flavor="alpine-minirootfs"):
 
 
 _ALPINE_POINT = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")
+_ALPINE_BRANCH = re.compile(r"v?(\d+)\.(\d+)")
+_ALPINE_HELP = ("Alpine releases are numbered 3.x: `alpine:3.24` (newest 3.24.x), `alpine:3.23.5` "
+                "(exactly that one), `alpine` (latest) or `alpine:edge`")
+
+
+def _check_alpine_number(release):
+    """Say what is wrong with a release number that cannot exist (e.g. ``1.24.1``)."""
+    m = _ALPINE_BRANCH.match(release)
+    if m and int(m.group(1)) < 3:
+        rest = release.lstrip("v").split(".", 1)[1]
+        raise DistroError(f"there is no Alpine {release.lstrip('v')}: {_ALPINE_HELP}. "
+                          f"Did you mean `alpine:3.{rest}`?")
 
 
 def _resolve_alpine(release):
     """``latest``/``stable``, a branch (``3.21``, ``v3.21``, ``edge``) or an exact release (``3.23.5``)."""
     arch = _arch(_ALPINE_ARCH, "Alpine")
+    _check_alpine_number(release)
     point = _ALPINE_POINT.fullmatch(release)
     if point:                                   # an exact point release lives in its branch's folder
         major, minor, patch = point.groups()
@@ -130,7 +143,7 @@ def _resolve_alpine(release):
         except DistroError as e:
             if "not found" in str(e):
                 raise DistroError(f"Alpine {version} does not exist (try `alpine:{major}.{minor}` "
-                                  f"for the newest {major}.{minor}.x)") from e
+                                  f"for the newest {major}.{minor}.x; {_ALPINE_HELP})") from e
             raise
         m = re.match(r"\s*([0-9a-fA-F]{64})\b", text)
         if not m:
@@ -138,7 +151,13 @@ def _resolve_alpine(release):
         return Source(base + fname, m.group(1).lower(), fname, f"Alpine Linux {version}")
     branch = "latest-stable" if release in ("latest", "stable") else "v" + release.lstrip("v")
     base = f"https://dl-cdn.alpinelinux.org/alpine/{branch}/releases/{arch}/"
-    fname, digest = parse_alpine_release(_get(base + "latest-releases.yaml"))
+    try:
+        text = _get(base + "latest-releases.yaml")
+    except DistroError as e:
+        if "not found" in str(e):
+            raise DistroError(f"Alpine '{release}' does not exist: {_ALPINE_HELP}.") from e
+        raise
+    fname, digest = parse_alpine_release(text)
     label = "Alpine Linux " + (re.search(r"minirootfs-([\d.]+)-", fname) or [None, release])[1]
     return Source(base + fname, digest, fname, label)
 
@@ -280,6 +299,30 @@ def lookup(name):
         ids = ", ".join(CATALOG)
         raise DistroError(f"unknown system '{name}'. Available: {ids} (see `vm list`)")
     return d
+
+
+def join_release_args(args):
+    """``["alpine", "3.23.5", "debian"]`` -> ``["alpine:3.23.5", "debian"]``.
+
+    A bare version number after a system name (``vm install alpine 3.23.5``) is the release
+    of that system, not a system of its own.
+    """
+    out = []
+    for a in args or []:
+        if out and ":" not in out[-1] and re.fullmatch(r"v?\d[\d.]*", a or "") \
+                and _alias_known(out[-1]):
+            out[-1] = f"{out[-1]}:{a}"
+        else:
+            out.append(a)
+    return out
+
+
+def _alias_known(name):
+    try:
+        lookup(name)
+        return True
+    except DistroError:
+        return False
 
 
 def parse_choice(text):

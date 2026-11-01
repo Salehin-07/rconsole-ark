@@ -332,7 +332,7 @@ def cmd_vm(ctx, args):
         return _list(sid, cols)
 
     if sub == "install":
-        choices = rest or [None]
+        choices = distros.join_release_args(rest) or [None]
         everything = any(c.lower() == "all" for c in choices)
         if everything:
             choices = list(distros.CATALOG)

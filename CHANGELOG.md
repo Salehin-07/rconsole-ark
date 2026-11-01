@@ -13,6 +13,11 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
 - **`vm install alpine:3.23.5` / `alpine:3.24.1` failed.** An exact Alpine point release was turned into a branch
   called `v3.23.5`, which does not exist. Exact releases now resolve to their branch's folder and are verified
   against the published `.sha256`. A release that really does not exist says so and suggests `alpine:3.23`.
+- **Wrong Alpine numbers now get a useful answer.** Alpine releases are `3.x`; typing `alpine:1.24.1` or `1.22`
+  used to say "try `alpine:1.24`" or a raw "not found: <url>". It now says there is no Alpine 1.x, shows the
+  valid forms (`alpine:3.24`, `alpine:3.23.5`, `alpine`, `alpine:edge`) and suggests the likely intent (`3.24.1`).
+- **`vm install alpine 3.23.5`** (a space instead of a colon) now means Alpine 3.23.5 instead of "unknown system
+  '3.23.5'".
 
 ### Changed
 - **`vm update` now moves an Alpine VM to the latest Alpine release** (e.g. 3.12 → 3.24.3), not just to the newest

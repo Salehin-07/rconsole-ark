@@ -93,6 +93,31 @@ class ResolverTests(unittest.TestCase):
         self.assertIn("does not exist", str(cm.exception))
         self.assertIn("alpine:3.23", str(cm.exception))
 
+    def test_alpine_numbers_that_cannot_exist_get_a_useful_hint(self):
+        """Regression: `alpine:1.24.1` said "try alpine:1.24"; Alpine releases are 3.x."""
+        for bad, hint in (("alpine:1.24.1", "alpine:3.24.1"), ("alpine:1.22", "alpine:3.22"),
+                          ("alpine:v1.12", "alpine:3.12")):
+            with self.assertRaises(distros.DistroError) as cm:
+                self.resolve(bad, {})
+            self.assertIn("there is no Alpine", str(cm.exception))
+            self.assertIn(hint, str(cm.exception))
+            self.assertIn("numbered 3.x", str(cm.exception))
+
+    def test_alpine_branch_that_is_not_published_explains_the_numbering(self):
+        with self.assertRaises(distros.DistroError) as cm:
+            self.resolve("alpine:3.99", {})
+        self.assertIn("does not exist", str(cm.exception))
+        self.assertIn("alpine:3.24", str(cm.exception))
+
+    def test_a_version_after_a_system_name_belongs_to_that_system(self):
+        j = distros.join_release_args
+        self.assertEqual(j(["alpine", "3.23.5"]), ["alpine:3.23.5"])
+        self.assertEqual(j(["debian", "alpine", "v3.24"]), ["debian", "alpine:v3.24"])
+        self.assertEqual(j(["alpine:3.22", "3.23"]), ["alpine:3.22", "3.23"])      # already has one
+        self.assertEqual(j(["3.23.5"]), ["3.23.5"])                                # nothing to attach to
+        self.assertEqual(j(["all"]), ["all"])
+        self.assertEqual(j([]), [])
+
     def test_alpine_latest_version(self):
         yaml = """---
 -
