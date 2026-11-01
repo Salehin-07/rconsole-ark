@@ -3,6 +3,36 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.3 — 2026-11-01
+
+### Added
+- **`vm update --stay`**: update the packages only and keep the current release (on any system).
+- `vm install alpine:<major.minor.patch>`: exact Alpine releases such as `alpine:3.23.5` (see Fixed).
+
+### Fixed
+- **`vm install alpine:3.23.5` / `alpine:3.24.1` failed.** An exact Alpine point release was turned into a branch
+  called `v3.23.5`, which does not exist. Exact releases now resolve to their branch's folder and are verified
+  against the published `.sha256`. A release that really does not exist says so and suggests `alpine:3.23`.
+
+### Changed
+- **`vm update` now moves an Alpine VM to the latest Alpine release** (e.g. 3.12 → 3.24.3), not just to the newest
+  packages of its current release. It walks one release at a time (each release ships the signing keys of the next),
+  inside the same lock + snapshot + verify + rollback protection: every step is checked (package database, programs
+  still start) and the final release is confirmed. Any failing step, timeout or shutdown restores the original
+  system, repositories included. The VM's metadata (`release`, label) follows; a VM installed as plain `alpine`
+  keeps following "latest".
+- Edge systems and customised repository lists (e.g. `@testing`) are never rewritten: they get packages only and the message says why. If the latest
+  release cannot be looked up (no network) the update is refused rather than guessed.
+- The start message now says exactly what will happen ("from Alpine 3.12.12 to 3.24.3: 12 release steps"), and for
+  Debian, Ubuntu and Kali that the release is kept.
+- Tests: the planner, the hop script, the whole walk, a failing/never-starting/wrong-version step, `--stay`,
+  customised repositories, and (real proot) a complete walk and a rollback with a fake `apk`.
+
+### Not included
+- Release upgrades for Debian, Ubuntu and Kali are not supported in place (Debian needs `full-upgrade` and
+  source rewrites, Ubuntu needs `do-release-upgrade`, Kali is rolling). Install the newer release next to the old
+  one: `vm install debian:<codename>`, `vm install ubuntu:26.04`.
+
 ## 1.3.2 — 2026-11-01
 
 ### Added

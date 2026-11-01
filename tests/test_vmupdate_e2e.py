@@ -44,6 +44,20 @@ case "$*" in *upgrade*)
 esac
 exit 2
 """
+APK = """#!/bin/sh
+case "$1" in
+  update) echo "fetch repositories"; exit 0 ;;
+  info) exit 0 ;;
+  upgrade)
+    case "$*" in *simulate*) exit 0 ;; esac
+    br=$(sed -n 's#.*/alpine/v\\([0-9.]*\\)/main#\\1#p' /etc/apk/repositories | head -1)
+    echo "upgrading to $br"
+    [ -f /var/lib/fail-$br ] && { echo "ERROR: $br is broken"; exit 99; }
+    echo "$br.1" > /etc/alpine-release
+    echo "(1/1) Upgrading musl"; exit 0 ;;
+esac
+exit 2
+"""
 DPKG = """#!/bin/sh
 [ "$1" = "--audit" ] && [ -f /var/lib/broken ] && echo "The following packages are only half configured: foo"
 exit 0
@@ -118,7 +132,7 @@ class UpdateE2E(unittest.TestCase):
 
     def test_a_real_update_upgrades_the_system_and_keeps_root(self):
         out = cmd_vm.cmd_vm({"sid": "alice", "cols": 80}, ["update"])
-        self.assertIn("Updating debian", out)
+        self.assertIn("Updating the packages of debian", out)
         meta = self.finish()
         self.assertTrue(meta["ok"], meta)
         self.assertEqual(self.run_in("cat /usr/bin/tool"), "v2")
@@ -180,6 +194,57 @@ class UpdateE2E(unittest.TestCase):
         self.assertIn("being updated", refused)
         self.finish()
         self.assertEqual(self.run_in("echo back"), "back")                     # usable again
+
+    def make_alpine(self):
+        import unittest.mock as mock
+
+        import distros
+        ok, msg = sandbox.install("alice", "alpine", wait=True)
+        self.assertTrue(ok, msg)
+        root = sandbox.rootfs_path("alice", "alpine")
+        (root / "etc/apk").mkdir(parents=True, exist_ok=True)
+        (root / "var/lib").mkdir(parents=True, exist_ok=True)
+        (root / "usr/bin").mkdir(parents=True, exist_ok=True)
+        (root / "etc/alpine-release").write_text("3.12.12\n")
+        self.repos = ("https://dl-cdn.alpinelinux.org/alpine/v3.12/main\n"
+                      "https://dl-cdn.alpinelinux.org/alpine/v3.12/community\n")
+        (root / "etc/apk/repositories").write_text(self.repos)
+        apk = root / "usr/bin/apk"
+        apk.write_text(APK)
+        apk.chmod(0o755)
+        patch = mock.patch.object(distros, "alpine_latest_version", return_value="3.14.2")
+        patch.start()
+        self.addCleanup(patch.stop)
+        return root
+
+    def test_alpine_really_walks_to_the_latest_release_in_a_real_vm(self):
+        root = self.make_alpine()
+        out = cmd_vm.cmd_vm({"sid": "alice", "cols": 80}, ["update", "alpine"])
+        self.assertIn("from Alpine 3.12.12 to 3.14.2", out)
+        self.assertIn("(3.13, 3.14)", out)
+        end = time.time() + 60
+        while sandbox.install_state("alice", "alpine")["state"] == "updating" and time.time() < end:
+            time.sleep(0.1)
+        meta = vmupdate.read_meta("alice", "alpine")
+        self.assertTrue(meta["ok"], meta)
+        self.assertEqual((root / "etc/alpine-release").read_text().strip(), "3.14.1")
+        self.assertIn("v3.14/main", (root / "etc/apk/repositories").read_text())
+        log = vmupdate.log_tail("alice", "alpine", 60)
+        self.assertIn("upgrading to 3.13", log)
+        self.assertIn("upgrading to 3.14", log)
+        self.assertEqual(sandbox.distro_info("alice", "alpine")["release"], "latest")   # installed as plain `alpine`
+
+    def test_alpine_failing_step_in_a_real_vm_restores_release_and_repositories(self):
+        root = self.make_alpine()
+        (root / "var/lib/fail-3.14").write_text("")
+        cmd_vm.cmd_vm({"sid": "alice", "cols": 80}, ["update", "alpine"])
+        end = time.time() + 60
+        while sandbox.install_state("alice", "alpine")["state"] == "updating" and time.time() < end:
+            time.sleep(0.1)
+        meta = vmupdate.read_meta("alice", "alpine")
+        self.assertEqual(meta["phase"], "rolled-back", meta)
+        self.assertEqual((root / "etc/alpine-release").read_text().strip(), "3.12.12")
+        self.assertEqual((root / "etc/apk/repositories").read_text(), self.repos)
 
     def test_the_users_own_environment_cannot_leak_into_the_update(self):
         state.set_env("alice", "APT_CONFIG", "/nonexistent")

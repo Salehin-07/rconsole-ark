@@ -2,10 +2,14 @@
 
 What "update" means
 -------------------
-The system keeps its release (Debian trixie stays trixie, Alpine keeps its branch) and
-gets every newer package that release has published: security fixes and point releases.
-Your ``/root`` is never touched (it lives outside the system files). Moving to a *new
-release* is a different job: install it next to the old one (``vm install ubuntu:26.04``).
+* **Alpine** moves to the **latest release** (3.12 -> 3.24.3), one release at a time as Alpine
+  recommends (each release ships the keys for the next), then has every newer package.
+  ``--stay`` only updates packages inside the current release.
+* **Debian, Ubuntu, Kali** get every newer package of their release (security fixes, point
+  releases) and keep the release. A newer release is installed next to the old one
+  (``vm install debian:<codename>``); upgrading those in place is not supported yet.
+
+Your ``/root`` is never touched (it lives outside the system files).
 
 The steps (every one is checked; nothing is guessed)
 ----------------------------------------------------
@@ -91,8 +95,62 @@ def commands_for(family, vm_id=""):
 
 def parse_count(family, text):
     """How many packages the simulated upgrade would change."""
-    pat = r"^\(\d+/\d+\)\s+Upgrading\s" if family == "alpine" else r"^Inst\s"
+    pat = r"^(\(\d+/\d+\)\s+)?Upgrading\s" if family == "alpine" else r"^Inst\s"
     return sum(1 for line in (text or "").splitlines() if re.match(pat, line.strip()))
+
+
+# ------------------------------------------------------- Alpine release upgrades
+ALPINE_REPO = re.compile(r"^https?://[^\s/]+/alpine/(?:v\d+\.\d+|latest-stable)/(?:main|community)/?$")
+
+
+def alpine_hop_script(branch):
+    """Point the repositories at ``branch`` ("3.13"), refresh and upgrade everything."""
+    return ("set -e; sed -i -E 's#(/alpine/)(v[0-9]+\\.[0-9]+|latest-stable)(/)#\\1v" + branch
+            + "\\3#' /etc/apk/repositories; apk update; apk upgrade --available")
+
+
+def alpine_release_plan(release_text, repos_text, latest):
+    """Which releases to step through: ``(["3.13", ..., "3.24"], note)``.
+
+    No hops (``[]``) means "stay": already on the latest, an edge/alpha system, or
+    repositories the user customised (we do not rewrite what we do not understand).
+    """
+    first = (release_text or "").strip().splitlines()[0] if (release_text or "").strip() else ""
+    cur = re.match(r"(\d+)\.(\d+)", first)
+    new = re.match(r"(\d+)\.(\d+)", latest or "")
+    if not cur or not new or "_" in first or "edge" in first:
+        return [], "this Alpine is not on a numbered release (edge?); only packages are updated"
+    cur_t, new_t = (int(cur[1]), int(cur[2])), (int(new[1]), int(new[2]))
+    if new_t <= cur_t:
+        return [], ""
+    lines = [ln.strip() for ln in (repos_text or "").splitlines()
+             if ln.strip() and not ln.strip().startswith("#")]
+    if not lines or not all(ALPINE_REPO.match(ln) for ln in lines):
+        return [], "your repository list is customised, so the release was not changed"
+    if cur_t[0] != new_t[0]:
+        return [f"{new_t[0]}.{new_t[1]}"], ""
+    return [f"{cur_t[0]}.{m}" for m in range(cur_t[1] + 1, new_t[1] + 1)], ""
+
+
+def plan_release(sid, vm):
+    """What ``vm update`` will do about the release of ``vm`` (needs the network).
+
+    Returns ``{"from", "to", "hops", "note"}`` for Alpine, else ``None``. Raises
+    :class:`distros.DistroError` when the latest release cannot be looked up.
+    """
+    info = sandbox.distro_info(sid, vm) or {}
+    if (info.get("family") or "") != "alpine":
+        return None
+    root = sandbox.rootfs_path(sid, vm)
+    try:
+        release = (root / "etc/alpine-release").read_text()
+        repos = (root / "etc/apk/repositories").read_text()
+    except OSError:
+        return {"from": "?", "to": "?", "hops": [], "note": "could not read this system's release"}
+    latest = distros.alpine_latest_version()
+    hops, note = alpine_release_plan(release, repos, latest)
+    return {"from": release.strip().splitlines()[0] if release.strip() else "?",
+            "to": latest, "hops": hops, "note": note}
 
 
 # ----------------------------------------------------------------- bookkeeping
@@ -379,7 +437,7 @@ def _progress(sid, vm, msg):
     sandbox._set_install(sid, vm, "updating", msg)
 
 
-def _run_update(sid, vm):
+def _run_update(sid, vm, plan=None):
     """The whole sequence. Returns ``(ok, message, packages)``; may raise _Refused/_Failed."""
     base = sandbox.vm_dir(sid, vm)
     root = sandbox.rootfs_path(sid, vm)
@@ -388,6 +446,7 @@ def _run_update(sid, vm):
     cmds = commands_for(fam, info.get("id") or vm)
     log = open(base / LOG, "w", buffering=1)
     last = [0.0]
+    label = [""]
 
     def on_line(line):
         log.write(line + "\n")
@@ -396,15 +455,17 @@ def _run_update(sid, vm):
             last[0] = now
             _progress(sid, vm, f"{label[0]}: {line.strip()[:60]}")
 
-    label = [""]
-
-    def step(name, text):
+    def step(name, text, script=None):
         if _abort.is_set():
             raise _Refused("interrupted because the server is shutting down")
         label[0] = text
         _progress(sid, vm, text)
         log.write(f"\n=== {text} ===\n")
-        return _exec(sid, vm, cmds[name], TIMEOUTS[name], on_line)
+        return _exec(sid, vm, script or cmds[name], TIMEOUTS[name], on_line)
+
+    def tail(out, first=False):
+        lines = out.strip().splitlines() or ["?"]
+        return (lines[0] if first else lines[-1])[:120]
 
     try:
         distro = distros.CATALOG.get(info.get("id") or vm)
@@ -413,21 +474,21 @@ def _run_update(sid, vm):
         rc, out = step("health", "checking the package database")
         if rc != 0:
             raise _Refused("the package database already has problems, so it was not touched: "
-                           + (out.strip().splitlines() or ["?"])[0][:120]
-                           + " (try `vm doctor`)")
+                           + tail(out, True) + " (try `vm doctor`)")
         rc, out = step("refresh", "refreshing package lists")
         if rc != 0:
-            raise _Refused("could not refresh the package lists (is the network up?): "
-                           + (out.strip().splitlines() or ["?"])[-1][:120])
-        rc, out = step("count", "checking what is new")
-        if rc != 0:
-            raise _Refused("could not work out what to upgrade: "
-                           + (out.strip().splitlines() or ["?"])[-1][:120])
-        n = parse_count(fam, out)
-        if n == 0:
-            return True, "already up to date", 0
+            raise _Refused("could not refresh the package lists (is the network up?): " + tail(out))
+        hops = (plan or {}).get("hops") or []
+        n = 0
+        if not hops:
+            rc, out = step("count", "checking what is new")
+            if rc != 0:
+                raise _Refused("could not work out what to upgrade: " + tail(out))
+            n = parse_count(fam, out)
+            if n == 0:
+                return True, "already up to date" + (f" ({plan['note']})" if plan and plan.get("note") else ""), 0
 
-        _progress(sid, vm, f"saving a snapshot to roll back to ({n} packages to upgrade)")
+        _progress(sid, vm, "saving a snapshot to roll back to")
         log.write("\n=== snapshot ===\n")
         need = snapshot_needed_bytes(root, base)
         free = shutil.disk_usage(base).free
@@ -445,10 +506,32 @@ def _run_update(sid, vm):
         _write_meta(base, phase="upgrade")
 
         try:
+            if hops:
+                start_rel = plan["from"]
+                for i, branch in enumerate(hops, 1):
+                    rc, out = step("upgrade", f"moving Alpine to {branch} (step {i}/{len(hops)})",
+                                   alpine_hop_script(branch))
+                    if rc != 0:
+                        raise _Failed(f"the step to Alpine {branch} failed: " + tail(out))
+                    rc, out = step("verify", f"checking the system after {branch}")
+                    if rc != 0:
+                        raise _Failed(f"the package database broke at Alpine {branch}: "
+                                      + tail(out, True))
+                    err = sandbox._probe(sid, vm)
+                    if err:
+                        raise _Failed(f"the system stopped starting programs at Alpine {branch}: "
+                                      + err[:120])
+                _write_meta(base, phase="verify")
+                try:
+                    got = (root / "etc/alpine-release").read_text().strip().splitlines()[0]
+                except (OSError, IndexError):
+                    got = ""
+                if not got.startswith(hops[-1] + "."):
+                    raise _Failed(f"expected Alpine {hops[-1]} afterwards but found '{got or '?'}'")
+                return True, f"Alpine {start_rel} -> {got}", len(hops)
             rc, out = step("upgrade", f"upgrading {n} package(s)")
             if rc != 0:
-                raise _Failed("the upgrade command failed: "
-                              + (out.strip().splitlines() or ["?"])[-1][:120])
+                raise _Failed("the upgrade command failed: " + tail(out))
             _write_meta(base, phase="verify")
             err = sandbox._probe(sid, vm)
             if err:
@@ -456,7 +539,7 @@ def _run_update(sid, vm):
             rc, out = step("verify", "verifying the result")
             if rc != 0:
                 raise _Failed("the package database is inconsistent after the upgrade: "
-                              + (out.strip().splitlines() or ["?"])[0][:120])
+                              + tail(out, True))
         except _Refused as e:                        # interrupted after the upgrade began
             raise _Failed(str(e))
         return True, f"{n} package(s) upgraded", n
@@ -468,16 +551,16 @@ def _finish_meta(base, ok, message, phase):
     _write_meta(base, ok=ok, message=message, phase=phase, finished=int(time.time()))
 
 
-def _worker(sid, vm):
+def _worker(sid, vm, plan=None):
     base = sandbox.vm_dir(sid, vm)
     try:
         _write_meta(base, phase="refresh", started=int(time.time()), finished=None,
                     ok=None, message="")
         try:
-            ok, msg, n = _run_update(sid, vm)
+            ok, msg, n = _run_update(sid, vm, plan)
             shutil.rmtree(base / SNAP, ignore_errors=True)
             if ok and n:
-                _stamp_distro(base, n)
+                _stamp_distro(base, n, plan)
             _finish_meta(base, True, msg, "done")
         except _Refused as e:
             shutil.rmtree(base / SNAP, ignore_errors=True)
@@ -512,24 +595,46 @@ def _worker(sid, vm):
             pass
 
 
-def _stamp_distro(base, n):
+def _stamp_distro(base, n, plan=None):
     path = Path(base) / sandbox.DISTRO_FILE
     try:
         data = json.loads(path.read_text())
     except (OSError, ValueError):
         return
     data["updated_at"] = int(time.time())
-    data["packages_updated"] = int(data.get("packages_updated", 0)) + n
+    if plan and plan.get("hops"):                    # the release itself changed
+        data["previous_release"] = data.get("release")
+        if data.get("release") != "latest":
+            data["release"] = plan["hops"][-1]
+        try:
+            ver = (Path(base) / sandbox.ROOTFS_DIRNAME / "etc/alpine-release").read_text().split()[0]
+            data["label"] = f"Alpine Linux {ver}"
+        except (OSError, IndexError):
+            pass
+    else:
+        data["packages_updated"] = int(data.get("packages_updated", 0)) + n
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data))
     os.replace(tmp, path)
 
 
-def start(sid, vm, everything=None):
+def start(sid, vm, everything=None, stay=False):
     """Lock ``vm``, stop what runs in it and update it in the background.
 
     Returns ``(ok, message)``. ``everything`` defaults to :func:`stops_everything`.
+    ``stay`` keeps the current release (packages only); by default an Alpine VM moves to
+    the latest release.
     """
+    why = can_start(sid, vm)
+    if why:
+        return False, why
+    plan = None
+    if not stay:
+        try:
+            plan = plan_release(sid, vm)
+        except distros.DistroError as e:
+            return False, (f"could not look up the latest release ({e}). Try again, or update "
+                           f"only the packages of the current release: `vm update {vm} --stay`.")
     with _start_lock:
         why = can_start(sid, vm)
         if why:
@@ -540,7 +645,7 @@ def start(sid, vm, everything=None):
         everything = stops_everything(sid, vm) if everything is None else everything
         # Lock first, so nothing can start again while we stop what is running.
         sandbox._set_install(sid, vm, "updating", "starting")
-        t = threading.Thread(target=_worker, args=(sid, vm), name=f"rconsole-vm-update-{vm}",
+        t = threading.Thread(target=_worker, args=(sid, vm, plan), name=f"rconsole-vm-update-{vm}",
                              daemon=True)
         _threads[(sid, vm)] = t
     try:
@@ -549,9 +654,21 @@ def start(sid, vm, everything=None):
         pass
     t.start()
     scope = "everything you had running" if everything else f"what ran in {vm}"
-    return True, (f"Updating {vm} in the background. {vm} is locked until it finishes and "
-                  f"{scope} was stopped. Progress: `vm status {vm}`. If anything goes wrong "
-                  f"the previous system is restored automatically.")
+    if plan and plan["hops"]:
+        what = (f"Moving {vm} from Alpine {plan['from']} to {plan['to']}: {len(plan['hops'])} release "
+                f"step(s), one at a time ({', '.join(plan['hops'])}). This can take a while.")
+    elif plan and plan["note"]:
+        what = f"Updating {vm} ({plan['note']})."
+    elif plan:
+        what = f"Updating {vm}: already on the latest Alpine ({plan['to']}), so only packages change."
+    elif stay:
+        what = f"Updating the packages of {vm} (staying on its release, as asked)."
+    else:
+        what = (f"Updating the packages of {vm}. It stays on its release: a newer one is "
+                f"installed next to it (`vm install <name>:<release>`).")
+    return True, (f"{what} {vm} is locked until it finishes and {scope} was stopped. "
+                  f"Progress: `vm status {vm}` (`vm update {vm} --log` shows the output). If anything "
+                  f"goes wrong the previous system is restored automatically.")
 
 
 # ------------------------------------------------------- shutdown and crash recovery

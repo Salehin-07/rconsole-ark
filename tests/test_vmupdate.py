@@ -5,6 +5,7 @@ VM's files directly, so the real snapshot, lock, rollback and recovery code all 
 """
 import json
 import os
+import re
 import threading
 import time
 import unittest
@@ -17,6 +18,7 @@ import helpers  # noqa: F401
 import auth
 import cmd_vm
 import config
+import distros
 import jobs
 import sandbox
 import services
@@ -42,6 +44,12 @@ def make_vm(sid, vm="debian", family="debian"):
     (root / "etc/config").write_text("original\n")
     (root / "var/lib/dpkg/status").write_text("pkg v1\n")
     os.symlink("tool", root / "usr/bin/tool-link")
+    if family == "alpine":
+        (root / "etc/apk").mkdir(parents=True, exist_ok=True)
+        (root / "etc/alpine-release").write_text("3.12.12\n")
+        (root / "etc/apk/repositories").write_text(
+            "https://dl-cdn.alpinelinux.org/alpine/v3.12/main\n"
+            "https://dl-cdn.alpinelinux.org/alpine/v3.12/community\n")
     (base / "home").mkdir(exist_ok=True)
     (base / sandbox.DISTRO_FILE).write_text(json.dumps(
         {"id": vm, "release": "x", "family": family, "label": vm,
@@ -59,9 +67,24 @@ class FakeApt:
         self.pending = 2            # packages the "repo" has newer
         self.calls = []
         self.during_upgrade = None
+        self.fail_hop = None        # branch whose step fails (after changing files)
+        self.wrong_final = False    # the last hop "succeeds" but lands on the wrong release
 
     def __call__(self, sid, vm, script, timeout, on_line):
         cmds = vmupdate.commands_for(self.family, vm)
+        hop = re.search(r"\\1v([\d.]+)\\3", script)
+        if hop:                                           # one Alpine release step
+            branch = hop.group(1)
+            self.calls.append(f"hop:{branch}")
+            on_line(f"fake hop {branch}")
+            (self.root / "etc/alpine-release").write_text(
+                ("3.99.0" if self.wrong_final else f"{branch}.1") + "\n")
+            (self.root / "etc/apk/repositories").write_text(
+                f"https://dl-cdn.alpinelinux.org/alpine/v{branch}/main\n")
+            if self.fail_hop == branch:
+                return 1, f"ERROR: unable to select packages for {branch}"
+            self.calls.append("upgraded")
+            return 0, ""
         if script == cmds["health"]:                       # health and verify run the same check
             name = "verify" if "upgraded" in self.calls else "health"
         else:
@@ -111,6 +134,7 @@ class Base(unittest.TestCase):
             mock.patch.object(sandbox, "_ensure_pinned_proot"),
             mock.patch.object(sandbox, "_probe", return_value=None),
             mock.patch.object(sandbox, "sync_guest_tools"),
+            mock.patch.object(distros, "alpine_latest_version", return_value="3.12.12"),
         ]
         for p in self.patches:
             p.start()
@@ -336,6 +360,154 @@ class UpdateFlowTests(Base):
         self.assertIn("last update", out)
 
 
+class ReleaseUpgradeTests(Base):
+    """`vm update` moves an Alpine VM to the latest release, one release at a time."""
+
+    REPOS = ("https://dl-cdn.alpinelinux.org/alpine/v3.12/main\n"
+             "https://dl-cdn.alpinelinux.org/alpine/v3.12/community\n")
+
+    def alpine(self, latest="3.15.1"):
+        root = make_vm("alice", "alpine", "alpine")
+        patch = mock.patch.object(distros, "alpine_latest_version", return_value=latest)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return root
+
+    def test_the_plan_steps_through_every_release(self):
+        plan = vmupdate.alpine_release_plan("3.12.12\n", self.REPOS, "3.24.3")
+        self.assertEqual(plan[0], [f"3.{n}" for n in range(13, 25)])
+        self.assertEqual(plan[1], "")
+        self.assertEqual(vmupdate.alpine_release_plan("3.24.1", self.REPOS.replace("3.12", "3.24"), "3.24.3"),
+                         ([], ""))                                   # same branch: packages only
+        self.assertEqual(vmupdate.alpine_release_plan("3.30.0", self.REPOS, "3.24.3")[0], [])
+        self.assertEqual(vmupdate.alpine_release_plan("3.20.0", self.REPOS, "4.0.1")[0], ["4.0"])
+
+    def test_edge_and_customised_repositories_are_left_alone(self):
+        hops, note = vmupdate.alpine_release_plan("3.21.0_alpha20250108", self.REPOS, "3.24.3")
+        self.assertEqual(hops, [])
+        self.assertIn("edge", note)
+        custom = self.REPOS + "@testing https://dl-cdn.alpinelinux.org/alpine/edge/testing\n"
+        hops, note = vmupdate.alpine_release_plan("3.12.12", custom, "3.24.3")
+        self.assertEqual(hops, [])
+        self.assertIn("customised", note)
+        self.assertEqual(vmupdate.alpine_release_plan("3.12.12", "", "3.24.3")[0], [])
+
+    def test_the_hop_script_rewrites_only_the_distro_repositories(self):
+        script = vmupdate.alpine_hop_script("3.13")
+        self.assertTrue(script.startswith("set -e;"))                 # any failing command stops the step
+        self.assertIn("v3.13", script)
+        self.assertIn("apk update; apk upgrade --available", script)
+        self.assertIn("/etc/apk/repositories", script)
+
+    def test_the_whole_walk_to_the_latest_release(self):
+        root = self.alpine("3.15.1")
+        fake = FakeApt(root, "alpine")
+        out = {}
+        with mock.patch.object(vmupdate, "_exec", fake):
+            ok, msg = vmupdate.start("alice", "alpine")
+            out["msg"] = msg
+            self.assertTrue(ok, msg)
+            self.wait("alice", "alpine")
+        self.assertIn("from Alpine 3.12.12 to 3.15.1", out["msg"])
+        self.assertIn("3 release step(s)", out["msg"])
+        self.assertEqual([c for c in fake.calls if c.startswith("hop:")],
+                         ["hop:3.13", "hop:3.14", "hop:3.15"])
+        self.assertEqual((root / "etc/alpine-release").read_text().strip(), "3.15.1")
+        meta = vmupdate.read_meta("alice", "alpine")
+        self.assertTrue(meta["ok"], meta)
+        self.assertEqual(meta["message"], "Alpine 3.12.12 -> 3.15.1")
+        info = sandbox.distro_info("alice", "alpine")
+        self.assertEqual(info["release"], "3.15")
+        self.assertEqual(info["previous_release"], "x")
+        self.assertEqual(info["label"], "Alpine Linux 3.15.1")
+        self.assertFalse((sandbox.vm_dir("alice", "alpine") / vmupdate.SNAP).exists())
+
+    def test_a_vm_installed_as_latest_keeps_following_latest(self):
+        root = self.alpine("3.14.2")
+        meta = sandbox.vm_dir("alice", "alpine") / sandbox.DISTRO_FILE
+        data = json.loads(meta.read_text())
+        data["release"] = "latest"
+        meta.write_text(json.dumps(data))
+        self.update("alice", "alpine", FakeApt(root, "alpine"))
+        self.assertEqual(sandbox.distro_info("alice", "alpine")["release"], "latest")
+
+    def test_a_failing_step_in_the_middle_restores_the_original_release(self):
+        root = self.alpine("3.15.1")
+        fake = FakeApt(root, "alpine")
+        fake.fail_hop = "3.14"
+        self.update("alice", "alpine", fake)
+        self.assertEqual((root / "etc/alpine-release").read_text().strip(), "3.12.12")
+        self.assertEqual((root / "etc/apk/repositories").read_text(), self.REPOS)
+        self.assertEqual((root / "usr/bin/tool").read_text(), "v1")
+        meta = vmupdate.read_meta("alice", "alpine")
+        self.assertEqual(meta["phase"], "rolled-back")
+        self.assertIn("step to Alpine 3.14 failed", meta["message"])
+        self.assertNotIn("hop:3.15", fake.calls)                      # it did not carry on
+        self.assertEqual(sandbox.distro_info("alice", "alpine")["release"], "x")   # metadata untouched
+
+    def test_a_system_that_stops_working_midway_is_rolled_back(self):
+        root = self.alpine("3.14.2")
+        answers = iter([None, "cannot execute /bin/sh"])
+        with mock.patch.object(sandbox, "_probe", side_effect=lambda *a: next(answers)):
+            self.update("alice", "alpine", FakeApt(root, "alpine"))
+        self.assertEqual((root / "etc/alpine-release").read_text().strip(), "3.12.12")
+        self.assertIn("stopped starting programs at Alpine 3.14",
+                      vmupdate.read_meta("alice", "alpine")["message"])
+
+    def test_landing_on_the_wrong_release_is_rolled_back(self):
+        root = self.alpine("3.14.2")
+        fake = FakeApt(root, "alpine")
+        fake.wrong_final = True
+        self.update("alice", "alpine", fake)
+        self.assertEqual((root / "etc/alpine-release").read_text().strip(), "3.12.12")
+        self.assertIn("expected Alpine 3.14", vmupdate.read_meta("alice", "alpine")["message"])
+
+    def test_stay_updates_packages_only(self):
+        root = self.alpine("3.15.1")
+        fake = FakeApt(root, "alpine")
+        with mock.patch.object(vmupdate, "_exec", fake):
+            out = self.run_vm("alice", ["update", "--stay"])
+            self.assertIn("staying on its release", out)
+            self.wait("alice", "alpine")
+        self.assertFalse([c for c in fake.calls if c.startswith("hop:")])
+        self.assertEqual((root / "etc/alpine-release").read_text().strip(), "3.12.12")
+        self.assertEqual((root / "usr/bin/tool").read_text(), "v2")
+
+    def test_customised_repositories_fall_back_to_packages_only_and_say_why(self):
+        root = self.alpine("3.15.1")
+        (root / "etc/apk/repositories").write_text(
+            self.REPOS + "@testing https://dl-cdn.alpinelinux.org/alpine/edge/testing\n")
+        fake = FakeApt(root, "alpine")
+        with mock.patch.object(vmupdate, "_exec", fake):
+            out = self.run_vm("alice", ["update"])
+            self.assertIn("customised", out)
+            self.wait("alice", "alpine")
+        self.assertFalse([c for c in fake.calls if c.startswith("hop:")])
+
+    def test_already_on_the_latest_release_only_updates_packages(self):
+        root = self.alpine("3.12.12")
+        with mock.patch.object(vmupdate, "_exec", FakeApt(root, "alpine")):
+            out = self.run_vm("alice", ["update"])
+            self.assertIn("already on the latest Alpine", out)
+            self.wait("alice", "alpine")
+
+    def test_no_way_to_look_up_the_latest_release_refuses_without_locking(self):
+        make_vm("alice", "alpine", "alpine")
+        with mock.patch.object(distros, "alpine_latest_version",
+                               side_effect=distros.DistroError("could not reach dl-cdn.alpinelinux.org")):
+            out = self.run_vm("alice", ["update"])
+        self.assertIn("could not look up the latest release", out)
+        self.assertIn("--stay", out)
+        self.assertEqual(sandbox.install_state("alice", "alpine")["state"], "ready")
+
+    def test_debian_family_says_it_stays_on_its_release(self):
+        root = make_vm("alice", "debian")
+        with mock.patch.object(vmupdate, "_exec", FakeApt(root)):
+            out = self.run_vm("alice", ["update"])
+            self.assertIn("stays on its release", out)
+            self.wait("alice", "debian")
+
+
 class LockTests(Base):
     def test_the_vm_is_inaccessible_while_it_updates_others_are_not(self):
         root_d = make_vm("alice", "debian")
@@ -448,7 +620,7 @@ class WhoMayUpdateTests(Base):
         root = make_vm("alice", "debian")
         with mock.patch.object(vmupdate, "_exec", FakeApt(root)):
             out = self.run_vm("alice", ["update"])
-            self.assertIn("Updating debian", out)
+            self.assertIn("Updating the packages of debian", out)
             self.wait("alice", "debian")
         make_vm("alice", "alpine", "alpine")
         out = self.run_vm("alice", ["update"])
@@ -523,7 +695,7 @@ class WhoMayUpdateTests(Base):
             self.assertEqual(sandbox.install_state("alice", "debian")["state"], "ready")
             with mock.patch.object(vmupdate, "_exec", FakeApt(root)):
                 out = self.run_vm("alice", ["update", "--yes"])
-                self.assertIn("Updating debian", out)
+                self.assertIn("Updating the packages of debian", out)
                 self.assertIn("everything you had running", out)
                 self.wait("alice", "debian")
             self.assertNotIn(("alice", "x"), termsess.SESSIONS)

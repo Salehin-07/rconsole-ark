@@ -74,6 +74,37 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual(distros.parse_sums(text),
                          {"one.tar.gz": SHA_A, "two.tar.xz": SHA_B})
 
+    def test_alpine_exact_point_release(self):
+        """Regression: `vm install alpine:3.23.5` asked for a branch called v3.23.5 and failed."""
+        base = "https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/x86_64/"
+        name = "alpine-minirootfs-3.23.5-x86_64.tar.gz"
+        src = self.resolve("alpine:3.23.5", {base + name + ".sha256": f"{SHA_A}  {name}\n"})
+        self.assertEqual(src.url, base + name)
+        self.assertEqual(src.sha256, SHA_A)
+        self.assertEqual(src.label, "Alpine Linux 3.23.5")
+        src = self.resolve("alpine:v3.24.1", {
+            "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/"
+            "alpine-minirootfs-3.24.1-x86_64.tar.gz.sha256": f"{SHA_B}  x\n"})
+        self.assertEqual(src.filename, "alpine-minirootfs-3.24.1-x86_64.tar.gz")
+
+    def test_alpine_release_that_does_not_exist_says_so(self):
+        with self.assertRaises(distros.DistroError) as cm:
+            self.resolve("alpine:3.23.99", {})
+        self.assertIn("does not exist", str(cm.exception))
+        self.assertIn("alpine:3.23", str(cm.exception))
+
+    def test_alpine_latest_version(self):
+        yaml = """---
+-
+  file: alpine-minirootfs-3.24.3-x86_64.tar.gz
+  sha256: %s
+  flavor: alpine-minirootfs
+""" % SHA_A
+        base = "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/"
+        with mock.patch.object(distros, "_get", fake_http({base + "latest-releases.yaml": yaml})), \
+                mock.patch.object(distros, "machine", return_value="x86_64"):
+            self.assertEqual(distros.alpine_latest_version(), "3.24.3")
+
     def test_alpine(self):
         yaml = f"""---
 -

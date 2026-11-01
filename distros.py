@@ -113,13 +113,43 @@ def parse_alpine_release(text, flavor="alpine-minirootfs"):
     raise DistroError(f"no {flavor} entry in the Alpine release index")
 
 
+_ALPINE_POINT = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")
+
+
 def _resolve_alpine(release):
+    """``latest``/``stable``, a branch (``3.21``, ``v3.21``, ``edge``) or an exact release (``3.23.5``)."""
     arch = _arch(_ALPINE_ARCH, "Alpine")
+    point = _ALPINE_POINT.fullmatch(release)
+    if point:                                   # an exact point release lives in its branch's folder
+        major, minor, patch = point.groups()
+        version = f"{major}.{minor}.{patch}"
+        base = f"https://dl-cdn.alpinelinux.org/alpine/v{major}.{minor}/releases/{arch}/"
+        fname = f"alpine-minirootfs-{version}-{arch}.tar.gz"
+        try:
+            text = _get(base + fname + ".sha256")
+        except DistroError as e:
+            if "not found" in str(e):
+                raise DistroError(f"Alpine {version} does not exist (try `alpine:{major}.{minor}` "
+                                  f"for the newest {major}.{minor}.x)") from e
+            raise
+        m = re.match(r"\s*([0-9a-fA-F]{64})\b", text)
+        if not m:
+            raise DistroError(f"no checksum published for Alpine {version}")
+        return Source(base + fname, m.group(1).lower(), fname, f"Alpine Linux {version}")
     branch = "latest-stable" if release in ("latest", "stable") else "v" + release.lstrip("v")
     base = f"https://dl-cdn.alpinelinux.org/alpine/{branch}/releases/{arch}/"
     fname, digest = parse_alpine_release(_get(base + "latest-releases.yaml"))
     label = "Alpine Linux " + (re.search(r"minirootfs-([\d.]+)-", fname) or [None, release])[1]
     return Source(base + fname, digest, fname, label)
+
+
+def alpine_latest_version():
+    """The newest stable Alpine, e.g. ``"3.24.3"`` (what ``vm update`` moves an Alpine VM to)."""
+    src = _resolve_alpine("latest")
+    m = re.search(r"minirootfs-(\d+\.\d+\.\d+)-", src.filename)
+    if not m:
+        raise DistroError("could not read the latest Alpine version")
+    return m.group(1)
 
 
 # --------------------------------------------------------------------- ubuntu
@@ -226,7 +256,7 @@ CATALOG = {
     "alpine": Distro(
         "alpine", "Alpine Linux", "alpine",
         "tiny and the fastest to set up", "~3 MB", "latest",
-        "latest, or a branch like 3.21 / edge", "apk", ("alp",)),
+        "latest, a branch like 3.24 / edge, or exactly 3.23.5", "apk", ("alp",)),
 }
 
 DEFAULT_DISTRO = (os.environ.get("RCONSOLE_DEFAULT_SYSTEM") or "debian").strip().lower()

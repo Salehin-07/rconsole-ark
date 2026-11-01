@@ -17,7 +17,7 @@ Subcommands::
     vm reset [name] --yes          recreate a VM's system files (keeps /root)
     vm remove <name|all> --yes     delete a VM and its /root
     vm setup <profile> [name]      install Python/build tools/Node/Docker/Kali tools (see `vm setup`)
-    vm update [name]      update a VM to the latest packages of its release, safely
+    vm update [name]      update a VM to the latest version (Alpine: newest release), safely
     vm doctor [name]      check that a VM works and show what is wrong if not
 
 With a single VM you never need to type its name. With several, commands that
@@ -51,7 +51,8 @@ _USAGE = """\
   vm reset [name] --yes recreate system files (keeps /root)
   vm remove <name|all> --yes   delete a VM and its /root
   vm setup <profile> [n] install python, build tools, node, docker, kali ... (`vm setup` lists them)
-  vm update [name]      update a VM safely (locks it; rolls back on any problem)
+  vm update [name]      update to the latest version, safely (locks it; rolls back on any problem)
+                        --stay keeps the current release (packages only)
   vm doctor [name]      diagnose a VM"""
 
 
@@ -276,12 +277,13 @@ def _doctor(ctx, vm):
 
 
 def _update(ctx, rest):
-    """``vm update [name] [--yes] [--log]`` — see :mod:`vmupdate` for the whole story."""
+    """``vm update [name] [--yes] [--stay] [--log]`` — see :mod:`vmupdate` for the whole story."""
     sid = ctx["sid"]
     if not sandbox.supported():
         return "vm: the VM is unavailable (needs Linux and RCONSOLE_VM=1)."
     yes = "--yes" in rest or "-y" in rest
     want_log = "--log" in rest
+    stay = "--stay" in rest
     names = [r for r in rest if not r.startswith("-")]
     vms = sandbox.installed_vms(sid)
     if not vms:
@@ -308,7 +310,7 @@ def _update(ctx, rest):
         return (f"Updating {vm} locks it until it is done and stops {scope}: "
                 f"{vmupdate.describe_running(running)}.\n"
                 f"Services restart by themselves afterwards. Continue with: vm update {vm} --yes")
-    ok, msg = vmupdate.start(sid, vm, everything)
+    ok, msg = vmupdate.start(sid, vm, everything, stay=stay)
     return msg if ok else f"vm update: {msg}"
 
 
