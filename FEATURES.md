@@ -1,6 +1,6 @@
 # rconsole features
 
-Every feature of rconsole 1.3.3, by area. This is the **map**; the details live in
+Every feature of rconsole 1.3.4, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.

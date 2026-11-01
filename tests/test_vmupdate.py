@@ -68,21 +68,34 @@ class FakeApt:
         self.calls = []
         self.during_upgrade = None
         self.fail_hop = None        # branch whose step fails (after changing files)
-        self.wrong_final = False    # the last hop "succeeds" but lands on the wrong release
+        self.wrong_repos = False    # the last hop "succeeds" but leaves the repositories elsewhere
+        self.left_behind = False    # some packages stay on the old release however often we upgrade
 
     def __call__(self, sid, vm, script, timeout, on_line):
         cmds = vmupdate.commands_for(self.family, vm)
+        if "/etc/alpine-release" in script and "PRETTY_NAME" in script:     # recording the release
+            self.calls.append("identify")
+            on_line("fake identify")
+            self.root.joinpath("etc/alpine-release").write_text(
+                re.search(r"echo '([\d.]+)' > /etc/alpine-release", script).group(1) + "\n")
+            return 0, ""
+        if script == "apk upgrade --available":                              # the extra pass
+            self.calls.append("extra-upgrade")
+            if not self.left_behind:
+                self.pending = 0
+            return 0, ""
         hop = re.search(r"\\1v([\d.]+)\\3", script)
         if hop:                                           # one Alpine release step
             branch = hop.group(1)
             self.calls.append(f"hop:{branch}")
             on_line(f"fake hop {branch}")
-            (self.root / "etc/alpine-release").write_text(
-                ("3.99.0" if self.wrong_final else f"{branch}.1") + "\n")
+            # like real apk: packages change, /etc/alpine-release (owned by no package) does NOT
+            shown = "3.99" if self.wrong_repos else branch
             (self.root / "etc/apk/repositories").write_text(
-                f"https://dl-cdn.alpinelinux.org/alpine/v{branch}/main\n")
+                f"https://dl-cdn.alpinelinux.org/alpine/v{shown}/main\n")
             if self.fail_hop == branch:
                 return 1, f"ERROR: unable to select packages for {branch}"
+            self.pending = 2 if self.left_behind else 0
             self.calls.append("upgraded")
             return 0, ""
         if script == cmds["health"]:                       # health and verify run the same check
@@ -454,13 +467,60 @@ class ReleaseUpgradeTests(Base):
         self.assertIn("stopped starting programs at Alpine 3.14",
                       vmupdate.read_meta("alice", "alpine")["message"])
 
-    def test_landing_on_the_wrong_release_is_rolled_back(self):
+    def test_repositories_left_on_another_release_are_rolled_back(self):
         root = self.alpine("3.14.2")
         fake = FakeApt(root, "alpine")
-        fake.wrong_final = True
+        fake.wrong_repos = True
         self.update("alice", "alpine", fake)
         self.assertEqual((root / "etc/alpine-release").read_text().strip(), "3.12.12")
-        self.assertIn("expected Alpine 3.14", vmupdate.read_meta("alice", "alpine")["message"])
+        self.assertEqual((root / "etc/apk/repositories").read_text(), self.REPOS)
+        self.assertIn("repositories are not on Alpine 3.14", vmupdate.read_meta("alice", "alpine")["message"])
+
+    def test_packages_left_on_the_old_release_are_rolled_back(self):
+        root = self.alpine("3.14.2")
+        fake = FakeApt(root, "alpine")
+        fake.left_behind = True
+        self.update("alice", "alpine", fake)
+        self.assertEqual((root / "etc/alpine-release").read_text().strip(), "3.12.12")
+        self.assertIn("could not be moved to Alpine 3.14", vmupdate.read_meta("alice", "alpine")["message"])
+        self.assertIn("extra-upgrade", fake.calls)                   # it tried once more first
+
+    def test_regression_alpine_release_files_are_written_because_no_package_owns_them(self):
+        """Real apk never touches /etc/alpine-release in a minirootfs; v1.3.3 judged the walk by it."""
+        root = self.alpine("3.14.2")
+        fake = FakeApt(root, "alpine")
+        self.update("alice", "alpine", fake)
+        self.assertIn("identify", fake.calls)
+        self.assertEqual((root / "etc/alpine-release").read_text().strip(), "3.14.2")
+        self.assertTrue(vmupdate.read_meta("alice", "alpine")["ok"])
+
+    def test_the_identify_script_writes_both_files_and_rejects_odd_versions(self):
+        script = vmupdate.alpine_identify_script("3.24.3")
+        self.assertIn("echo '3.24.3' > /etc/alpine-release", script)
+        self.assertIn("VERSION_ID=3.24.3", script)
+        self.assertIn('PRETTY_NAME="Alpine Linux v3.24"', script)
+        # run it for real in a shell (paths pointed at a temp dir): both files come out right
+        import subprocess
+        import tempfile
+        for variant in ("regular", "symlink"):
+            d = Path(tempfile.mkdtemp(prefix="ident-"))
+            (d / "etc").mkdir()
+            (d / "usr/lib").mkdir(parents=True)
+            if variant == "symlink":
+                os.symlink(d / "usr/lib/os-release", d / "etc/os-release")
+            r = subprocess.run(["sh", "-c", script.replace("/etc/", f"{d}/etc/")],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual((d / "etc/alpine-release").read_text(), "3.24.3\n")
+            text = (d / "etc/os-release").read_text()
+            self.assertIn('PRETTY_NAME="Alpine Linux v3.24"\n', text)
+            self.assertIn("VERSION_ID=3.24.3\n", text)
+            self.assertIn("ID=alpine\n", text)
+            if variant == "symlink":
+                self.assertTrue((d / "usr/lib/os-release").is_file())
+        for bad in ("3.24", "3.24.3; rm -rf /", "$(id)", ""):
+            with self.assertRaises(ValueError):
+                vmupdate.alpine_identify_script(bad)
 
     def test_stay_updates_packages_only(self):
         root = self.alpine("3.15.1")

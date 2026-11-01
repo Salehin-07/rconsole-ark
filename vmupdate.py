@@ -109,6 +109,24 @@ def alpine_hop_script(branch):
             + "\\3#' /etc/apk/repositories; apk update; apk upgrade --available")
 
 
+def alpine_identify_script(version):
+    """Make the system say which release it now is.
+
+    ``/etc/alpine-release`` and ``/etc/os-release`` belong to no package in a minirootfs, so
+    ``apk`` never updates them; after a release upgrade they still named the old release (and
+    the upgrade looked like a failure). Written inside the VM, so symlinks resolve there.
+    """
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version or ""):
+        raise ValueError(f"bad Alpine version '{version}'")
+    branch = ".".join(version.split(".")[:2])
+    return (f"set -e; echo '{version}' > /etc/alpine-release; f=/etc/os-release; "
+            f'if [ -L "$f" ]; then f=$(readlink -f "$f"); fi; '
+            f"printf 'NAME=\"Alpine Linux\"\\nID=alpine\\nVERSION_ID={version}\\n"
+            f"PRETTY_NAME=\"Alpine Linux v{branch}\"\\nHOME_URL=\"https://alpinelinux.org/\"\\n"
+            f"BUG_REPORT_URL=\"https://gitlab.alpinelinux.org/alpine/aports/-/issues\"\\n' "
+            f'> "$f"')
+
+
 def alpine_release_plan(release_text, repos_text, latest):
     """Which releases to step through: ``(["3.13", ..., "3.24"], note)``.
 
@@ -522,12 +540,39 @@ def _run_update(sid, vm, plan=None):
                         raise _Failed(f"the system stopped starting programs at Alpine {branch}: "
                                       + err[:120])
                 _write_meta(base, phase="verify")
+                target = hops[-1]
+                # 1. the repositories must really be on the target release ...
+                try:
+                    repos = [ln.strip() for ln in (root / "etc/apk/repositories").read_text().splitlines()
+                             if ln.strip() and not ln.strip().startswith("#")]
+                except OSError:
+                    repos = []
+                if not repos or not all(f"/v{target}/" in ln for ln in repos):
+                    raise _Failed(f"the repositories are not on Alpine {target} afterwards")
+                # 2. ... and nothing may be left behind on the old release
+                rc, out = step("count", "checking that nothing is left to upgrade")
+                left = parse_count("alpine", out) if rc == 0 else -1
+                if left != 0:
+                    rc, out = step("upgrade", "finishing the upgrade", "apk upgrade --available")
+                    rc, out = step("count", "checking again")
+                    left = parse_count("alpine", out) if rc == 0 else -1
+                    if left != 0:
+                        raise _Failed(f"{left if left > 0 else 'some'} package(s) could not be moved "
+                                      f"to Alpine {target}")
+                # 3. only now say which release this is
+                rc, out = step("verify", f"recording Alpine {plan['to']}",
+                               alpine_identify_script(plan["to"]))
+                if rc != 0:
+                    raise _Failed("could not record the new release: " + tail(out))
                 try:
                     got = (root / "etc/alpine-release").read_text().strip().splitlines()[0]
                 except (OSError, IndexError):
                     got = ""
-                if not got.startswith(hops[-1] + "."):
-                    raise _Failed(f"expected Alpine {hops[-1]} afterwards but found '{got or '?'}'")
+                if not got.startswith(target + "."):
+                    raise _Failed(f"expected Alpine {target} afterwards but found '{got or '?'}'")
+                err = sandbox._probe(sid, vm)
+                if err:
+                    raise _Failed("the system stopped starting programs at the end: " + err[:120])
                 return True, f"Alpine {start_rel} -> {got}", len(hops)
             rc, out = step("upgrade", f"upgrading {n} package(s)")
             if rc != 0:

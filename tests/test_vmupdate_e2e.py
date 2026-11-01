@@ -53,7 +53,6 @@ case "$1" in
     br=$(sed -n 's#.*/alpine/v\\([0-9.]*\\)/main#\\1#p' /etc/apk/repositories | head -1)
     echo "upgrading to $br"
     [ -f /var/lib/fail-$br ] && { echo "ERROR: $br is broken"; exit 99; }
-    echo "$br.1" > /etc/alpine-release
     echo "(1/1) Upgrading musl"; exit 0 ;;
 esac
 exit 2
@@ -227,7 +226,8 @@ class UpdateE2E(unittest.TestCase):
             time.sleep(0.1)
         meta = vmupdate.read_meta("alice", "alpine")
         self.assertTrue(meta["ok"], meta)
-        self.assertEqual((root / "etc/alpine-release").read_text().strip(), "3.14.1")
+        self.assertEqual((root / "etc/alpine-release").read_text().strip(), "3.14.2")
+        self.assertIn('PRETTY_NAME="Alpine Linux v3.14"', (root / "etc/os-release").read_text())
         self.assertIn("v3.14/main", (root / "etc/apk/repositories").read_text())
         log = vmupdate.log_tail("alice", "alpine", 60)
         self.assertIn("upgrading to 3.13", log)

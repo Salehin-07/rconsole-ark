@@ -3,6 +3,28 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.4 — 2026-11-01
+
+### Added
+- After an Alpine release walk the VM now **records which release it is** (`/etc/alpine-release`,
+  `/etc/os-release`), so `vm status`, neofetch and `cat /etc/os-release` show the new release.
+- An extra `apk upgrade` pass and a "nothing left to upgrade" check at the end of the walk.
+
+### Fixed
+- **`vm update` on Alpine rolled a *successful* release walk back.** All steps ran and the packages were upgraded
+  (3.13 → 3.24 in a real VM), but the final check read `/etc/alpine-release`, which in an Alpine rootfs belongs
+  to no package, so `apk` never changes it and it still said 3.13.12: "expected Alpine 3.24 but found 3.13.12",
+  and the safety net restored the old system. The check is now based on facts that are really true afterwards:
+  (1) every repository line points at the target release, (2) `apk upgrade` has nothing left to do (one extra
+  pass is tried first; leftovers fail the update and roll it back), and only then (3) the VM is told which
+  release it is: `/etc/alpine-release` and `/etc/os-release` (so `vm status`, neofetch and `cat /etc/os-release`
+  show the new release) are written inside the VM, following symlinks there. A final "programs still start"
+  check closes the update.
+- The test double for `apk` now behaves like the real one (it no longer rewrites `/etc/alpine-release` itself),
+  which is why the old tests could not see this. New tests: repositories left on another release, packages left
+  behind, the identify script run for real against a regular file and a symlinked `os-release`, and the real-proot
+  walk using a fake `apk` that never touches the release file.
+
 ## 1.3.3 — 2026-11-01
 
 ### Added
