@@ -36,10 +36,16 @@ async function load(phone) {
   w.addEventListener("error", (e) => errors.push(e.message));
   const ok = (j) => ({ ok: true, status: 200, json: async () => j });
   const sent = [];
+  const saved = [];
+  const fileContent = { value: "" };
   const targets = { current: null, label: "choose-vm", supported: true,
     targets: [{ id: "vm:alpine", label: "Alpine", kind: "vm" }, { id: "vm:debian", label: "Debian", kind: "vm" }],
     installing: [], installable: [{ id: "kali", name: "Kali Linux", size: "~140 MB" }] };
   w.fetch = async (url, opts) => {
+    if (url.startsWith("/api/file")) {
+      if (opts && opts.method === "POST") { saved.push(JSON.parse(opts.body)); return ok({ ok: true }); }
+      return ok({ content: fileContent.value, exists: true });
+    }
     if (url.startsWith("/api/tabs")) return ok({ tabs: [{ id: "main", name: "main", cwd: "/root", is_terminal: false, alive: false, cmd: "" }] });
     if (url.startsWith("/api/targets")) return ok(targets);
     if (url.startsWith("/api/target")) return ok({ ok: true, ...targets, current: "vm:debian", label: "debian", cwds: { main: "/root" } });
@@ -57,9 +63,10 @@ async function load(phone) {
     }
     return ok({});
   };
-  w.eval(fs.readFileSync(jsPath, "utf8") + "\n;window.__t = { tabs, openPty, showUpdateOverlay };");
+  w.eval(fs.readFileSync(path.join(path.dirname(jsPath), "editor-core.js"), "utf8"));
+  w.eval(fs.readFileSync(jsPath, "utf8") + "\n;window.__t = { tabs, openPty, showUpdateOverlay, openCodeEditor };");
   await sleep(150);
-  return { w, d: w.document, errors, sent };
+  return { w, d: w.document, errors, sent, saved, fileContent };
 }
 
 (async () => {
@@ -182,6 +189,132 @@ async function load(phone) {
     if (x) { x.click(); await sleep(60); }
     check(`${label}: ✕ closes the window`, !d.querySelector(".term-host") && !w.__t.tabs[0].ptyActive);
     check(`no JS errors (${label})`, errors.length === 0, errors.join("; "));
+  }
+  // ---- code editor: auto-indent, auto-close, shortcuts, find/replace, font size ----------------
+  {
+    const { w, d, errors, saved, fileContent } = await load(false);
+    fileContent.value = "def f(x):\n    return x\n";
+    await w.__t.openCodeEditor("/root/a.py");
+    await sleep(120);
+    const ta = d.getElementById("editor-input");
+    const $ = (id) => d.getElementById(id);
+    const caret = (a, b) => ta.setSelectionRange(a, b === undefined ? a : b);
+    const set = (text, a, b) => { ta.value = text; caret(a === undefined ? text.length : a, b); };
+    const fire = (type, init) => { const ev = new w.InputEvent(type, Object.assign({ bubbles: true, cancelable: true }, init)); return !ta.dispatchEvent(ev); };
+    // a keystroke the way a browser delivers it: beforeinput first, native insert only if not cancelled
+    const typeCh = (ch) => { if (!fire("beforeinput", { inputType: "insertText", data: ch })) { ta.setRangeText(ch, ta.selectionStart, ta.selectionEnd, "end"); ta.dispatchEvent(new w.Event("input", { bubbles: true })); } };
+    const typeStr = (str) => { for (const c of str) typeCh(c); };
+    const enter = () => fire("beforeinput", { inputType: "insertLineBreak" });
+    const back = () => fire("beforeinput", { inputType: "deleteContentBackward" });
+    const key = (k, extra) => { const ev = new w.KeyboardEvent("keydown", Object.assign({ key: k, bubbles: true, cancelable: true }, extra)); ta.dispatchEvent(ev); return ev.defaultPrevented; };
+
+    check("editor opens with the file's content", !$("editor").hidden && ta.value === fileContent.value);
+    check("indentation is detected from the file", $("es-indent").textContent === "Spaces: 4", $("es-indent").textContent);
+    await sleep(50);
+    check("status bar shows the cursor position", /^Ln 1, Col 1/.test($("es-pos").textContent) && /3 lines/.test($("es-lines").textContent),
+      $("es-pos").textContent + " | " + $("es-lines").textContent);
+    check("symbol bar has the symbols", $("ek-syms").querySelectorAll("button").length === 28, String($("ek-syms").querySelectorAll("button").length));
+
+    set("", 0);
+    typeStr("def g(");
+    check("typing ( adds the closing )", ta.value === "def g()" && ta.selectionStart === 6, JSON.stringify(ta.value) + "@" + ta.selectionStart);
+    typeStr("):");
+    check("typing ) steps over the closer", ta.value === "def g():" && ta.selectionStart === 8, JSON.stringify(ta.value));
+    const prevented = enter();
+    check("Enter after ':' indents the next line", prevented && ta.value === "def g():\n    " && ta.selectionStart === 13, JSON.stringify(ta.value));
+    typeStr("x = {");
+    check("auto-close curly after indent", ta.value.endsWith("x = {}") && ta.selectionStart === ta.value.length - 1, JSON.stringify(ta.value));
+    enter();
+    check("Enter between {} opens an indented block", ta.value.endsWith("x = {\n        \n    }"), JSON.stringify(ta.value));
+    set("s = ", 4);
+    typeStr('"');
+    check("opening quote is auto-closed", ta.value === 's = ""' && ta.selectionStart === 5, JSON.stringify(ta.value));
+    set("a(|)".replace("|", ""), 2);
+    back();
+    check("Backspace between a pair removes both", ta.value === "a" && ta.selectionStart === 1, JSON.stringify(ta.value));
+    set("don", 3);
+    typeCh("'");
+    check("an apostrophe after a word is not paired", ta.value === "don'", JSON.stringify(ta.value));
+
+    set("x = 1", 5);
+    key("/", { ctrlKey: true });
+    check("Ctrl+/ comments the line", ta.value === "# x = 1", JSON.stringify(ta.value));
+    key("/", { ctrlKey: true });
+    check("Ctrl+/ again uncomments it", ta.value === "x = 1", JSON.stringify(ta.value));
+
+    set("a\nb\nc", 0);
+    key("ArrowDown", { altKey: true });
+    check("Alt+Down moves the line", ta.value === "b\na\nc", JSON.stringify(ta.value));
+    set("a\nb", 0);
+    key("ArrowDown", { altKey: true, shiftKey: true });
+    check("Alt+Shift+Down duplicates the line", ta.value === "a\na\nb", JSON.stringify(ta.value));
+
+    set("ab", 2);
+    const tabPrevented = key("Tab");
+    check("Tab inserts to the next tab stop and keeps focus", tabPrevented && ta.value === "ab  ", JSON.stringify(ta.value));
+    set("    x", 5);
+    key("Tab", { shiftKey: true });
+    check("Shift+Tab outdents", ta.value === "x", JSON.stringify(ta.value));
+    set("a\nb", 0, 3);
+    key("Tab");
+    check("Tab indents every selected line", ta.value === "    a\n    b", JSON.stringify(ta.value));
+    set("  x", 3);
+    key("Home");
+    check("Home goes to the first non-blank character", ta.selectionStart === 2, String(ta.selectionStart));
+    key("Home");
+    check("Home again goes to column 0", ta.selectionStart === 0, String(ta.selectionStart));
+
+    // symbol bar button goes through the same auto-close logic
+    set("f", 1);
+    const parenBtn = [...$("ek-syms").querySelectorAll("button")].find((b) => b.dataset.ins === "(");
+    parenBtn.click();
+    check("symbol-bar ( button auto-closes too", ta.value === "f()" && ta.selectionStart === 2, JSON.stringify(ta.value));
+
+    // find / replace
+    set("foo bar foo\nFOO", 0);
+    key("f", { ctrlKey: true });
+    check("Ctrl+F opens the find bar", !$("editor-find").hidden);
+    $("ef-query").value = "foo";
+    $("ef-query").dispatchEvent(new w.Event("input", { bubbles: true }));
+    check("find counts matches (case-insensitive) and selects the first",
+      /1 of 3/.test($("ef-count").textContent) && ta.selectionStart === 0 && ta.selectionEnd === 3, $("ef-count").textContent);
+    $("ef-next").click();
+    check("next moves to the second match", ta.selectionStart === 8 && /2 of 3/.test($("ef-count").textContent), ta.selectionStart + " " + $("ef-count").textContent);
+    $("ef-case").click();
+    check("match-case narrows the results", /of 2|2 found/.test($("ef-count").textContent), $("ef-count").textContent);
+    $("ef-case").click();
+    key("h", { ctrlKey: true });
+    check("Ctrl+H shows the replace row", !$("ef-repl-row").hidden);
+    $("ef-repl").value = "baz";
+    $("ef-all").click();
+    check("Replace All replaces every match", ta.value === "baz bar baz\nbaz" && /Replaced 3/.test($("ef-count").textContent), JSON.stringify(ta.value));
+    $("ef-regex").click();
+    $("ef-query").value = "(";
+    $("ef-query").dispatchEvent(new w.Event("input", { bubbles: true }));
+    check("an invalid regex is reported, not thrown", /Invalid/.test($("ef-count").textContent), $("ef-count").textContent);
+    key("Escape");
+    check("Esc closes the find bar first (and not the editor)", $("editor-find").hidden && !$("editor").hidden);
+
+    // font size
+    const before = parseInt($("es-fs-val").textContent, 10);
+    $("es-fs-up").click();
+    check("A+ makes the text bigger", parseInt($("es-fs-val").textContent, 10) === before + 1 &&
+      $("editor").style.getPropertyValue("--editor-fs") === (before + 1) + "px", $("editor").style.getPropertyValue("--editor-fs"));
+    check("font size is remembered", w.localStorage.getItem("rconsole.editor.fontsize") === String(before + 1));
+    $("es-fs-down").click(); $("es-fs-down").click();
+    check("A- makes it smaller", parseInt($("es-fs-val").textContent, 10) === before - 1);
+    for (let i = 0; i < 40; i++) $("es-fs-up").click();
+    check("font size is capped", $("es-fs-up").disabled === true && parseInt($("es-fs-val").textContent, 10) === 32, $("es-fs-val").textContent);
+
+    // indentation switch + save
+    $("es-indent").click();
+    check("the indent button cycles the indentation", $("es-indent").textContent === "Tabs", $("es-indent").textContent);
+    set("x", 1);
+    typeCh("y");
+    key("s", { ctrlKey: true });
+    await sleep(60);
+    check("Ctrl+S saves the edited text", saved.length === 1 && saved[0].path === "/root/a.py" && saved[0].content === "xy", JSON.stringify(saved));
+    check("no JS errors (editor)", errors.length === 0, errors.join("; "));
   }
   console.log(failures ? `\n${failures} check(s) FAILED` : "\nall UI checks passed");
   process.exit(failures ? 1 : 0);

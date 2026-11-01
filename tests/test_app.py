@@ -86,6 +86,27 @@ class AuthFlowTests(Base):
         self.assertIn(".term-close", css)
         self.assertIn("#settingsmenu", css)
 
+    def test_editor_assets_are_served_and_wired(self):
+        self.login()
+        page = self.c.get("/console").get_data(as_text=True)
+        # editor-core.js has to load before console.js (both are deferred, so order = document order)
+        self.assertIn("/static/editor-core.js", page)
+        self.assertLess(page.index("/static/editor-core.js"), page.index("/static/console.js"))
+        for needle in ('id="editor-find"', 'id="ef-query"', 'id="editor-keys"', 'id="editor-statusbar"',
+                       'id="es-fs-up"', 'id="es-fs-down"', 'id="es-indent"', 'id="editor-curline"'):
+            self.assertIn(needle, page)
+        core = self.c.get("/static/editor-core.js")
+        self.assertEqual(core.status_code, 200)
+        text = core.get_data(as_text=True)
+        for fn in ("typeChar", "toggleComment", "detectIndent", "findAll"):
+            self.assertIn(fn, text)
+        js = self.c.get("/static/console.js").get_data(as_text=True)
+        self.assertIn("beforeinput", js)
+        self.assertIn("rconsole.editor.fontsize", js)
+        css = self.c.get("/static/style.css").get_data(as_text=True)
+        self.assertIn("--editor-fs", css)
+        self.assertIn("#editor-find", css)
+
     def test_security_headers(self):
         h = self.c.get("/healthz").headers
         self.assertEqual(h["X-Content-Type-Options"], "nosniff")

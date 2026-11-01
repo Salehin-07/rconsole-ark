@@ -42,6 +42,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+      - name: Editor logic checks
+        run: node tests/js/editor_check.js
       - name: UI checks (jsdom)
         run: |
           cd tests/js

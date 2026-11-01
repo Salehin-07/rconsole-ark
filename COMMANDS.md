@@ -122,7 +122,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.3.4` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.3.5` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -174,6 +174,28 @@ edit main.py            # opens (creates it when you save)
 edit /etc/hosts
 ```
 Works on the host (admins) or inside the VM you are in. Files over 5 MB are refused.
+
+The editor behaves like a small code editor:
+
+| Keys (Ctrl on Windows/Linux, Cmd on Mac) | What it does |
+|---|---|
+| `Enter` | New line with the same indentation; one level deeper after `{ [ (`, `:` (Python/YAML/Makefile), `then`/`do`/`else` or an HTML tag. Between `{}` / `()` / `<div></div>` it opens an indented block. Markdown lists and `/** */` comments continue. |
+| `Tab` / `Shift+Tab` | Indent / outdent (every selected line when there is a selection). Uses the file's own style: tabs, 2 or 4 spaces. |
+| `(` `[` `{` `"` `'` | Closing character is added; typing it steps over it; Backspace between the pair removes both; with a selection the selection is wrapped. |
+| `Ctrl+/` | Toggle comment on the line(s) (`#`, `//`, `--`, `<!-- -->`, `/* */` … by language). |
+| `Ctrl+]` / `Ctrl+[` | Indent / outdent line(s). |
+| `Alt+↑` / `Alt+↓` | Move line(s) up / down. `Alt+Shift+↑/↓` copies them. |
+| `Ctrl+Shift+K` | Delete line. `Ctrl+Enter` / `Ctrl+Shift+Enter` insert a line below / above. |
+| `Ctrl+L` / `Ctrl+J` | Select line / join lines. |
+| `Home` | First non-blank character, then column 0. |
+| `Ctrl+F` / `Ctrl+H` / `F3` | Find / find and replace (match case, whole word, regex, `$1` in replacements) / next match. |
+| `Ctrl+G` | Go to line (`42` or `42:7`). Tapping *Ln, Col* in the status bar does the same. |
+| `Ctrl+S` / `Esc` | Save / close the find bar, then the editor. |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / redo. |
+
+The status bar shows line and column, the indentation style (tap to switch between 2 spaces, 4 spaces and tabs)
+and **A− / A+**, which change the editor's font size (remembered in this browser). On phones and tablets a symbol
+bar above the keyboard gives Tab, undo/redo, Find and the characters that are awkward to type.
 
 ### The 📁 file browser: download and upload
 The 📁 button (tab bar) opens a visual file browser. Besides browsing, creating, renaming, deleting and editing:

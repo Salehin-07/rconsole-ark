@@ -6,7 +6,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.3.4** · MIT licensed
+**Version 1.3.5** · MIT licensed
 
 ## Why this exists
 
@@ -77,7 +77,8 @@ Commands run on one of two **targets**:
   redirects and `&&` work as in any shell).
 - Visual file navigator (📁 button): browse, open, create/rename/delete — in the
   host filesystem (admins) or confined to your VM.
-- Built-in code editor with syntax highlighting for ~65 languages.
+- Built-in code editor with syntax highlighting for ~65 languages, auto-indent, auto-closing brackets and quotes,
+  find/replace, comment toggling, line shortcuts, an adjustable font size and a touch symbol bar.
 - Hosted web apps behind a path-based proxy: start them yourself and `expose` them, or let
   the `service` supervisor run them (autostart, crash restart, logs).
 - Visual file browser (📁) with **download** (files, or whole folders as a `.zip`) and

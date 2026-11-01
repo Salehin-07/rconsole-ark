@@ -72,16 +72,58 @@
         <span id="editor-lang"></span>
         <span id="editor-status"></span>
         <span class="editor-spacer"></span>
+        <button id="editor-find-btn" type="button" title="Find / replace (Ctrl/Cmd+F)">Find</button>
         <button id="editor-save" type="button" title="Save (Ctrl/Cmd+S)">Save</button>
         <button id="editor-close" type="button" title="Close">Close</button>
+      </div>
+      <div id="editor-find" hidden>
+        <div class="ef-row">
+          <button id="ef-toggle" type="button" title="Show / hide replace">&#9656;</button>
+          <input id="ef-query" type="text" placeholder="Find" autocomplete="off" autocorrect="off"
+                 autocapitalize="off" spellcheck="false" aria-label="Find">
+          <span id="ef-count"></span>
+          <button id="ef-case" type="button" title="Match case">Aa</button>
+          <button id="ef-word" type="button" title="Whole word">ab</button>
+          <button id="ef-regex" type="button" title="Regular expression">.*</button>
+          <button id="ef-prev" type="button" title="Previous (Shift+Enter)">&#8593;</button>
+          <button id="ef-next" type="button" title="Next (Enter)">&#8595;</button>
+          <button id="ef-close" type="button" title="Close (Esc)">&#10005;</button>
+        </div>
+        <div class="ef-row" id="ef-repl-row" hidden>
+          <input id="ef-repl" type="text" placeholder="Replace" autocomplete="off" autocorrect="off"
+                 autocapitalize="off" spellcheck="false" aria-label="Replace with">
+          <button id="ef-replace" type="button">Replace</button>
+          <button id="ef-all" type="button">All</button>
+        </div>
       </div>
       <div id="editor-body">
         <div id="editor-gutter" aria-hidden="true"></div>
         <div id="editor-scroll">
+          <div id="editor-curline" aria-hidden="true"></div>
           <pre id="editor-highlight" aria-hidden="true"><code></code></pre>
           <textarea id="editor-input" spellcheck="false" autocomplete="off"
                     autocorrect="off" autocapitalize="off" wrap="off"></textarea>
         </div>
+      </div>
+      <div id="editor-keys">
+        <button type="button" data-act="tab" title="Indent">&#8677;</button>
+        <button type="button" data-act="outdent" title="Outdent">&#8676;</button>
+        <button type="button" data-act="undo" title="Undo">&#8630;</button>
+        <button type="button" data-act="redo" title="Redo">&#8631;</button>
+        <button type="button" data-act="find" title="Find / replace">Find</button>
+        <button type="button" data-act="comment" title="Toggle comment">//</button>
+        <span id="ek-syms"></span>
+      </div>
+      <div id="editor-statusbar">
+        <button id="es-pos" type="button" title="Go to line (Ctrl/Cmd+G)">Ln 1, Col 1</button>
+        <span id="es-lines"></span>
+        <span class="editor-spacer"></span>
+        <span id="es-fs" title="Editor font size">
+          <button id="es-fs-down" type="button" title="Smaller text">A&#8722;</button>
+          <span id="es-fs-val">14</span>
+          <button id="es-fs-up" type="button" title="Larger text">A+</button>
+        </span>
+        <button id="es-indent" type="button" title="Indentation used for Tab and Enter (click to change)">Spaces: 4</button>
       </div>
     </div>
     <div id="footer">
@@ -117,6 +159,7 @@
     </div>
   </div>
   <script>window.RCONSOLE_USER = "{{ username }}";window.RCONSOLE_THEME = "{{ theme }}";</script>
+  <script src="{{ url_for('static', filename='editor-core.js', v=cache_v) }}" defer></script>
   <script src="{{ url_for('static', filename='console.js', v=cache_v) }}" defer></script>
 </body>
 </html>

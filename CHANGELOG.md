@@ -3,6 +3,60 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.5 — 2026-11-01
+
+### Added
+- **A much smarter file editor** (`edit`, and files opened from the 📁 browser). It now behaves like a small code
+  editor instead of a plain text box:
+  - **Auto-indent**: Enter keeps the current indentation and adds one level after `{ [ (`, after `:` (Python,
+    YAML, Makefile), after `then` / `do` / `else` (shell) and after an opening HTML/XML tag. Enter between a pair
+    (`{|}`, `(|)`, `<div>|</div>`) opens an indented block with the closer on its own line. Python dedents after
+    `return` / `pass` / `break` / `continue` / `raise`. Markdown lists continue (`-`, `*`, `1.`, `- [ ]`) and an
+    empty item ends the list; `/** … */` comments continue with ` * `.
+  - **Tabs or spaces, detected per file**: the file's own indentation is detected when it opens (tabs, 2 or 4
+    spaces; otherwise a language default: tabs for Go and Makefiles, 2 spaces for JS/TS/JSON/YAML/HTML/CSS and
+    friends, 4 for the rest). Tab inserts up to the next tab stop, Shift+Tab outdents, Tab/Shift+Tab on a selection
+    (de)indents every line, and Backspace inside the indentation removes a whole level. The status bar shows the
+    current style; tap it to cycle 2 spaces → 4 spaces → tabs.
+  - **Auto-closing brackets and quotes**: `(` `[` `{` `"` `'` and the backtick are closed as you type, typing the
+    closer steps over it, Backspace between a pair removes both, and typing one around a selection wraps it (`*`,
+    `_`, `~` too in Markdown). Quotes are not paired after a word character (so `don't` works), Python `f"…"` /
+    `r'…'` prefixes and `"""docstrings"""` are understood, apostrophes are not paired in prose/Rust/Lisp-style
+    languages, a closer typed on a blank line steps back one level, and `<div>` in HTML/XML adds `</div>` (not for
+    void tags such as `<br>`).
+  - **Editor shortcuts**: Ctrl/Cmd+`/` toggle comment (~60 languages, block comments for HTML/CSS/Markdown),
+    Ctrl/Cmd+`]` / `[` indent / outdent, Alt+↑/↓ move line(s), Alt+Shift+↑/↓ copy line(s), Ctrl/Cmd+Shift+K delete
+    line, Ctrl/Cmd+Enter (+Shift) insert line below (above), Ctrl/Cmd+L select line, Ctrl/Cmd+J join lines, smart
+    Home (first non-blank ↔ column 0), Ctrl/Cmd+G go to line.
+  - **Find and replace** (Ctrl/Cmd+F, Ctrl/Cmd+H, the *Find* button, F3): match case, whole word, regular
+    expressions (with `$1` in the replacement), next/previous with wrap-around, a "3 of 12" counter, Replace and
+    Replace All. Esc closes the find bar first.
+  - **Font size**: **A−** / **A+** in the editor's status bar (9–32 px, 16–32 px on iPhone/iPad where smaller text
+    would make iOS zoom the page). The choice is remembered in the browser.
+  - **Status bar**: line and column (tap to go to a line), selection size, line count, indentation style. The
+    current line is highlighted, and closing the tab with unsaved changes now asks first.
+  - **Symbol bar on touch devices**: Tab, outdent, undo, redo, Find, comment toggle and the symbols that are hard to
+    reach on a phone keyboard (brackets, quotes, `;` `:` `=` `/` `\` `|` `&` `_` `-` `#` `$` `%` and more). They go
+    through the same auto-close logic as typing.
+- `static/editor-core.js`: the editor's text logic as a small DOM-free module, with its own tests
+  (`tests/js/editor_check.js`, 76 checks) plus end-to-end checks of the real handlers in `tests/js/ui_check.js`.
+
+### Changed
+- Edits made by the editor go through the browser's own editing command, so **Ctrl+Z / Ctrl+Y keep working**
+  after auto-indent, auto-close, comment toggles and line moves (the old Tab handler overwrote the text and
+  wiped the undo history).
+- Opening a file puts the cursor at the top-left (it used to be at the end while the view showed the top).
+- Editor text, line numbers and highlighting share one font-size setting instead of three fixed values.
+
+### Known limits
+- Typing a closer always steps over an identical closer that is already next to the cursor (it does not track
+  which ones it inserted itself), there is no multi-cursor and no word wrap, and tab characters are drawn 4 wide.
+- Auto-close and auto-indent hook the browser's `beforeinput` event. Browsers do not allow cancelling it during
+  IME composition, so on keyboards that compose words (some Android predictive keyboards) a few of the smart
+  behaviours may not trigger; plain typing, Tab, the symbol bar and all shortcuts are unaffected.
+- A few browsers reserve some shortcuts (e.g. Ctrl+L, Ctrl+J, Ctrl+Shift+K); the same actions are reachable
+  with the other keys or, on touch devices, the symbol bar.
+
 ## 1.3.4 — 2026-11-01
 
 ### Added

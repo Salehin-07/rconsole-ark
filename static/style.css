@@ -347,6 +347,7 @@ body.touch #newtab { width: 52px; font-size: 24px; }
   /* Editor bar: drop the language tag on tiny screens so the Save/Close buttons
      always stay in view and tappable. */
   #editor-lang { display: none; }
+  #editor-find-btn { display: none; }
   #editor-bar { gap: 6px; }
   #editor-file { max-width: 64%; }
 }
@@ -432,7 +433,9 @@ body.touch #newtab { width: 52px; font-size: 24px; }
   border-right: 1px solid var(--border);
   user-select: none;
   white-space: pre;
-  font: 14px/1.5 "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: var(--editor-fs, 14px);
+  line-height: var(--editor-lh, 1.5);
 }
 #editor-scroll { position: relative; flex: 1; min-width: 0; overflow: hidden; }
 #editor-highlight, #editor-input, #editor-gutter {
@@ -446,7 +449,9 @@ body.touch #newtab { width: 52px; font-size: 24px; }
   bottom: 0;
   left: 0;
   padding: 8px 12px;
-  font: 14px/1.5 "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: var(--editor-fs, 14px);
+  line-height: var(--editor-lh, 1.5);
   white-space: pre;
   tab-size: 4;
   -moz-tab-size: 4;
@@ -484,10 +489,119 @@ body.touch #newtab { width: 52px; font-size: 24px; }
 .tok-variable{ color: #e0af68; }
 .tok-decorator{ color: #ffcb6b; }
 
+/* Current-line highlight (sits under the transparent highlight layer). */
+#editor-curline {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 21px;
+  background: rgba(109, 179, 255, 0.08);
+  border-top: 1px solid rgba(109, 179, 255, 0.10);
+  border-bottom: 1px solid rgba(109, 179, 255, 0.10);
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Find / replace bar. */
+#editor-find {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+#editor-find[hidden], #ef-repl-row[hidden] { display: none; }
+.ef-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+#editor-find input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: #0c141d;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: 14px "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+#editor-find input:focus { outline: none; border-color: var(--green); }
+#editor-find button {
+  flex: 0 0 auto;
+  background: #0c141d;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  min-width: 32px;
+  padding: 6px 8px;
+  font-weight: 600;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+#editor-find button.on { background: var(--green); color: #04101c; border-color: var(--green); }
+#ef-count { flex: 0 0 auto; color: var(--dim); font-size: 12px; min-width: 0; white-space: nowrap; }
+#ef-count.bad { color: var(--red); }
+
+/* On-screen symbol bar (touch devices only). */
+#editor-keys {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  overflow-x: auto;
+  white-space: nowrap;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  -webkit-overflow-scrolling: touch;
+}
+body.touch #editor-keys { display: flex; }
+#editor-keys button, #ek-syms button {
+  flex: 0 0 auto;
+  min-width: 38px;
+  height: 36px;
+  background: #0c141d;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: 600 16px "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  padding: 0 10px;
+}
+#editor-keys button:active, #ek-syms button:active { background: var(--green); color: #04101c; }
+#ek-syms { display: inline-flex; gap: 4px; }
+
+/* Status bar: cursor position, font size, indentation. */
+#editor-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 8px;
+  padding-bottom: max(2px, env(safe-area-inset-bottom, 0px));
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  color: var(--dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
+#editor-statusbar button {
+  background: transparent;
+  color: var(--dim);
+  border: 0;
+  padding: 4px 4px;
+  font: inherit;
+  cursor: pointer;
+}
+#editor-statusbar button:hover:not(:disabled) { color: var(--fg); }
+#editor-statusbar button:disabled { opacity: 0.35; cursor: default; }
+#es-fs { display: inline-flex; align-items: center; gap: 2px; }
+#es-fs button { font-weight: 700; min-width: 28px; }
+#es-fs-val { min-width: 18px; text-align: center; }
+body.touch #editor-statusbar { font-size: 13px; }
+body.touch #editor-statusbar button { padding: 8px 8px; }
+
 /* Touch: larger text + tap targets; keep 16px so iOS doesn't zoom on focus. */
-body.touch #editor-highlight,
-body.touch #editor-input,
-body.touch #editor-gutter { font-size: 16px; line-height: 1.6; }
+body.touch #editor { --editor-fs: 16px; --editor-lh: 1.6; }
 body.touch #editor-bar button { font-size: 15px; padding: 12px 16px; }
 
 /* ---------------------------------------------------------------------------

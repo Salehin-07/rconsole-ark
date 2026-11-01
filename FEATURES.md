@@ -1,6 +1,6 @@
 # rconsole features
 
-Every feature of rconsole 1.3.4, by area. This is the **map**; the details live in
+Every feature of rconsole 1.3.5, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.
@@ -64,6 +64,10 @@ root; everyone). One worker process with threads; all state in one data director
 | Feature | What you get |
 |---|---|
 | **`edit <file>`** | Built-in code editor with syntax highlighting for ~65 languages (300+ file extensions and special file names), mobile friendly. Works on the host (admins) or inside your VM. Files over 5 MB are refused. |
+| **Editor: smart editing** | Auto-indent (tabs or spaces, detected per file), auto-closing brackets/quotes with step-over and pair-delete, selection wrapping, HTML/XML auto-close tags, Markdown list continuation, Tab/Shift+Tab block indent, toggle comment (~60 languages), move/copy/delete/join lines, smart Home, current-line highlight. Full list: [COMMANDS.md → edit](COMMANDS.md#edit). |
+| **Editor: find & replace** | Ctrl/Cmd+F / H / F3, match case, whole word, regex with `$1`, match counter, Replace All, go to line (Ctrl/Cmd+G). |
+| **Editor: font size & status bar** | **A− / A+** (9–32 px, remembered; 16 px minimum on iOS), line/column, selection size, line count, indentation style (tap to change). Warns before closing the page with unsaved changes. |
+| **Editor: touch symbol bar** | Tab, outdent, undo/redo, Find, comment toggle and the symbols that are awkward on a phone keyboard (brackets, quotes, `;` `:` `=` `/` `\` and more) above the keyboard. |
 | **`fm [path]`** | In-console file manager: `cd`, `up`, `open`, `cat`, `rm`, `mkdir`, `touch`, `mv`, `?`, `q`; the directory carries over when you quit. |
 | **📁 file browser** | Visual navigator: browse, open in the editor, create, rename, delete. |
 | **Download** | A file as it is; a **folder as a streamed `.zip`** (symlinks are skipped so a link can never pull in outside files). |

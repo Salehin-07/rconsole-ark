@@ -2192,12 +2192,14 @@ async function openCodeEditor(path) {
     const r = await fetch("/api/file?path=" + encodeURIComponent(path));
     if (r.ok) { const j = await r.json(); content = j.content || ""; exists = !!j.exists; }
   } catch (e) { /* offline: open empty */ }
-  editorState = { path, lang: langFromPath(path), dirty: false, exists };
+  editorState = { path, lang: langFromPath(path), dirty: false, exists, unit: "    " };
+  if (EC) editorState.unit = EC.detectIndent(content, editorState.lang).unit;
   elEditor.removeAttribute("hidden");
   elEditorFile.textContent = (path.split("/").pop() || path) + (exists ? "" : "  (new)");
   elEditorLang.textContent = editorState.lang;
   elEditorStatus.textContent = "";
   elEditorInput.value = content;
+  elEditorInput.setSelectionRange(0, 0);   // assigning .value parks the caret at the end
   renderHighlight();
   elEditorInput.scrollTop = 0;
   elEditorGutter.scrollTop = 0;
@@ -2206,6 +2208,10 @@ async function openCodeEditor(path) {
   // editor (which would look like overlapping panels).
   appEl.classList.remove("pty");
   appEl.classList.add("editing");
+  elFind.hidden = true;
+  findOpen = false;
+  initEditorFontSize();
+  edAfterChange();
   setTimeout(() => elEditorInput.focus({ preventScroll: true }), 60);
 }
 
@@ -2215,6 +2221,9 @@ function closeCodeEditor() {
   }
   document.getElementById("app").classList.remove("editing");
   elEditor.setAttribute("hidden", "");
+  elFind.hidden = true;
+  findOpen = false;
+  elEdCur.style.display = "none";
   editorState = null;
   updateView();
   elCmd.focus();
@@ -2242,57 +2251,444 @@ async function saveCodeEditor() {
   }
 }
 
-function indentSelection(dir) {
-  const ta = elEditorInput;
-  const s = ta.selectionStart, e = ta.selectionEnd;
-  const val = ta.value;
-  if (s === e) {
-    if (dir > 0) {
-      ta.value = val.slice(0, s) + "    " + val.slice(s);
-      ta.selectionStart = ta.selectionEnd = s + 4;
-    } else {
-      const lineStart = val.lastIndexOf("\n", s - 1) + 1;
-      const mm = /^( {1,4}|\t)/.exec(val.slice(lineStart));
-      if (mm) {
-        ta.value = val.slice(0, lineStart) + val.slice(lineStart + mm[0].length);
-        ta.selectionStart = ta.selectionEnd = Math.max(lineStart, s - mm[0].length);
-      }
-    }
-    return;
-  }
-  const lineStart = val.lastIndexOf("\n", s - 1) + 1;
-  const block = val.slice(lineStart, e);
-  const newBlock = dir > 0 ? block.replace(/^/gm, "    ") : block.replace(/^( {1,4}|\t)/gm, "");
-  ta.value = val.slice(0, lineStart) + newBlock + val.slice(e);
-  ta.selectionStart = lineStart;
-  ta.selectionEnd = lineStart + newBlock.length;
+// ---------------------------------------------------------------------------
+// Editor behaviour. The pure text logic lives in editor-core.js (unit-tested in
+// Node); this block applies its edits to the textarea and owns the UI around
+// it: status bar, font size, find/replace, symbol bar.
+// ---------------------------------------------------------------------------
+const EC = window.EditorCore || null;
+const $ed = (id) => document.getElementById(id);
+const elEdCur = $ed("editor-curline");
+const elEdPos = $ed("es-pos");
+const elEdLines = $ed("es-lines");
+const elEdIndent = $ed("es-indent");
+const elFsVal = $ed("es-fs-val");
+const elFsDown = $ed("es-fs-down");
+const elFsUp = $ed("es-fs-up");
+const elFind = $ed("editor-find");
+const elFq = $ed("ef-query");
+const elFr = $ed("ef-repl");
+const elFcount = $ed("ef-count");
+const elFreplRow = $ed("ef-repl-row");
+
+const ED_FS_KEY = "rconsole.editor.fontsize";
+// iOS zooms the page when a text field below 16px gets focus, so never go smaller there.
+const ED_IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const ED_FS_MIN = ED_IS_IOS ? 16 : 9;
+const ED_FS_MAX = 32;
+const ED_UNITS = ["  ", "    ", "\t"];
+const ED_SYMBOLS = "{}()[]<>\"'`;:=/\\|&!_-+*#$%?~";
+let edApplying = false;       // true while we drive the browser's own editing command
+let edCurLine = 1;
+let edStatusRaf = 0;
+
+function edOpts() {
+  return { lang: editorState ? editorState.lang : "text", unit: editorState ? editorState.unit : "    " };
 }
 
-elEditorInput.addEventListener("input", () => {
+function markEditorDirty() {
   if (editorState) {
     editorState.dirty = true;
     elEditorStatus.textContent = "● unsaved";
   }
-  scheduleHighlight();
+}
+
+function edMetrics() {
+  const cs = getComputedStyle(elEditorInput);
+  const fs = parseFloat(cs.fontSize) || 14;
+  return {
+    fs,
+    lh: parseFloat(cs.lineHeight) || Math.round(fs * 1.5),
+    cw: fs * 0.6,
+    padT: parseFloat(cs.paddingTop) || 8,
+    padL: parseFloat(cs.paddingLeft) || 12,
+  };
+}
+
+/** Scroll so `pos` is visible (centred when `center`, e.g. after find / go-to-line). */
+function revealPos(pos, center) {
+  if (!EC) return;
+  const ta = elEditorInput, m = edMetrics();
+  const lc = EC.lineCol(ta.value, pos);
+  const top = m.padT + (lc.line - 1) * m.lh;
+  const vh = ta.clientHeight;
+  if (center) {
+    if (top < ta.scrollTop || top + m.lh > ta.scrollTop + vh) ta.scrollTop = Math.max(0, top - vh / 2);
+  } else if (top < ta.scrollTop + m.lh) {
+    ta.scrollTop = Math.max(0, top - m.lh);
+  } else if (top + m.lh * 2 > ta.scrollTop + vh) {
+    ta.scrollTop = top + m.lh * 2 - vh;
+  }
+  const prefix = ta.value.slice(EC.lineStartOf(ta.value, pos), pos);
+  let vis = 0;
+  for (const ch of prefix) vis = ch === "\t" ? vis - (vis % 4) + 4 : vis + 1;
+  const x = m.padL + vis * m.cw;
+  if (x < ta.scrollLeft + 20) ta.scrollLeft = Math.max(0, x - 40);
+  else if (x > ta.scrollLeft + ta.clientWidth - 30) ta.scrollLeft = x - ta.clientWidth + 80;
+}
+
+function updateCurLine(recompute) {
+  if (!EC || !editorState) { elEdCur.style.display = "none"; return; }
+  const ta = elEditorInput;
+  if (recompute !== false) {
+    if (ta.selectionStart !== ta.selectionEnd && ta.value.slice(ta.selectionStart, ta.selectionEnd).includes("\n")) {
+      elEdCur.style.display = "none";
+      return;
+    }
+    edCurLine = EC.lineCol(ta.value, ta.selectionStart).line;
+  }
+  const m = edMetrics();
+  elEdCur.style.display = "block";
+  elEdCur.style.height = m.lh + "px";
+  elEdCur.style.top = (m.padT + (edCurLine - 1) * m.lh - ta.scrollTop) + "px";
+}
+
+function edIndentLabel() {
+  if (!editorState) return "";
+  return editorState.unit === "\t" ? "Tabs" : "Spaces: " + editorState.unit.length;
+}
+
+function updateStatusBar() {
+  if (edStatusRaf) return;
+  edStatusRaf = requestAnimationFrame(() => {
+    edStatusRaf = 0;
+    if (!EC || !editorState) return;
+    const ta = elEditorInput, v = ta.value;
+    const lc = EC.lineCol(v, ta.selectionStart);
+    const n = ta.selectionEnd - ta.selectionStart;
+    elEdPos.textContent = "Ln " + lc.line + ", Col " + lc.col + (n ? " (" + n + " sel)" : "");
+    let lines = 1, i = -1;
+    while ((i = v.indexOf("\n", i + 1)) !== -1) lines++;
+    elEdLines.textContent = lines + (lines === 1 ? " line" : " lines");
+    elEdIndent.textContent = edIndentLabel();
+  });
+}
+
+function edAfterChange() {
+  updateCurLine(true);
+  updateStatusBar();
+}
+
+/**
+ * Apply an edit from editor-core through the browser's editing stack so that
+ * undo / redo (Ctrl+Z, Ctrl+Y, the symbol-bar buttons) keep working. If the
+ * browser refuses execCommand we fall back to writing the value directly.
+ */
+function applyEdit(ed) {
+  if (!ed) return false;
+  const ta = elEditorInput;
+  if (ed.insert === "" && ed.from === ed.to) {          // caret move only
+    ta.setSelectionRange(ed.selStart, ed.selEnd);
+  } else {
+    const old = ta.value;
+    const expected = old.slice(0, ed.from) + ed.insert + old.slice(ed.to);
+    if (document.activeElement !== ta) ta.focus({ preventScroll: true });
+    ta.setSelectionRange(ed.from, ed.to);
+    let done = false;
+    edApplying = true;
+    try {
+      done = ed.insert === "" ? document.execCommand("delete") : document.execCommand("insertText", false, ed.insert);
+    } catch (e) { done = false; }
+    edApplying = false;
+    if (!done || ta.value !== expected) {
+      ta.value = expected;                              // no native undo for this one step
+      markEditorDirty();
+      scheduleHighlight();
+    }
+    ta.setSelectionRange(ed.selStart, ed.selEnd);
+  }
+  revealPos(ed.selEnd, false);
+  edAfterChange();
+  return true;
+}
+
+function edTypeChar(ch) {
+  const ta = elEditorInput, v = ta.value, s = ta.selectionStart, en = ta.selectionEnd;
+  const ed = EC && EC.typeChar(v, s, en, ch, edOpts());
+  applyEdit(ed || { from: s, to: en, insert: ch, selStart: s + ch.length, selEnd: s + ch.length });
+}
+
+// ---- font size -------------------------------------------------------------
+let edFs = 14;   // current editor font size in px
+
+function setEditorFontSize(px, persist) {
+  px = Math.max(ED_FS_MIN, Math.min(ED_FS_MAX, Math.round(px)));
+  edFs = px;
+  elEditor.style.setProperty("--editor-fs", px + "px");
+  elFsVal.textContent = String(px);
+  elFsDown.disabled = px <= ED_FS_MIN;
+  elFsUp.disabled = px >= ED_FS_MAX;
+  if (persist) { try { localStorage.setItem(ED_FS_KEY, String(px)); } catch (e) { /* private mode */ } }
+  if (editorState) { updateCurLine(false); revealPos(elEditorInput.selectionEnd, false); }
+}
+
+function initEditorFontSize() {
+  let saved = NaN;
+  try { saved = parseInt(localStorage.getItem(ED_FS_KEY) || "", 10); } catch (e) { /* ignore */ }
+  if (saved >= ED_FS_MIN && saved <= ED_FS_MAX) {
+    setEditorFontSize(saved, false);
+  } else {
+    edFs = Math.max(ED_FS_MIN, Math.min(ED_FS_MAX, Math.round(edMetrics().fs)));   // the CSS default (16px on touch)
+    setEditorFontSize(edFs, false);
+  }
+}
+elFsDown.addEventListener("click", () => setEditorFontSize(edFs - 1, true));
+elFsUp.addEventListener("click", () => setEditorFontSize(edFs + 1, true));
+
+// ---- go to line ------------------------------------------------------------
+function gotoLine() {
+  if (!EC || !editorState) return;
+  const raw = prompt("Go to line (or line:column):", "");
+  const m = raw && /^\s*(\d+)(?:\s*[:,]\s*(\d+))?\s*$/.exec(raw);
+  if (!m) return;
+  const ta = elEditorInput, v = ta.value;
+  const idx = EC.lineStartIndex(v, parseInt(m[1], 10));
+  const pos = Math.min(idx + (m[2] ? parseInt(m[2], 10) - 1 : 0), EC.lineEndOf(v, idx));
+  ta.focus({ preventScroll: true });
+  ta.setSelectionRange(pos, pos);
+  revealPos(pos, true);
+  edAfterChange();
+}
+elEdPos.addEventListener("click", gotoLine);
+
+elEdIndent.addEventListener("click", () => {
+  if (!editorState) return;
+  editorState.unit = ED_UNITS[(ED_UNITS.indexOf(editorState.unit) + 1) % ED_UNITS.length];
+  elEdIndent.textContent = edIndentLabel();
+  elEditorInput.focus({ preventScroll: true });
 });
+
+// ---- find / replace --------------------------------------------------------
+const findOpts = { caseSensitive: false, wholeWord: false, regex: false };
+let findMatches = [];
+let findOpen = false;
+let findTimer = null;
+
+function updateFindCount(note) {
+  elFcount.classList.remove("bad");
+  if (note) { elFcount.textContent = note; return; }
+  if (!elFq.value) { elFcount.textContent = ""; return; }
+  if (!findMatches.length) { elFcount.textContent = "No results"; return; }
+  const at = findMatches.findIndex((m) => m.index === elEditorInput.selectionStart);
+  elFcount.textContent = at >= 0 ? (at + 1) + " of " + findMatches.length : findMatches.length + " found";
+}
+
+function runFind(jump) {
+  if (!EC) return;
+  const r = EC.findAll(elEditorInput.value, elFq.value, findOpts);
+  findMatches = r.matches;
+  if (r.error) { elFcount.textContent = r.error; elFcount.classList.add("bad"); return; }
+  if (jump && findMatches.length) selectMatch(EC.nextIndex(findMatches, elEditorInput.selectionStart, false));
+  else updateFindCount();
+}
+
+function selectMatch(i) {
+  const m = findMatches[i];
+  if (!m) return;
+  const ta = elEditorInput;
+  ta.setSelectionRange(m.index, m.index + m.length);
+  revealPos(m.index, true);
+  updateFindCount();
+  edAfterChange();
+}
+
+function findStep(back) {
+  if (!findMatches.length) runFind(false);
+  if (!findMatches.length) return;
+  const ta = elEditorInput;
+  selectMatch(EC.nextIndex(findMatches, back ? ta.selectionStart : ta.selectionEnd, back));
+}
+
+function openFind(withReplace) {
+  if (!EC || !editorState) return;
+  const ta = elEditorInput;
+  const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+  if (sel && !sel.includes("\n") && sel.length <= 200) elFq.value = sel;
+  elFind.hidden = false;
+  findOpen = true;
+  if (withReplace) elFreplRow.hidden = false;
+  elFq.focus();
+  elFq.select();
+  runFind(true);
+}
+
+function closeFind() {
+  elFind.hidden = true;
+  findOpen = false;
+  if (editorState) elEditorInput.focus({ preventScroll: true });
+}
+
+function replaceCurrent() {
+  const ta = elEditorInput;
+  const i = findMatches.findIndex((m) => m.index === ta.selectionStart && m.index + m.length === ta.selectionEnd);
+  if (i < 0) { findStep(false); return; }
+  const m = findMatches[i];
+  const rep = EC.replacementFor(m, elFq.value, elFr.value, findOpts);
+  applyEdit({ from: m.index, to: m.index + m.length, insert: rep, selStart: m.index + rep.length, selEnd: m.index + rep.length });
+  runFind(true);
+}
+
+function replaceEverything() {
+  if (!EC || !elFq.value) return;
+  const ta = elEditorInput;
+  const r = EC.replaceAll(ta.value, elFq.value, elFr.value, findOpts);
+  if (!r.count) { updateFindCount(); return; }
+  const caret = Math.min(ta.selectionStart, r.text.length);
+  applyEdit({ from: 0, to: ta.value.length, insert: r.text, selStart: caret, selEnd: caret });
+  runFind(false);
+  updateFindCount("Replaced " + r.count);
+}
+
+function toggleFindOpt(id, key) {
+  findOpts[key] = !findOpts[key];
+  $ed(id).classList.toggle("on", findOpts[key]);
+  runFind(true);
+}
+
+elFq.addEventListener("input", () => runFind(true));
+elFq.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); findStep(e.shiftKey); }
+  else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeFind(); }
+});
+elFr.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); replaceCurrent(); }
+  else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeFind(); }
+});
+$ed("ef-next").addEventListener("click", () => findStep(false));
+$ed("ef-prev").addEventListener("click", () => findStep(true));
+$ed("ef-close").addEventListener("click", closeFind);
+$ed("ef-case").addEventListener("click", () => toggleFindOpt("ef-case", "caseSensitive"));
+$ed("ef-word").addEventListener("click", () => toggleFindOpt("ef-word", "wholeWord"));
+$ed("ef-regex").addEventListener("click", () => toggleFindOpt("ef-regex", "regex"));
+$ed("ef-replace").addEventListener("click", replaceCurrent);
+$ed("ef-all").addEventListener("click", replaceEverything);
+$ed("ef-toggle").addEventListener("click", () => {
+  elFreplRow.hidden = !elFreplRow.hidden;
+  $ed("ef-toggle").innerHTML = elFreplRow.hidden ? "&#9656;" : "&#9662;";
+});
+$ed("editor-find-btn").addEventListener("click", () => openFind(false));
+
+// ---- symbol bar (touch) ----------------------------------------------------
+(function buildSymbolBar() {
+  const host = $ed("ek-syms");
+  for (const ch of ED_SYMBOLS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.ins = ch;
+    b.textContent = ch;
+    host.appendChild(b);
+  }
+})();
+$ed("editor-keys").addEventListener("mousedown", (e) => {
+  if (e.target.closest("button")) e.preventDefault();      // keep the textarea focused (and the soft keyboard up)
+});
+$ed("editor-keys").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b || !editorState || !EC) return;
+  const ta = elEditorInput;
+  if (b.dataset.act !== "find") ta.focus({ preventScroll: true });
+  if (b.dataset.ins !== undefined) { edTypeChar(b.dataset.ins); return; }
+  const v = ta.value, s = ta.selectionStart, en = ta.selectionEnd, o = edOpts();
+  switch (b.dataset.act) {
+    case "tab": applyEdit(EC.tab(v, s, en, false, o)); break;
+    case "outdent": applyEdit(EC.tab(v, s, en, true, o)); break;
+    case "undo": try { document.execCommand("undo"); } catch (err) { /* unsupported */ } edAfterChange(); break;
+    case "redo": try { document.execCommand("redo"); } catch (err) { /* unsupported */ } edAfterChange(); break;
+    case "comment": applyEdit(EC.toggleComment(v, s, en, o)); break;
+    case "find": openFind(false); break;
+    default: break;
+  }
+});
+
+// ---- textarea events -------------------------------------------------------
+elEditorInput.addEventListener("beforeinput", (e) => {
+  if (!EC || !editorState || edApplying || !e.cancelable || e.isComposing) return;
+  const ta = elEditorInput, v = ta.value, s = ta.selectionStart, en = ta.selectionEnd, o = edOpts();
+  let ed = null;
+  if (e.inputType === "insertText") ed = e.data && e.data.length === 1 ? EC.typeChar(v, s, en, e.data, o) : null;
+  else if (e.inputType === "insertLineBreak" || e.inputType === "insertParagraph") ed = EC.enter(v, s, en, o);
+  else if (e.inputType === "deleteContentBackward") ed = EC.backspace(v, s, en, o);
+  if (ed) { e.preventDefault(); applyEdit(ed); }
+});
+
+elEditorInput.addEventListener("input", () => {
+  markEditorDirty();
+  scheduleHighlight();
+  edAfterChange();
+  if (findOpen) { clearTimeout(findTimer); findTimer = setTimeout(() => runFind(false), 150); }
+});
+
 elEditorInput.addEventListener("scroll", () => {
   elEditorPre.scrollTop = elEditorInput.scrollTop;
   elEditorPre.scrollLeft = elEditorInput.scrollLeft;
   elEditorGutter.scrollTop = elEditorInput.scrollTop;
+  updateCurLine(false);
 });
+
+for (const ev of ["keyup", "mouseup", "touchend", "focus"]) {
+  elEditorInput.addEventListener(ev, () => { if (editorState) edAfterChange(); });
+}
+document.addEventListener("selectionchange", () => {
+  if (editorState && document.activeElement === elEditorInput) edAfterChange();
+});
+
 elEditorInput.addEventListener("keydown", (e) => {
-  if (e.key === "Tab") {
-    e.preventDefault();
-    indentSelection(e.shiftKey ? -1 : 1);
-    if (editorState) { editorState.dirty = true; elEditorStatus.textContent = "● unsaved"; }
-    scheduleHighlight();
-  } else if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) {
-    e.preventDefault();
-    saveCodeEditor();
-  } else if (e.key === "Escape") {
-    e.preventDefault();
-    closeCodeEditor();
+  const mod = e.ctrlKey || e.metaKey;
+  const k = e.key;
+  const lower = k.length === 1 ? k.toLowerCase() : k;
+  if (mod && !e.altKey && lower === "s") { e.preventDefault(); saveCodeEditor(); return; }
+  if (k === "Escape") { e.preventDefault(); if (findOpen) closeFind(); else closeCodeEditor(); return; }
+  const ta = elEditorInput;
+  if (!EC) {                                              // editor-core failed to load: minimal Tab support
+    if (k === "Tab") {
+      e.preventDefault();
+      ta.setRangeText("    ", ta.selectionStart, ta.selectionEnd, "end");
+      markEditorDirty();
+      scheduleHighlight();
+    }
+    return;
   }
+  const v = ta.value, s = ta.selectionStart, en = ta.selectionEnd, o = edOpts();
+  const run = (ed) => { e.preventDefault(); if (ed) applyEdit(ed); };
+
+  if (k === "Tab" && !mod && !e.altKey) { run(EC.tab(v, s, en, e.shiftKey, o)); return; }
+  if (k === "Home" && !mod && !e.altKey) {
+    const backward = ta.selectionDirection === "backward";
+    const caret = s === en || backward ? s : en;
+    const target = EC.homeTarget(v, caret);
+    if (target === caret) return;
+    e.preventDefault();
+    if (e.shiftKey) {
+      const anchor = s === en ? s : (backward ? en : s);
+      ta.setSelectionRange(Math.min(anchor, target), Math.max(anchor, target), target < anchor ? "backward" : "forward");
+    } else {
+      ta.setSelectionRange(target, target);
+    }
+    edAfterChange();
+    return;
+  }
+  if (e.altKey && !mod && (k === "ArrowUp" || k === "ArrowDown")) {
+    const dir = k === "ArrowUp" ? -1 : 1;
+    run(e.shiftKey ? EC.duplicateLines(v, s, en, dir) : EC.moveLines(v, s, en, dir));
+    return;
+  }
+  if (k === "F3") { e.preventDefault(); if (elFq.value) findStep(e.shiftKey); else openFind(false); return; }
+  if (!mod || e.altKey) return;
+  if (k === "/") { run(EC.toggleComment(v, s, en, o)); return; }
+  if (k === "]") { run(EC.indentLines(v, s, en, 1, o)); return; }
+  if (k === "[") { run(EC.indentLines(v, s, en, -1, o)); return; }
+  if (k === "Enter") { run(EC.insertLine(v, s, en, !e.shiftKey, o)); return; }
+  if (lower === "k" && e.shiftKey) { run(EC.deleteLines(v, s, en)); return; }
+  if (lower === "l" && !e.shiftKey) { run(EC.selectLine(v, s, en)); return; }
+  if (lower === "j" && !e.shiftKey) { run(EC.joinLines(v, s, en)); return; }
+  if (lower === "f" && !e.shiftKey) { e.preventDefault(); openFind(false); return; }
+  if (lower === "h" && !e.shiftKey) { e.preventDefault(); openFind(true); return; }
+  if (lower === "g" && !e.shiftKey) { e.preventDefault(); gotoLine(); }
+});
+
+window.addEventListener("beforeunload", (e) => {
+  if (editorState && editorState.dirty) { e.preventDefault(); e.returnValue = ""; }
 });
 elEditorGutter.addEventListener("click", (e) => {
   const rect = elEditorGutter.getBoundingClientRect();

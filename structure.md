@@ -73,7 +73,8 @@ rconsole/
 ├── README.md               # Project documentation
 ├── structure.md            # This file
 ├── static/                 # Front-end assets (served as static)
-│   ├── console.js          # Tab/terminal UI, xterm.js wiring, WebSocket client
+│   ├── console.js          # Tab/terminal UI, xterm.js wiring, WebSocket client, editor UI
+│   ├── editor-core.js      # Code-editor text logic (auto-indent/close, comments, line ops, find): DOM-free, unit-tested
 │   ├── style.css           # Console styling + terminal layout
 │   ├── xterm.js            # xterm.js terminal emulator
 │   ├── xterm.css           # xterm.js stylesheet
@@ -255,6 +256,16 @@ container (`#terms`), file-navigator drawer (`#files`), code editor
   via `/api/dir`, mutate via `/api/fs`, open files in the editor.
 - Editor highlighting: `langFromPath()` (300+ extensions + special basenames
   → ~65 rule ids), `HL_RULES` token patterns, `getHighlighter()` compiler.
+
+**`static/editor-core.js`** — The code editor's text logic, free of the DOM so it
+can be tested in plain Node (`tests/js/editor_check.js`). Every function takes the
+text and selection and returns one edit `{from, to, insert, selStart, selEnd}` (or
+`null` to let the browser act): `enter`, `typeChar`, `backspace`, `tab`,
+`toggleComment`, `moveLines`, `duplicateLines`, `deleteLines`, `joinLines`,
+`insertLine`, `findAll`, `replaceAll`, `detectIndent`, … `console.js` applies the
+edits through `document.execCommand` (so native undo/redo keeps working) from the
+`beforeinput` / `keydown` handlers, and owns the status bar, font size
+(`--editor-fs`), find bar and touch symbol bar.
 
 **`static/style.css`** — Layout & theming, including the terminal host sizing
 that makes the PTY fill the available width.
