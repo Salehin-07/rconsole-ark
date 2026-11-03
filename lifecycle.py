@@ -15,6 +15,7 @@ It is idempotent: the first caller does the work, later callers wait for it.
 import threading
 
 import backup
+import fileops
 import jobs
 import services
 import state
@@ -30,6 +31,7 @@ FINAL_BACKUP_TIMEOUT = 22
 def stop_everything():
     """Kill all supervised processes, jobs, terminals and hosted apps."""
     services.pause()
+    fileops.cancel_all()                # a running compress / extract stops and cleans up its temp files
     services.stop_all_processes()
     for sid in {k[0] for k in list(jobs.JOBS)}:
         jobs.kill_all_jobs(sid)

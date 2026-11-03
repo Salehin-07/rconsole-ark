@@ -2262,7 +2262,6 @@ const elEdCur = $ed("editor-curline");
 const elEdPos = $ed("es-pos");
 const elEdLines = $ed("es-lines");
 const elEdIndent = $ed("es-indent");
-const elFsVal = $ed("es-fs-val");
 const elFsDown = $ed("es-fs-down");
 const elFsUp = $ed("es-fs-up");
 const elFind = $ed("editor-find");
@@ -2416,9 +2415,10 @@ function setEditorFontSize(px, persist) {
   px = Math.max(ED_FS_MIN, Math.min(ED_FS_MAX, Math.round(px)));
   edFs = px;
   elEditor.style.setProperty("--editor-fs", px + "px");
-  elFsVal.textContent = String(px);
   elFsDown.disabled = px <= ED_FS_MIN;
   elFsUp.disabled = px >= ED_FS_MAX;
+  elFsDown.title = "Smaller text (now " + px + " px)";
+  elFsUp.title = "Larger text (now " + px + " px)";
   if (persist) { try { localStorage.setItem(ED_FS_KEY, String(px)); } catch (e) { /* private mode */ } }
   if (editorState) { updateCurLine(false); revealPos(elEditorInput.selectionEnd, false); }
 }
@@ -2779,13 +2779,23 @@ async function loadDir(path) {
       elFilesStatus.textContent = "Error: " + (j.error || ("HTTP " + r.status));
       return;
     }
+    const prevCwd = filesState.cwd;
     filesState.cwd = j.path;
     filesState.parent = j.parent;
     filesState.entries = j.entries || [];
     if (j.max_upload_mb) filesState.maxUploadMb = j.max_upload_mb;
+    if (j.archives) filesState.archives = j.archives;
+    if (j.path !== prevCwd) { filesState.selected = new Set(); filesState.anchor = null; }
+    else filesState.selected = new Set(FM.pruneSelection(filesOrder(), [...filesState.selected]));
     filesState.creating = null;
     filesState.renaming = null;
     elFilesStatus.textContent = "";
+    if (!filesState.tipShown) {
+      filesState.tipShown = true;
+      elFilesStatus.textContent = document.body.classList.contains("touch")
+        ? "Tip: long-press a row to select it, then drag to select more."
+        : "Tip: click the blank space of a row to select it; drag to select many.";
+    }
     renderFiles();
   } catch (e) { elFilesStatus.textContent = "Error: " + e; }
 }
@@ -2793,6 +2803,9 @@ function fileRow(e) {
   const row = document.createElement("div");
   row.className = "files-row";
   row.dataset.dir = e.is_dir ? "1" : "0";
+  row.dataset.path = e.path;
+  row.setAttribute("role", "option");
+  row.setAttribute("aria-selected", "false");
   const open = document.createElement("button");
   open.type = "button";
   open.className = "files-name";
@@ -2805,11 +2818,10 @@ function fileRow(e) {
   nm.className = "files-label";
   nm.textContent = e.name + (e.is_dir ? "/" : "");
   open.appendChild(nm);
-  open.onclick = () => {
-    if (e.is_dir) loadDir(e.path);
-    else { openCodeEditor(e.path); hideFiles(); }
-  };
-  row.appendChild(open);
+  row.appendChild(open);                      // opening / selecting is handled by the list's click handler
+  const fill = document.createElement("span");
+  fill.className = "files-fill";
+  row.appendChild(fill);
   const meta = document.createElement("span");
   meta.className = "files-meta";
   meta.textContent = e.is_dir ? "—" : fmtSize(e.size);
@@ -2908,6 +2920,7 @@ function renderFiles() {
       elFilesList.appendChild(fileRow(e));
     }
   });
+  applySelectionUI();
 }
 async function createEntry(kind, name) {
   if (/[/\\]/.test(name)) {
@@ -3076,11 +3089,555 @@ async function deleteEntry(e) {
   }
   loadDir(filesState.cwd);
 }
+// ---------------------------------------------------------------------------
+// File manager: selection (click, ctrl/shift, drag rectangle, touch long-press),
+// compress, extract, properties and multi-delete. What a gesture selects is
+// decided in files-core.js (unit-tested); this block owns the elements/events.
+// ---------------------------------------------------------------------------
+const FM = window.FilesCore;
+const FM_LONGPRESS_MS = 450;
+const FM_FORMAT_KEY = "rconsole.files.archiveformat";
+const $f = (id) => document.getElementById(id);
+const fmSleep = (ms) => new Promise((res) => setTimeout(res, ms));
+const elFSel = $f("files-sel");
+const elFSelCount = $f("fsel-count");
+const elFDialog = $f("files-dialog");
+const elFDTitle = $f("fd-title");
+const elFDBody = $f("fd-body");
+const elFDActions = $f("fd-actions");
+Object.assign(filesState, {
+  selected: new Set(), anchor: null, archives: { compress: [], extract: [] },
+  noClickUntil: 0, touchAt: 0, jobRunning: false, dialogToken: 0, tipShown: false,
+});
+
+function filesOrder() { return filesState.entries.map((e) => e.path); }
+function entryByPath(p) { return filesState.entries.find((e) => e.path === p); }
+function selectedEntries() { return filesState.entries.filter((e) => filesState.selected.has(e.path)); }
+
+function setSelection(paths, anchor) {
+  filesState.selected = new Set(paths);
+  if (anchor !== undefined) filesState.anchor = anchor;
+  applySelectionUI();
+}
+function clearSelection() { setSelection([], null); }
+function selectAll() { setSelection(filesOrder(), filesState.anchor); }
+
+/** Reflect the selection in the rows and the selection bar (no row is rebuilt: a drag stays smooth). */
+function applySelectionUI() {
+  const sel = filesState.selected;
+  elFilesList.querySelectorAll(".files-row[data-path]").forEach((row) => {
+    const on = sel.has(row.dataset.path);
+    row.classList.toggle("sel", on);
+    row.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  const items = selectedEntries();
+  elFSel.hidden = items.length === 0;
+  const total = filesState.entries.length;
+  $f("files-selall").classList.toggle("on", total > 0 && items.length === total);
+  if (!items.length) return;
+  const d = FM.describeSelection(items);
+  elFSelCount.textContent = d.count + (d.count === 1 ? " item" : " items") + " selected" + (d.files ? " · " + FM.fmtBytes(d.bytes) : "");
+  $f("fsel-props").hidden = items.length !== 1;                       // Properties: only for a single item
+  const exts = filesState.archives.extract;
+  $f("fsel-extract").hidden = !items.every((e) => !e.is_dir && FM.isArchive(e.name, exts));
+  $f("fsel-compress").disabled = !filesState.archives.compress.length;
+}
+
+function openEntry(e) {
+  if (!e) return;
+  if (e.is_dir) loadDir(e.path);
+  else { openCodeEditor(e.path); hideFiles(); }
+}
+
+function selectClick(path, o) {
+  const r = FM.applyClick(filesOrder(), [...filesState.selected], filesState.anchor, path, o);
+  setSelection(r.selected, r.anchor);
+  elFilesList.focus({ preventScroll: true });
+}
+
+// One click handler for the whole list. The name opens the item (as before); the blank space of a row
+// selects it. On touch devices a tap only selects once something is selected (a long-press starts it).
+elFilesList.addEventListener("click", (ev) => {
+  if (Date.now() < filesState.noClickUntil) { ev.preventDefault(); ev.stopPropagation(); return; }
+  const row = ev.target.closest(".files-row[data-path]");
+  if (!row) {
+    if (ev.target === elFilesList && ev.pointerType !== "touch") clearSelection();   // blank area below the rows
+    return;
+  }
+  if (ev.target.closest(".files-inline")) return;
+  const touch = ev.pointerType === "touch";
+  const mod = ev.ctrlKey || ev.metaKey;
+  const shift = ev.shiftKey;
+  const btn = ev.target.closest("button");
+  if (btn && !btn.classList.contains("files-name")) return;                        // download / rename / delete
+  if (btn) {
+    const selecting = (touch && filesState.selected.size > 0) || mod || shift;
+    if (!selecting) { openEntry(entryByPath(row.dataset.path)); return; }
+    ev.preventDefault();
+  } else if (touch && !filesState.selected.size) {
+    return;
+  }
+  selectClick(row.dataset.path, { touch, mod, shift });
+});
+elFilesList.addEventListener("dblclick", (ev) => {
+  const row = ev.target.closest(".files-row[data-path]");
+  if (!row || ev.target.closest("button, input")) return;
+  openEntry(entryByPath(row.dataset.path));
+});
+
+// ---- drag a rectangle (mouse / pen) ----------------------------------------
+let fmBand = null;
+function fmToContent(cx, cy) {
+  const r = elFilesList.getBoundingClientRect();
+  return { x: cx - r.left + elFilesList.scrollLeft, y: cy - r.top + elFilesList.scrollTop };
+}
+function fmUpdateBand() {
+  const p = fmToContent(fmBand.cx, fmBand.cy), s = fmBand.start;
+  const x1 = Math.min(s.x, p.x), y1 = Math.min(s.y, p.y), x2 = Math.max(s.x, p.x), y2 = Math.max(s.y, p.y);
+  const st = fmBand.el.style;
+  st.left = x1 + "px"; st.top = y1 + "px"; st.width = (x2 - x1) + "px"; st.height = (y2 - y1) + "px";
+  const rows = [...elFilesList.querySelectorAll(".files-row[data-path]")];
+  const hits = FM.bandHits(rows.map((r) => ({ top: r.offsetTop, height: r.offsetHeight })), y1, y2);
+  setSelection(FM.bandSelection(rows.map((r) => r.dataset.path), fmBand.base, hits, fmBand.additive));
+}
+function fmBandAutoScroll() {
+  if (!fmBand || !fmBand.moved || fmBand.raf) return;
+  const r = elFilesList.getBoundingClientRect();
+  const speed = FM.autoScrollSpeed(fmBand.cy, r.top, r.bottom);
+  if (!speed) return;
+  fmBand.raf = requestAnimationFrame(() => {
+    if (!fmBand) return;
+    fmBand.raf = 0;
+    elFilesList.scrollTop += speed;
+    fmUpdateBand();
+    fmBandAutoScroll();
+  });
+}
+function fmBandMove(ev) {
+  if (!fmBand) return;
+  fmBand.cx = ev.clientX;
+  fmBand.cy = ev.clientY;
+  if (!fmBand.moved) {
+    if (Math.hypot(ev.clientX - fmBand.x0, ev.clientY - fmBand.y0) < 5) return;
+    fmBand.moved = true;
+    fmBand.el = document.createElement("div");
+    fmBand.el.id = "files-band";
+    elFilesList.appendChild(fmBand.el);
+  }
+  fmUpdateBand();
+  fmBandAutoScroll();
+}
+function fmBandEnd() {
+  document.removeEventListener("pointermove", fmBandMove);
+  document.removeEventListener("pointerup", fmBandEnd);
+  document.removeEventListener("pointercancel", fmBandEnd);
+  if (fmBand && fmBand.moved) {
+    if (fmBand.el) fmBand.el.remove();
+    filesState.noClickUntil = Date.now() + 80;                 // the click that follows a drag must not re-select
+  }
+  fmBand = null;
+}
+elFilesList.addEventListener("pointerdown", (ev) => {
+  if (ev.pointerType === "touch" || (ev.button !== undefined && ev.button !== 0)) return;
+  if (ev.target.closest("button, input, .files-inline")) return;
+  fmBand = {
+    x0: ev.clientX, y0: ev.clientY, cx: ev.clientX, cy: ev.clientY, moved: false, el: null, raf: 0,
+    start: fmToContent(ev.clientX, ev.clientY), additive: ev.ctrlKey || ev.metaKey || ev.shiftKey,
+    base: new Set(filesState.selected),
+  };
+  document.addEventListener("pointermove", fmBandMove);
+  document.addEventListener("pointerup", fmBandEnd);
+  document.addEventListener("pointercancel", fmBandEnd);
+});
+
+// ---- touch: long-press selects, then drag to sweep over more rows ----------------
+let fmLp = null;
+function fmLpEnd() {
+  if (!fmLp) return;
+  clearTimeout(fmLp.timer);
+  if (fmLp.raf) cancelAnimationFrame(fmLp.raf);
+  if (fmLp.fired) filesState.noClickUntil = Date.now() + 700;   // swallow the click that follows the lift-off
+  fmLp = null;
+}
+function fmLpFire(me) {
+  if (fmLp !== me) return;
+  me.fired = true;
+  try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) { /* not supported */ }
+  const path = me.row.dataset.path;
+  me.base = new Set(filesState.selected);
+  me.base.add(path);
+  me.anchorIdx = filesOrder().indexOf(path);
+  setSelection([...me.base], path);
+}
+function fmLpAutoScroll() {
+  if (!fmLp || !fmLp.fired || fmLp.raf) return;
+  const r = elFilesList.getBoundingClientRect();
+  const speed = FM.autoScrollSpeed(fmLp.cy, r.top, r.bottom);
+  if (!speed) return;
+  fmLp.raf = requestAnimationFrame(() => {
+    if (!fmLp) return;
+    fmLp.raf = 0;
+    elFilesList.scrollTop += speed;
+    fmLpSweep();
+    fmLpAutoScroll();
+  });
+}
+function fmLpSweep() {
+  const el = document.elementFromPoint ? document.elementFromPoint(fmLp.cx, fmLp.cy) : null;
+  const row = el && el.closest ? el.closest(".files-row[data-path]") : null;
+  if (!row) return;
+  const order = filesOrder();
+  setSelection(FM.sweepSelection(order, fmLp.base, fmLp.anchorIdx, order.indexOf(row.dataset.path)));
+}
+elFilesList.addEventListener("touchstart", (ev) => {
+  filesState.touchAt = Date.now();
+  fmLpEnd();
+  if (ev.touches.length !== 1) return;
+  const row = ev.target.closest ? ev.target.closest(".files-row[data-path]") : null;
+  if (!row || ev.target.closest(".files-inline")) return;
+  const t = ev.touches[0];
+  const me = { x: t.clientX, y: t.clientY, cx: t.clientX, cy: t.clientY, row, fired: false, raf: 0, timer: 0, base: null, anchorIdx: -1 };
+  me.timer = setTimeout(() => fmLpFire(me), FM_LONGPRESS_MS);
+  fmLp = me;
+}, { passive: true });
+elFilesList.addEventListener("touchmove", (ev) => {
+  if (!fmLp) return;
+  const t = ev.touches[0];
+  if (!fmLp.fired) {                                            // moved before the timer: it is a scroll
+    if (Math.hypot(t.clientX - fmLp.x, t.clientY - fmLp.y) > 10) fmLpEnd();
+    return;
+  }
+  if (ev.cancelable) ev.preventDefault();                       // the gesture is ours now: do not scroll
+  fmLp.cx = t.clientX;
+  fmLp.cy = t.clientY;
+  fmLpSweep();
+  fmLpAutoScroll();
+}, { passive: false });
+elFilesList.addEventListener("touchend", fmLpEnd, { passive: true });
+elFilesList.addEventListener("touchcancel", fmLpEnd, { passive: true });
+elFilesList.addEventListener("contextmenu", (ev) => {
+  if (Date.now() - filesState.touchAt < 2000) ev.preventDefault();   // no browser menu after a long-press
+});
+
+// ---- dialogs -----------------------------------------------------------------
+function dialogOpen() { return !elFDialog.hidden; }
+function closeDialog() {
+  filesState.dialogToken++;
+  elFDialog.hidden = true;
+  elFDBody.textContent = "";
+  elFDActions.textContent = "";
+}
+function openDialog(title, buildBody, actions) {
+  filesState.dialogToken++;
+  elFDTitle.textContent = title;
+  elFDBody.textContent = "";
+  elFDActions.textContent = "";
+  buildBody(elFDBody);
+  setDialogActions(actions);
+  elFDialog.hidden = false;
+  const first = elFDBody.querySelector("input[type=text], select") || elFDActions.querySelector(".primary");
+  if (first) setTimeout(() => first.focus({ preventScroll: true }), 30);
+}
+function setDialogActions(actions) {
+  elFDActions.textContent = "";
+  actions.forEach((a) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = a.label;
+    if (a.primary) b.classList.add("primary");
+    if (a.danger) b.classList.add("danger");
+    b.addEventListener("click", a.onClick);
+    elFDActions.appendChild(b);
+  });
+}
+function dialogNote(parent, text, cls) {
+  const p = document.createElement("p");
+  p.className = cls || "fd-note";
+  p.textContent = text;
+  parent.appendChild(p);
+  return p;
+}
+elFDialog.addEventListener("click", (ev) => {
+  if (ev.target === elFDialog && !filesState.jobRunning) closeDialog();       // tap outside the card
+});
+elFDialog.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" && ev.target.matches && ev.target.matches("input[type=text]")) {
+    const ok = elFDActions.querySelector(".primary");
+    if (ok && !ok.disabled) { ev.preventDefault(); ok.click(); }
+  }
+});
+
+// ---- compress / extract (background jobs, polled) ------------------------------
+function fmFormats() { return filesState.archives.compress || []; }
+
+function openCompressDialog() {
+  const items = selectedEntries();
+  if (!items.length) return;
+  const fmts = fmFormats();
+  if (!fmts.length) { elFilesStatus.textContent = "Compression is not available on this server."; return; }
+  let saved = "";
+  try { saved = localStorage.getItem(FM_FORMAT_KEY) || ""; } catch (e) { /* private mode */ }
+  let sel, nameInp, extSpan, touched = false;
+  const fmtById = (id) => fmts.find((f) => f.id === id);
+  const refresh = () => {
+    const f = fmtById(sel.value);
+    extSpan.textContent = f ? f.ext : "";
+    if (!touched && f) nameInp.value = FM.suggestArchiveName(items, filesState.cwd, f.single);
+  };
+  const go = () => {
+    const name = nameInp.value.trim();
+    if (!name || /[/\\]/.test(name) || name === "." || name === "..") {
+      let err = elFDBody.querySelector(".fd-error");
+      if (!err) err = dialogNote(elFDBody, "", "fd-error");
+      err.textContent = "Enter a name without slashes.";
+      return;
+    }
+    try { localStorage.setItem(FM_FORMAT_KEY, sel.value); } catch (e) { /* private mode */ }
+    runArchiveJob({ op: "compress", items: items.map((e) => e.path), format: sel.value, name },
+      "Compressing " + (items.length === 1 ? items[0].name : items.length + " items"));
+  };
+  openDialog("Compress " + (items.length === 1 ? items[0].name : items.length + " items"), (body) => {
+    const l1 = document.createElement("label");
+    l1.textContent = "Format";
+    l1.htmlFor = "fd-format";
+    sel = document.createElement("select");
+    sel.id = "fd-format";
+    fmts.forEach((f) => {
+      const o = document.createElement("option");
+      o.value = f.id;
+      o.textContent = f.label + " (" + f.ext + ")";
+      o.disabled = !FM.formatFits(f, items);
+      sel.appendChild(o);
+    });
+    const pick = [saved, "zip"].find((id) => id && fmtById(id) && FM.formatFits(fmtById(id), items));
+    sel.value = pick || (fmts.find((f) => FM.formatFits(f, items)) || fmts[0]).id;
+    const l2 = document.createElement("label");
+    l2.textContent = "Name";
+    l2.htmlFor = "fd-name";
+    const row = document.createElement("div");
+    row.className = "fd-namerow";
+    nameInp = document.createElement("input");
+    nameInp.type = "text";
+    nameInp.id = "fd-name";
+    nameInp.autocomplete = "off";
+    nameInp.setAttribute("autocapitalize", "off");
+    nameInp.setAttribute("spellcheck", "false");
+    extSpan = document.createElement("span");
+    row.appendChild(nameInp);
+    row.appendChild(extSpan);
+    body.appendChild(l1); body.appendChild(sel); body.appendChild(l2); body.appendChild(row);
+    dialogNote(body, "Saved in " + (filesState.cwd || "this folder") + ". An existing file is never overwritten.");
+    if (items.length > 1 || items[0].is_dir) dialogNote(body, "One-file formats (gz, bz2, xz, zst) need a single plain file, so they are greyed out here.");
+    nameInp.addEventListener("input", () => { touched = true; });
+    sel.addEventListener("change", refresh);
+    refresh();
+  }, [
+    { label: "Compress", primary: true, onClick: go },
+    { label: "Cancel", onClick: closeDialog },
+  ]);
+}
+
+function openExtractDialog() {
+  const items = selectedEntries();
+  if (!items.length) return;
+  let mode = "folder";
+  openDialog("Extract " + (items.length === 1 ? items[0].name : items.length + " archives"), (body) => {
+    [["folder", "Extract to a new folder",
+      "Uses the archive's own top folder if it has exactly one, otherwise a folder named after the archive."],
+     ["here", "Extract here", "Into this folder. Files that already exist are never overwritten."]].forEach(([val, title, hint]) => {
+      const lab = document.createElement("label");
+      lab.className = "fd-choice";
+      const r = document.createElement("input");
+      r.type = "radio";
+      r.name = "fd-mode";
+      r.value = val;
+      r.checked = val === mode;
+      r.addEventListener("change", () => { mode = val; });
+      const txt = document.createElement("span");
+      txt.textContent = title;
+      const small = document.createElement("small");
+      small.textContent = hint;
+      txt.appendChild(small);
+      lab.appendChild(r);
+      lab.appendChild(txt);
+      body.appendChild(lab);
+    });
+  }, [
+    { label: "Extract", primary: true,
+      onClick: () => runArchiveJob({ op: "extract", items: items.map((e) => e.path), mode },
+        "Extracting " + (items.length === 1 ? items[0].name : items.length + " archives")) },
+    { label: "Cancel", onClick: closeDialog },
+  ]);
+}
+
+async function runArchiveJob(body, title) {
+  filesState.jobRunning = true;
+  elFDTitle.textContent = title;
+  elFDBody.textContent = "";
+  const note = dialogNote(elFDBody, "Starting…");
+  const bar = document.createElement("progress");
+  bar.className = "fd-progress";
+  elFDBody.appendChild(bar);
+  let jobId = null;
+  const cancelBtn = { label: "Cancel", onClick: async () => {
+    note.textContent = "Cancelling…";
+    if (jobId) { try { await fetch("/api/archive/" + jobId + "/cancel", { method: "POST" }); } catch (e) { /* the poll will tell */ } }
+  } };
+  setDialogActions([cancelBtn]);
+  const fail = (msg) => {
+    filesState.jobRunning = false;
+    elFDBody.textContent = "";
+    dialogNote(elFDBody, msg, "fd-error");
+    setDialogActions([{ label: "Close", primary: true, onClick: closeDialog }]);
+    loadDir(filesState.cwd);
+  };
+  let r;
+  try {
+    const resp = await fetch("/api/archive", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body) });
+    r = await resp.json();
+  } catch (e) { r = { ok: false, error: String(e) }; }
+  if (!r.ok) { fail(r.error || "Could not start."); return; }
+  jobId = r.job;
+  let misses = 0;
+  for (;;) {
+    await fmSleep(filesState.jobRunning && jobId ? 300 : 0);
+    let j;
+    try {
+      const resp = await fetch("/api/archive/" + jobId);
+      j = await resp.json();
+      // a job object always has "state"; only transport / lookup failures lack it (its error field is the job's own)
+      if (!resp.ok || !j.state) throw new Error(j.error || ("HTTP " + resp.status));
+      misses = 0;
+    } catch (e) {
+      if (++misses > 20) { fail("Lost contact with the server: " + e); return; }
+      continue;
+    }
+    if (j.state === "running") {
+      note.textContent = (j.note ? j.note + " · " : "") + (j.done ? fmtSize(j.done) + (j.total ? " of " + fmtSize(j.total) : "") : "working…");
+      if (j.total > 0) { bar.max = j.total; bar.value = Math.min(j.done, j.total); } else bar.removeAttribute("value");
+      continue;
+    }
+    filesState.jobRunning = false;
+    if (j.state === "done") { await archiveJobDone(body.op, j.result || {}); return; }
+    if (j.state === "cancelled") {
+      closeDialog();
+      await loadDir(filesState.cwd);
+      elFilesStatus.textContent = "Cancelled.";
+      return;
+    }
+    fail(j.error || "failed");
+    return;
+  }
+}
+
+async function archiveJobDone(op, res) {
+  closeDialog();
+  await loadDir(filesState.cwd);
+  const names = op === "compress" ? [res.name] : (res.names || []);
+  const fresh = filesState.entries.filter((e) => names.includes(e.name)).map((e) => e.path);
+  if (fresh.length) setSelection(fresh, fresh[0]);
+  elFilesStatus.textContent = op === "compress"
+    ? "Created " + res.name + (res.size ? " (" + fmtSize(res.size) + ")" : "") + "."
+    : "Extracted " + (res.files || 0) + " file(s)" + (res.skipped ? " · " + res.skipped + " skipped (already there or not extractable)" : "") + ".";
+}
+
+// ---- properties ----------------------------------------------------------------
+function fmtWhen(sec) { return sec ? new Date(sec * 1000).toLocaleString() : "—"; }
+async function showProperties(e) {
+  if (!e) return;
+  openDialog("Properties", (body) => { dialogNote(body, "Loading…"); }, [{ label: "Close", primary: true, onClick: closeDialog }]);
+  const token = filesState.dialogToken;
+  let j;
+  try {
+    const r = await fetch("/api/props?path=" + encodeURIComponent(e.path));
+    j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || ("HTTP " + r.status));
+  } catch (err) {
+    if (token !== filesState.dialogToken) return;
+    elFDBody.textContent = "";
+    dialogNote(elFDBody, String(err.message || err), "fd-error");
+    return;
+  }
+  if (token !== filesState.dialogToken) return;                  // the dialog was closed / replaced meanwhile
+  elFDTitle.textContent = "Properties — " + j.name;
+  const rows = [];
+  const add = (k, v) => { if (v !== undefined && v !== null && v !== "") rows.push([k, v]); };
+  const kind = { folder: "Folder", file: "File", link: "Symbolic link", special: "Special file" }[j.kind] || j.kind;
+  add("Name", j.name);
+  add("Type", kind + (j.mime ? " (" + j.mime + ")" : ""));
+  add("Location", parentDir(j.path));
+  if (j.kind === "folder" && j.contents) {
+    const c = j.contents;
+    add("Contains", c.files + " file(s), " + c.folders + " folder(s)" + (c.partial ? " (counted so far; too large to finish)" : ""));
+    add("Size", FM.fmtBytes(j.size) + " (" + j.size.toLocaleString() + " bytes)");
+  } else if (j.kind !== "link") {
+    add("Size", FM.fmtBytes(j.size) + " (" + j.size.toLocaleString() + " bytes)");
+  }
+  if (j.disk) add("On disk", FM.fmtBytes(j.disk));
+  if (j.kind === "link") add("Points to", j.target + (j.target_exists === false ? " (missing)" : ""));
+  if (j.archive) add("Archive holds", j.archive.entries + " entries, " + FM.fmtBytes(j.archive.uncompressed) + " unpacked");
+  add("Modified", fmtWhen(j.mtime));
+  add("Accessed", fmtWhen(j.atime));
+  add("Changed", fmtWhen(j.ctime));
+  add("Permissions", j.mode_text + "  (" + j.mode + ")");
+  if (j.owner) {
+    add("Owner", j.owner.user ? j.owner.user + " (" + j.owner.uid + ")" : String(j.owner.uid));
+    add("Group", j.owner.group ? j.owner.group + " (" + j.owner.gid + ")" : String(j.owner.gid));
+  }
+  add("Access", (j.readable ? "readable" : "not readable") + ", " + (j.writable ? "writable" : "read-only"));
+  add("Hard links", j.links > 1 ? j.links : "");
+  elFDBody.textContent = "";
+  const table = document.createElement("table");
+  table.className = "fd-props";
+  rows.forEach(([k, v]) => {
+    const tr = document.createElement("tr");
+    const th = document.createElement("th");
+    th.textContent = k;
+    const td = document.createElement("td");
+    td.textContent = String(v);
+    tr.appendChild(th);
+    tr.appendChild(td);
+    table.appendChild(tr);
+  });
+  elFDBody.appendChild(table);
+}
+
+// ---- delete the selection --------------------------------------------------------
+async function deleteSelected() {
+  const items = selectedEntries();
+  if (!items.length) return;
+  const folders = items.filter((e) => e.is_dir).length;
+  const msg = items.length === 1
+    ? "Delete " + items[0].path + (folders ? " and everything inside it" : "") + "?"
+    : "Delete " + items.length + " items" + (folders ? " (" + folders + (folders === 1 ? " folder" : " folders") + " with everything inside)" : "") + "?";
+  if (!confirm(msg)) return;
+  elFilesStatus.textContent = "Deleting…";
+  const r = await fsApi("delete_many", { paths: items.map((e) => e.path) });
+  clearSelection();
+  await loadDir(filesState.cwd);
+  if (r.error && r.deleted === undefined) { elFilesStatus.textContent = "Delete failed: " + r.error; return; }
+  elFilesStatus.textContent = "Deleted " + (r.deleted || 0) + (r.deleted === 1 ? " item" : " items") +
+    (r.failed && r.failed.length ? " · " + r.failed.length + " failed (" + r.failed[0].error + ")" : "") + ".";
+}
+
+$f("fsel-compress").addEventListener("click", openCompressDialog);
+$f("fsel-extract").addEventListener("click", openExtractDialog);
+$f("fsel-props").addEventListener("click", () => showProperties(selectedEntries()[0]));
+$f("fsel-delete").addEventListener("click", deleteSelected);
+$f("fsel-clear").addEventListener("click", clearSelection);
+$f("fsel-all").addEventListener("click", selectAll);
+$f("files-selall").addEventListener("click", () => {
+  const total = filesState.entries.length;
+  if (total && filesState.selected.size === total) clearSelection(); else selectAll();
+});
+
 function hideFiles() {
   elFiles.setAttribute("hidden", "");
   filesState.open = false;
   filesState.creating = null;
   filesState.renaming = null;
+  clearSelection();
 }
 function toggleFiles(force) {
   const show = typeof force === "boolean" ? force : elFiles.hasAttribute("hidden");
@@ -3113,7 +3670,16 @@ document.getElementById("files-goto").addEventListener("submit", (ev) => {
   loadDir(elFilesPath.value.trim());
 });
 elFiles.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") { ev.stopPropagation(); hideFiles(); }
+  if (ev.key === "Escape") {
+    ev.stopPropagation();
+    if (dialogOpen()) { if (!filesState.jobRunning) closeDialog(); }
+    else if (filesState.selected.size) clearSelection();
+    else hideFiles();
+    return;
+  }
+  if (dialogOpen() || (ev.target.closest && ev.target.closest("input, textarea, select"))) return;
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "a" || ev.key === "A")) { ev.preventDefault(); selectAll(); }
+  else if (ev.key === "Delete") { ev.preventDefault(); deleteSelected(); }
 });
 
 // On load, rebuild tabs from the server so persistent terminal sessions

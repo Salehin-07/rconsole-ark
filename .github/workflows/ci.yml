@@ -31,8 +31,9 @@ jobs:
 
       # proot + a static busybox enable the real-VM end-to-end tests; without
       # them those tests skip and the rest still run.
-      - name: Install VM test tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends proot busybox-static
+      # libarchive-tools (bsdtar) and p7zip-full make the real 7z / RAR extraction tests run.
+      - name: Install VM and archive test tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends proot busybox-static libarchive-tools p7zip-full
 
       - name: Lint
         run: uv run ruff check .
@@ -42,8 +43,10 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - name: Editor logic checks
-        run: node tests/js/editor_check.js
+      - name: Editor and file-manager logic checks
+        run: |
+          node tests/js/editor_check.js
+          node tests/js/files_check.js
       - name: UI checks (jsdom)
         run: |
           cd tests/js

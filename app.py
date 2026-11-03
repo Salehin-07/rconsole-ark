@@ -35,6 +35,7 @@ import auth
 import backup
 import config
 import exposure
+import fileops
 import keepalive
 import services
 import interp
@@ -829,7 +830,8 @@ def api_dir():
     if not parent or parent == vpath:
         parent = vpath
     return {"path": vpath, "parent": parent, "entries": entries, "truncated": truncated,
-            "max_upload_mb": config.MAX_UPLOAD_MB}
+            "max_upload_mb": config.MAX_UPLOAD_MB,
+            "archives": fileops.capabilities(bool(view.unrestricted))}
 
 
 @app.route("/api/fs", methods=["POST"])
@@ -874,6 +876,18 @@ def api_fs():
                 return {"ok": False, "error": "refusing to delete a filesystem root"}, 400
             shutil.rmtree(p)
             return {"ok": True, "path": view.virt(p)}
+        if action == "delete_many":
+            # Files, links and whole folders in one go. Links are removed, never followed.
+            paths = _fm_paths(view, data.get("paths"), 2000)
+            doomed = []
+            for raw, p in zip(data["paths"], paths):
+                if _is_fs_root(view, p):
+                    return {"ok": False, "error": "refusing to delete a filesystem root"}, 400
+                doomed.append(p)
+            deleted, failed = fileops.delete_paths(doomed)
+            for f in failed:
+                f["path"] = _virt_nofollow(view, f["path"])
+            return {"ok": not failed, "deleted": deleted, "failed": failed}
         if action in ("rename", "mv", "move"):
             src_in = data.get("src") or data.get("path")
             dst_in = data.get("dst") or data.get("name")
@@ -1076,6 +1090,143 @@ def api_upload():
         return {"ok": True, "path": view.virt(dest), "size": dest.stat().st_size}
     except (OSError, sandbox.SandboxError) as e:
         return {"ok": False, "error": str(e)}, 500
+
+
+# ---------------------------------------------------------------------------
+# File manager extras: properties and archives (compress / extract run as
+# background jobs the browser polls; see fileops.py for the safety rules).
+# ---------------------------------------------------------------------------
+def _is_fs_root(view, p):
+    return p.parent == p or (view.root is not None and p == view.host("/"))
+
+
+def _virt_nofollow(view, host_path):
+    """The view's path for ``host_path`` itself (``virt`` would resolve a final symlink)."""
+    p = os.fspath(host_path)
+    return view.child_virt(view.virt(os.path.dirname(p) or "/"), os.path.basename(p))
+
+
+def _fm_paths(view, raw, limit):
+    """Validate a client-sent list of paths and map each to a host path (final symlink not followed)."""
+    if (not isinstance(raw, list) or not raw or len(raw) > limit
+            or not all(isinstance(x, str) and x for x in raw)):
+        raise ValueError("missing or invalid list of paths")
+    return [_map(view, x, follow_last=False) for x in raw]
+
+
+@app.route("/api/props")
+def api_props():
+    """Everything the *Properties* dialog shows for one file or folder."""
+    if "username" not in session:
+        return {"error": "unauthorized"}, 401
+    path = request.args.get("path", "")
+    if not path:
+        return {"error": "missing path"}, 400
+    view, err = _fs_view()
+    if err:
+        return err
+    try:
+        p = _map(view, path, follow_last=False)
+        if not os.path.lexists(p):
+            return {"error": f"no such file: {path}"}, 404
+        return fileops.properties(p, _virt_nofollow(view, p), bool(view.unrestricted))
+    except (OSError, sandbox.SandboxError) as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/api/archive", methods=["POST"])
+def api_archive_start():
+    """Start a compress or extract job; returns its id for polling."""
+    if "username" not in session:
+        return {"ok": False, "error": "unauthorized"}, 401
+    username = session["username"]
+    data = request.get_json(silent=True) or {}
+    op = data.get("op")
+    if op not in ("compress", "extract"):
+        return {"ok": False, "error": "op must be compress or extract"}, 400
+    view, err = _fs_view()
+    if err:
+        return err
+    trusted = bool(view.unrestricted)
+    try:
+        items = _fm_paths(view, data.get("items"), fileops.MAX_SOURCES)
+        if any(_is_fs_root(view, p) for p in items):
+            return {"ok": False, "error": "cannot use a filesystem root"}, 400
+        folders = {p.parent for p in items}
+        if len(folders) != 1:
+            return {"ok": False, "error": "all items must be in the same folder"}, 400
+        folder = folders.pop()
+        for p in items:
+            if not os.path.lexists(p):
+                return {"ok": False, "error": f"no such file: {view.virt(p.parent)}/{p.name}"}, 404
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}, 400
+    except (OSError, sandbox.SandboxError) as e:
+        return {"ok": False, "error": str(e)}, 400
+
+    def virt(p):
+        return _virt_nofollow(view, p)
+
+    if op == "compress":
+        fmt = str(data.get("format") or "zip")
+        if not fileops.can_create(fmt, trusted):
+            return {"ok": False, "error": f"{fmt} is not available on this server"}, 400
+        ext = next(c["ext"] for c in fileops.capabilities(trusted)["compress"] if c["id"] == fmt)
+        name = str(data.get("name") or "").strip()
+        if name.lower().endswith(ext):
+            name = name[:-len(ext)]
+        if not name:
+            name = fileops.stem_of(items[0].name) if len(items) == 1 else (folder.name or "archive")
+        if not fileops.valid_name(name):
+            return {"ok": False, "error": "invalid archive name"}, 400
+        sources = [str(p) for p in items]
+
+        def work(job):
+            res = fileops.compress(job, sources, str(folder), name, fmt, trusted)
+            res["path"] = virt(res["path"])
+            return res
+    else:
+        mode = "here" if data.get("mode") == "here" else "folder"
+        limit = config.MAX_EXTRACT_MB * 1024 * 1024
+        archives = [str(p) for p in items]
+
+        def work(job):
+            made, skipped, files, last = [], 0, 0, None
+            for i, arc in enumerate(archives):
+                job.done, job.total = 0, 0
+                job.note = f"{i + 1}/{len(archives)}: {os.path.basename(arc)}"
+                res = fileops.extract(job, arc, str(folder), mode, trusted, limit)
+                made.append(res["name"])
+                skipped += res["skipped"]
+                files += res["files"]
+                last = res["path"]
+            return {"path": virt(last), "names": made, "skipped": skipped, "files": files}
+
+    try:
+        job = fileops.start_job(username, op, work)
+    except fileops.JobBusy as e:
+        return {"ok": False, "error": str(e)}, 409
+    return {"ok": True, "job": job.id}
+
+
+@app.route("/api/archive/<job_id>")
+def api_archive_status(job_id):
+    if "username" not in session:
+        return {"error": "unauthorized"}, 401
+    job = fileops.get_job(session["username"], job_id)
+    if job is None:
+        return {"error": "no such job"}, 404
+    return job.as_dict()
+
+
+@app.route("/api/archive/<job_id>/cancel", methods=["POST"])
+def api_archive_cancel(job_id):
+    if "username" not in session:
+        return {"ok": False, "error": "unauthorized"}, 401
+    job = fileops.cancel_job(session["username"], job_id)
+    if job is None:
+        return {"ok": False, "error": "no such job"}, 404
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------

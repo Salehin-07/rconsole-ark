@@ -6,8 +6,9 @@
   <title>rconsole — login</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="manifest" href="/static/manifest.webmanifest">
-  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/static/icon.svg">
+  <link rel="icon" href="/static/favicon.ico" sizes="any">
+  <link rel="icon" href="/static/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <meta name="theme-color" content="#0d1117">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -15,14 +16,7 @@
 </head>
 <body class="login-body">
   <div class="login-box">
-    <pre class="login-logo">
-  _________      .__         .__    .__        
- /   _____/____  |  |   ____ |  |__ |__| ____  
- \_____  \\__  \ |  | _/ __ \|  |  \|  |/    \ 
- /        \/ __ \|  |_\  ___/|   Y  \  |   |  \
-/_______  (____  /____/\___  >___|  /__|___|  /
-        \/     \/          \/     \/        \/ 
-    </pre>
+    <img class="login-logo" src="/static/logo.png" alt="rconsole" width="132" height="132">
     <p class="login-sub">simulated linux console — sign in</p>
     {% if error %}<div class="login-error">{{ error }}</div>{% endif %}
     <form method="post" autocomplete="off">

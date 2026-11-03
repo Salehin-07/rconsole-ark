@@ -122,7 +122,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.3.5` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.3.6` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -210,6 +210,50 @@ The 📁 button (tab bar) opens a visual file browser. Besides browsing, creatin
 * Folder upload needs a browser that supports folder pickers (desktop Chrome, Edge, Firefox, Safari; on phones it
   varies, in which case upload a `.zip` and unzip it).
 * Everything goes through the same confinement as the rest of the console: in a VM you only see that VM.
+
+### The 📁 file browser: select, compress, extract, properties
+**Selecting** (works like a desktop file manager):
+
+| Do this | To get this |
+|---|---|
+| Click the **blank space** of a row (anywhere except the name and the ⬇ ✎ 🗑 buttons) | Select just that row. The name still opens the file or folder. |
+| `Ctrl`/`Cmd` + click | Add or remove a row. |
+| `Shift` + click | Select the range from the last clicked row. |
+| **Drag** on blank space | A rectangle selects every row it touches (`Ctrl`/`Shift` + drag adds to the selection); it scrolls when you drag near the top or bottom. |
+| Double-click a row's blank space | Open it. |
+| ☑ in the header, or `Ctrl`/`Cmd` + `A` | **Select all** (press ☑ again to clear). |
+| `Esc` | Clear the selection (a second `Esc` closes the browser). `Delete` deletes the selection. |
+| **Phone / tablet:** long-press a row | Select it, then **drag without lifting** to sweep over more rows. After that a tap toggles rows, and tapping a name no longer opens it until you clear the selection (✕ or `Esc`). A tap on blank space does nothing while nothing is selected, so scrolling never selects by accident. |
+
+A bar appears above the list with the count and total size and these actions: **All**, **Compress**, **Extract**
+(only when every selected item is an archive), **Properties** (only when **exactly one** item is selected),
+**Delete** (one confirmation for everything) and ✕.
+
+**Compress** asks for a format and a name and makes one archive in the same folder (an existing file is never
+overwritten: you get `name (2).zip`). Formats: `zip`, `tar`, `tar.gz`, `tar.bz2`, `tar.xz`, `tar.zst`
+(Python 3.14+), `7z`, `rar` and the one-file formats `gz`, `bz2`, `xz`, `zst`. Only formats that work on this server
+are offered, and the one-file formats are greyed out unless exactly one plain file is selected.
+
+* **RAR cannot be created without WinRAR's proprietary `rar` tool**, so the option only appears for admins who have
+  installed it. RAR *extraction* works through `bsdtar` (package `libarchive-tools`, included in the Docker image).
+* `7z` needs `bsdtar` too (admins in the host shell may alternatively use 7-Zip: `7zz` / `7z` / `7za`).
+* Symlinks are stored as links and never followed, so a link can never pull in a file from outside the folder.
+  (7z and RAR cannot store links safely: selections that contain symlinks are refused for those two.)
+
+**Extract** works on zip (also jar, war, apk, whl), tar, tar.gz/bz2/xz, gz, bz2, xz, zst and, through `bsdtar`, 7z,
+RAR, CAB, ISO, CPIO, DEB, RPM, LZH and XAR. Choose *Extract to a new folder* (an archive with exactly one top folder
+is extracted as that folder, otherwise a folder named after the archive is created) or *Extract here*. Existing files
+are never overwritten (they are counted as skipped). Password-protected archives are not supported.
+
+* Extraction refuses `..`, absolute and drive-letter paths, never writes through a symlink, skips devices, FIFOs and
+  hard links, and drops setuid bits. It stops when the result would exceed **2048 MB** (`RCONSOLE_MAX_EXTRACT_MB`),
+  200,000 entries or the free disk space.
+* Compress and extract run as background jobs: a progress bar, a **Cancel** button, and one job per user at a time.
+
+**Properties** (single item): type, location, size, size on disk, modified / accessed / changed times, permissions
+(`-rw-r--r--` and octal), owner and group (names are shown for the host admin; inside a VM only numeric ids), link
+target, MIME type, and for zip / tar archives the number of entries and their unpacked size. Folder sizes count
+what is inside without following links, and say so when a folder is too large to finish counting.
 
 ### `fm`
 An in-console **file manager** (also available as the 📁 button).

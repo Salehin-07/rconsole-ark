@@ -315,7 +315,16 @@ class DefaultsTests(Base):
         m = c.get("/static/manifest.webmanifest").get_json()
         self.assertEqual((m["display"], m["start_url"]), ("standalone", "/console"))
         self.assertTrue(m["icons"])
-        self.assertEqual(c.get("/static/icon.svg").status_code, 200)
+        for icon in m["icons"]:                      # every icon the manifest promises is really served
+            r = c.get(icon["src"])
+            self.assertEqual((r.status_code, r.mimetype), (200, "image/png"), icon["src"])
+        self.assertIn("maskable", {i["purpose"] for i in m["icons"]})
+        for asset in ("/static/favicon.ico", "/static/favicon-32.png", "/static/apple-touch-icon.png", "/static/logo.png"):
+            self.assertEqual(c.get(asset).status_code, 200, asset)
+        self.assertEqual(c.get("/static/icon.svg").status_code, 404)        # the old logo is gone
+        login = c.get("/login").get_data(as_text=True)
+        self.assertIn("/static/logo.png", login)
+        self.assertIn("/static/apple-touch-icon.png", self.admin().get("/console").get_data(as_text=True))
         self.assertIn('rel="manifest"', c.get("/login").get_data(as_text=True))
         self.assertIn('rel="manifest"', self.admin().get("/console").get_data(as_text=True))
 

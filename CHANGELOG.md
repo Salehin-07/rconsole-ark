@@ -3,6 +3,77 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.6 — 2026-11-02
+
+### Added
+- **Select, compress, extract and Properties in the 📁 file manager**, working like a desktop file manager:
+  - **Selecting.** Click the blank space of a row to select it (the name still opens the file or folder);
+    Ctrl/Cmd+click toggles, Shift+click selects a range, **dragging a rectangle** selects every row it touches
+    (Ctrl/Shift+drag adds; it auto-scrolls near the edges), double-click opens. On **phones and tablets** a
+    **long-press** selects a row and dragging without lifting sweeps over more rows; after that a tap toggles rows
+    and tapping a name selects instead of opening, so nothing opens by accident. A plain tap on blank space does
+    nothing while nothing is selected, so scrolling never selects. **Select all** (the ☑ button, or Ctrl/Cmd+A),
+    Esc clears the selection (a second Esc closes the browser), and the Delete key deletes it.
+  - **A selection bar** with the item count and total size and: **All**, **Compress**, **Extract** (only when
+    every selected item is an archive), **Properties** (**only when exactly one item is selected**), **Delete**
+    (one confirmation for the whole selection) and ✕.
+  - **Compress** to **zip, tar, tar.gz, tar.bz2, tar.xz**, tar.zst (Python 3.14+), **7z**, RAR and the one-file
+    **gz, bz2, xz, zst**. Only formats that work on the server are offered; one-file formats are greyed out unless
+    exactly one plain file is selected; the default name follows the selection; an existing archive is never
+    overwritten (`name (2).zip`). Symlinks are stored as links, never followed.
+  - **Extract** zip (also jar, war, ear, apk, whl, egg), tar, tar.gz/bz2/xz, gz, bz2, xz, zst and, through `bsdtar`,
+    **7z, RAR (RAR3 and RAR5), CAB, ISO, CPIO, DEB, RPM, LZH, XAR**. *Extract to a new folder* (an archive with
+    exactly one top folder becomes that folder, otherwise a folder named after the archive) or *Extract here*
+    (never overwrites; skipped entries are counted).
+  - **Properties**: type, location, size (folders counted without following links), size on disk, modified /
+    accessed / changed, permissions (`-rw-r--r--` and octal), owner and group, link target, MIME type and, for zip
+    and tar archives, the number of entries and their unpacked size.
+  - Compress and extract run as **background jobs** with a progress bar and a **Cancel** button (temp files are
+    removed); one job per user at a time. New endpoints: `GET /api/props`, `POST /api/archive`,
+    `GET /api/archive/<id>`, `POST /api/archive/<id>/cancel`, and the `delete_many` action of `/api/fs`.
+- `RCONSOLE_MAX_EXTRACT_MB` (default 2048): the most an archive may expand to when extracted (zip-bomb guard).
+- `fileops.py` (the engine, standard library only) and `static/files-core.js` (the selection logic, DOM-free), with
+  tests: `tests/test_fileops.py` (46), `tests/test_fileman_api.py`, `tests/js/files_check.js` (15) and a larger
+  `tests/js/ui_check.js` that drives the real handlers (click, ctrl/shift, rectangle, long-press, dialogs).
+- The Docker image now installs `libarchive-tools` (`bsdtar`), which gives 7z creation and 7z / RAR / CAB / ISO
+  extraction. **This is a Dockerfile change, so it needs a redeploy**; the self-updater does not install packages.
+  Without `bsdtar` those formats are simply not offered (zip, tar and gz/bz2/xz always work).
+
+### Changed
+- **New logo everywhere**: favicon, home-screen / PWA icons (including an Android *maskable* icon), the iOS
+  touch icon, the login page (it showed ASCII art) and the README. `static/icon.svg` is gone.
+- The editor's font-size buttons moved to the **top bar next to Save and Close** and are now just **−** and **+**
+  (the size is in their tooltip; it is still remembered and still 16 px minimum on iOS).
+- In a file row, the name now only takes the room it needs; the free space to its right is the click target for
+  selecting.
+
+### Safety
+- **Extraction cannot escape the folder it is given.** Every member is created relative to a directory file
+  descriptor with `O_NOFOLLOW`, so the classic *"symlink, then a file below the symlink"* archive writes nothing
+  outside. `..`, absolute and Windows drive-letter names are refused; devices, FIFOs and hard links are skipped;
+  setuid bits are dropped; files are never overwritten; the expanded size, the entry count (200,000) and the free
+  disk space are all checked while writing (zip and gzip bombs stop early). All of it is tested with crafted archives.
+- **Confined (VM) users only get `bsdtar` for the external formats**, because it refuses to write through symlinks
+  by default; 7-Zip, `unrar`, `unar` and `rar` are used only for the host admin. 7z / RAR creation is refused for
+  trees that contain symlinks, since those tools may follow them out of the folder.
+- Archives are written to a hidden temp file and renamed into place, so an interrupted job never leaves a
+  half-written archive.
+
+### Fixed
+- `test_download_and_upload_are_confined_to_the_vm` sat inside the `if __name__ == "__main__":` block of
+  `tests/test_app.py`, so it **never ran** under test discovery. It now does (it needs proot, so it is skipped
+  where proot is missing, exactly like its neighbours).
+
+### Known limits
+- **RAR files cannot be created without WinRAR's proprietary `rar` tool**, so *RAR* only appears in the Compress
+  list for an admin who installed `rar`. Extraction works (via `bsdtar`).
+- Password-protected archives are not supported (the job says so).
+- There is no right-click menu, copy / cut / paste or drag-and-drop of files between folders yet.
+- Folder sizes in Properties stop counting after 3 seconds or 500,000 entries and say so.
+- Zstandard (`tar.zst`, `.zst`) needs Python 3.14 (the Docker image and CI have it).
+- Touch behaviour was tested with simulated touch events (jsdom), not on a real phone. The long-press drag relies on
+  the browser letting the page cancel scrolling once the long-press fired, which Chrome and Safari allow.
+
 ## 1.3.5 — 2026-11-01
 
 ### Added

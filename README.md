@@ -1,3 +1,5 @@
+<p align="center"><img src="static/logo.png" alt="rconsole logo" width="140"></p>
+
 # rconsole — free hosting for your bots, websites and workers
 
 > 🆓 **Start here → [FREE_HOSTING.md](FREE_HOSTING.md)** (host on Render's free tier from your phone) ·
@@ -6,7 +8,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.3.5** · MIT licensed
+**Version 1.3.6** · MIT licensed
 
 ## Why this exists
 
@@ -75,8 +77,9 @@ Commands run on one of two **targets**:
   background and reappears when you switch back.
 - Native, stateful console commands plus a real shell passthrough (pipes,
   redirects and `&&` work as in any shell).
-- Visual file navigator (📁 button): browse, open, create/rename/delete — in the
-  host filesystem (admins) or confined to your VM.
+- Visual file manager (📁 button): browse, open, create/rename/delete — in the host filesystem (admins) or confined
+  to your VM — with multi-select (click, Ctrl/Shift, drag a rectangle, long-press on phones), **compress / extract**
+  (zip, tar, tar.gz/bz2/xz, gz, 7z and more; RAR and 7z extraction), a **Properties** dialog and multi-delete.
 - Built-in code editor with syntax highlighting for ~65 languages, auto-indent, auto-closing brackets and quotes,
   find/replace, comment toggling, line shortcuts, an adjustable font size and a touch symbol bar.
 - Hosted web apps behind a path-based proxy: start them yourself and `expose` them, or let
@@ -152,6 +155,7 @@ Everything is configured through environment variables (see `config.py`).
 | `RCONSOLE_UPDATE_REPO` / `RCONSOLE_UPDATE_TOKEN` | Where `rconsole update` looks for releases (`owner/repo`, your fork) · optional GitHub token (private fork, rate limit) | `Salehin-07/rconsole-ark` / – |
 | `RCONSOLE_MAX_USERS` | Account cap — this is a one-person / small-team tool | `10` |
 | `RCONSOLE_MAX_UPLOAD_MB` | Largest single file the file browser's upload accepts | `64` |
+| `RCONSOLE_MAX_EXTRACT_MB` | Most an archive may expand to when extracted in the file browser (zip-bomb guard) | `2048` |
 | `RCONSOLE_DEFAULT_SYSTEM` | System `vm install` uses by default (`alpine` suits 512 MB instances) | `debian` |
 | `RCONSOLE_SUPERVISOR` | Run the service supervisor | `1` |
 | `RCONSOLE_ALLOWED_ORIGINS` | Extra hostnames the console is served from (comma separated). Auto-detected via `Host`, `X-Forwarded-Host` and Render's hostname; set it only if you still see `cross-origin request blocked` | – |

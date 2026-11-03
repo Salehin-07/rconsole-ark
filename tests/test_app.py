@@ -93,8 +93,18 @@ class AuthFlowTests(Base):
         self.assertIn("/static/editor-core.js", page)
         self.assertLess(page.index("/static/editor-core.js"), page.index("/static/console.js"))
         for needle in ('id="editor-find"', 'id="ef-query"', 'id="editor-keys"', 'id="editor-statusbar"',
-                       'id="es-fs-up"', 'id="es-fs-down"', 'id="es-indent"', 'id="editor-curline"'):
+                       'id="es-fs-up"', 'id="es-fs-down"', 'id="es-indent"', 'id="editor-curline"',
+                       'id="files-sel"', 'id="fsel-compress"', 'id="fsel-extract"', 'id="fsel-props"',
+                       'id="fsel-delete"', 'id="files-selall"', 'id="files-dialog"'):
             self.assertIn(needle, page)
+        # the font buttons live in the editor's top bar (next to Save / Close), not in the status bar
+        bar = page[page.index('id="editor-bar"'):page.index('id="editor-find"')]
+        self.assertIn('id="es-fs-up"', bar)
+        self.assertIn('id="es-fs-down"', bar)
+        self.assertIn('id="editor-save"', bar)
+        self.assertNotIn("A+", page[page.index('id="editor-statusbar"'):])
+        self.assertLess(page.index("/static/files-core.js"), page.index("/static/console.js"))
+        self.assertEqual(self.c.get("/static/files-core.js").status_code, 200)
         core = self.c.get("/static/editor-core.js")
         self.assertEqual(core.status_code, 200)
         text = core.get_data(as_text=True)
@@ -522,11 +532,6 @@ class VmApiTests(Base):
         self.assertIn("admins", self.run_cmd("vm mode host", client=self.uc)["output"])
         self.assertIn("--yes", self.run_cmd("vm reset", client=self.uc)["output"])
 
-
-
-if __name__ == "__main__":
-    unittest.main()
-
     def test_download_and_upload_are_confined_to_the_vm(self):
         uc = self.uc
         r = uc.post("/api/upload", data={"dir": "/root", "rel": "up/one.txt", "file": (io.BytesIO(b"vm"), "one.txt")},
@@ -543,3 +548,7 @@ if __name__ == "__main__":
         os.symlink("/etc/hostname", os.path.join(home, "up", "leak"))
         z = zipfile.ZipFile(io.BytesIO(uc.get("/api/download", query_string={"path": "/root/up"}).data))
         self.assertEqual(z.namelist(), ["up/one.txt"])
+
+
+if __name__ == "__main__":
+    unittest.main()

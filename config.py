@@ -37,6 +37,8 @@ Environment variables
 ``RCONSOLE_MAX_USERS``         Account cap (default 10): this is for one person or a
                                small team.
 ``RCONSOLE_MAX_UPLOAD_MB``     Largest single file the file browser will accept (default 64).
+``RCONSOLE_MAX_EXTRACT_MB``    Most an archive may expand to when extracted in the file
+                               browser (default 2048): a guard against zip bombs.
 ``RCONSOLE_SUPERVISOR``        Run the service supervisor (default on).
 ``RCONSOLE_DEFAULT_SYSTEM``    System ``vm install`` uses by default (default ``debian``).
 ``RCONSOLE_ALLOWED_ORIGINS``   Extra hostnames the console is served from (comma
@@ -141,6 +143,8 @@ MIN_PASSWORD_LEN = max(4, env_int("RCONSOLE_MIN_PASSWORD", 8))
 MAX_USERS = max(1, env_int("RCONSOLE_MAX_USERS", 10))
 # Largest single file the file browser's upload button accepts (one request per file).
 MAX_UPLOAD_MB = max(1, env_int("RCONSOLE_MAX_UPLOAD_MB", 64))
+# Most an archive may expand to when extracted from the file browser (zip-bomb guard).
+MAX_EXTRACT_MB = max(16, env_int("RCONSOLE_MAX_EXTRACT_MB", 2048))
 
 # --- staying awake on free tiers (see keepalive.py) ---------------------------------
 # Free instances (Render, ...) sleep after ~15 minutes without inbound requests.

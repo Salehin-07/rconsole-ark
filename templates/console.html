@@ -7,8 +7,9 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=cache_v) }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='xterm.css', v=cache_v) }}">
   <link rel="manifest" href="/static/manifest.webmanifest">
-  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/static/icon.svg">
+  <link rel="icon" href="/static/favicon.ico" sizes="any">
+  <link rel="icon" href="/static/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <meta name="theme-color" content="#0d1117">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -46,6 +47,7 @@
       <div id="files-bar">
         <span id="files-crumb" title="current directory"></span>
         <span class="editor-spacer"></span>
+        <button id="files-selall" type="button" title="Select all (Ctrl/Cmd+A)" aria-label="Select all">☑</button>
         <button id="files-up" type="button" title="Up one directory">⬆</button>
         <button id="files-newfile" type="button" title="New file">＋📄</button>
         <button id="files-newdir" type="button" title="New folder">＋📁</button>
@@ -63,8 +65,25 @@
         <input id="files-pick" type="file" multiple hidden>
         <input id="files-pickdir" type="file" multiple webkitdirectory hidden>
       </div>
-      <div id="files-list"></div>
+      <div id="files-sel" hidden>
+        <span id="fsel-count" aria-live="polite">0 selected</span>
+        <span class="editor-spacer"></span>
+        <button id="fsel-all" type="button" title="Select everything in this folder">All</button>
+        <button id="fsel-compress" type="button" title="Compress the selected items into an archive">Compress</button>
+        <button id="fsel-extract" type="button" title="Extract the selected archive(s)" hidden>Extract</button>
+        <button id="fsel-props" type="button" title="Properties of the selected item" hidden>Properties</button>
+        <button id="fsel-delete" type="button" class="danger" title="Delete the selected items (Delete key)">Delete</button>
+        <button id="fsel-clear" type="button" title="Clear the selection (Esc)" aria-label="Clear selection">✕</button>
+      </div>
+      <div id="files-list" role="listbox" aria-multiselectable="true" tabindex="-1"></div>
       <div id="files-status"></div>
+      <div id="files-dialog" hidden>
+        <div class="fd-card" role="dialog" aria-modal="true" aria-labelledby="fd-title">
+          <div id="fd-title" class="fd-title"></div>
+          <div id="fd-body" class="fd-body"></div>
+          <div id="fd-actions" class="fd-actions"></div>
+        </div>
+      </div>
     </div>
     <div id="editor" hidden>
       <div id="editor-bar">
@@ -73,6 +92,8 @@
         <span id="editor-status"></span>
         <span class="editor-spacer"></span>
         <button id="editor-find-btn" type="button" title="Find / replace (Ctrl/Cmd+F)">Find</button>
+        <button id="es-fs-down" class="editor-fs-btn" type="button" title="Smaller text" aria-label="Smaller text">&#8722;</button>
+        <button id="es-fs-up" class="editor-fs-btn" type="button" title="Larger text" aria-label="Larger text">+</button>
         <button id="editor-save" type="button" title="Save (Ctrl/Cmd+S)">Save</button>
         <button id="editor-close" type="button" title="Close">Close</button>
       </div>
@@ -118,11 +139,6 @@
         <button id="es-pos" type="button" title="Go to line (Ctrl/Cmd+G)">Ln 1, Col 1</button>
         <span id="es-lines"></span>
         <span class="editor-spacer"></span>
-        <span id="es-fs" title="Editor font size">
-          <button id="es-fs-down" type="button" title="Smaller text">A&#8722;</button>
-          <span id="es-fs-val">14</span>
-          <button id="es-fs-up" type="button" title="Larger text">A+</button>
-        </span>
         <button id="es-indent" type="button" title="Indentation used for Tab and Enter (click to change)">Spaces: 4</button>
       </div>
     </div>
@@ -160,6 +176,7 @@
   </div>
   <script>window.RCONSOLE_USER = "{{ username }}";window.RCONSOLE_THEME = "{{ theme }}";</script>
   <script src="{{ url_for('static', filename='editor-core.js', v=cache_v) }}" defer></script>
+  <script src="{{ url_for('static', filename='files-core.js', v=cache_v) }}" defer></script>
   <script src="{{ url_for('static', filename='console.js', v=cache_v) }}" defer></script>
 </body>
 </html>

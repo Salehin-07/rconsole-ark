@@ -6,6 +6,7 @@ rconsole/
 ├── main.py                 # Entry point (calls app.main())
 ├── config.py               # All environment-driven settings + persisted secrets
 ├── FREE_HOSTING.md         # The purpose of rconsole: free Render-tier hosting for bots/sites/workers (start here)
+├── fileops.py              # File-manager engine: compress / extract (safe, no symlink writes), properties, multi-delete, background jobs
 ├── keepalive.py            # Self-ping of the public URL so free instances never sleep (+ cmd_keepalive.py)
 ├── backup.py               # Encrypted snapshots -> private git repo/folder; restore on a fresh instance (+ cmd_backup.py)
 ├── bootstrap.py            # Imported first by app.py: restores a backup BEFORE secrets are generated
@@ -65,6 +66,10 @@ rconsole/
 │   ├── test_distros.py     # Catalog, aliases, mirror resolvers (HTTP faked)
 │   ├── test_fetch.py       # neofetch layouts at phone/desktop widths, target awareness
 │   ├── test_app.py         # HTTP: login, CSRF, file APIs, proxy, VM-backed commands
+│   ├── test_fileops.py     # Archives (round trips, zip-bomb / traversal / symlink-write attacks, real bsdtar / 7z / RAR), properties, jobs
+│   ├── test_fileman_api.py # File-manager HTTP API: props, archive jobs, multi-delete, confined-user checks
+│   ├── fixtures/           # Tiny real RAR files (from libarchive's test suite) for the extraction tests
+│   ├── js/                 # Node tests: editor_check.js, files_check.js (pure logic), ui_check.js (jsdom end-to-end)
 │   └── test_vm_e2e.py      # Real proot VM from a locally served rootfs
 ├── pyproject.toml          # Project metadata + dependencies (uv)
 ├── uv.lock                 # Resolved dependency lockfile (uv)
@@ -75,7 +80,9 @@ rconsole/
 ├── static/                 # Front-end assets (served as static)
 │   ├── console.js          # Tab/terminal UI, xterm.js wiring, WebSocket client, editor UI
 │   ├── editor-core.js      # Code-editor text logic (auto-indent/close, comments, line ops, find): DOM-free, unit-tested
+│   ├── files-core.js       # File-manager selection / archive-name logic (click, ctrl/shift, drag band, long-press sweep): DOM-free, unit-tested
 │   ├── style.css           # Console styling + terminal layout
+│   ├── logo.png, icon-192.png, icon-maskable-512.png, apple-touch-icon.png, favicon.ico, favicon-32.png  # the rconsole logo in every size the app, PWA manifest and login page use
 │   ├── xterm.js            # xterm.js terminal emulator
 │   ├── xterm.css           # xterm.js stylesheet
 │   └── addon-fit.js        # xterm.js FitAddon (auto-fit terminal to container)
@@ -266,6 +273,22 @@ text and selection and returns one edit `{from, to, insert, selStart, selEnd}` (
 edits through `document.execCommand` (so native undo/redo keeps working) from the
 `beforeinput` / `keydown` handlers, and owns the status bar, font size
 (`--editor-fs`), find bar and touch symbol bar.
+
+**`static/files-core.js`** — The file manager's decisions without the DOM
+(`tests/js/files_check.js`): what a click / ctrl- or shift-click / dragged rectangle /
+long-press sweep selects (`applyClick`, `bandSelection`, `sweepSelection`), default
+archive names, which formats fit a selection, auto-scroll speed. `console.js` owns the
+elements, the pointer / touch events, the selection bar, the dialogs and the job polling.
+
+**`fileops.py`** — Everything slow or security-sensitive behind the file manager, standard
+library only: `compress` (zip, tar family, one-file gz/bz2/xz/zst, 7z / RAR through helper
+tools), `extract` (native zip / tar / gz; `bsdtar` and friends for 7z, RAR, CAB, ISO ...),
+`properties`, `delete_paths`, and a small background-job registry (`start_job`, `get_job`,
+`cancel_job`, one running job per user). Extraction creates every member with `dir_fd` +
+`O_NOFOLLOW`, so an archive can never write through a symlink; archives are never created by
+following links; confined users only get `bsdtar` for external formats. `app.py` resolves paths
+through the sandbox first and exposes `/api/props`, `/api/archive`, `/api/archive/<id>`,
+`/api/archive/<id>/cancel` and the `delete_many` action of `/api/fs`.
 
 **`static/style.css`** — Layout & theming, including the terminal host sizing
 that makes the PTY fill the available width.
