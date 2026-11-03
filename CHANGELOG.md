@@ -3,6 +3,36 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.7 — 2026-11-03
+
+### Added
+- `RCONSOLE_HOST_HOME` (default `/home/rconsole`): where the host shell starts.
+- `tests/test_cwd.py`: default directories, ending a terminal keeps the tab, and a real host shell's directory
+  carried back on `exit`.
+
+### Changed
+- **Default directories:** the host shell now starts in `/home/rconsole`, a VM in `/root`. In the Docker image
+  `/home/rconsole` is linked to the persistent workspace (`<data>/workspace`) by the entrypoint, so what you keep
+  there is still part of every backup; where `/home/rconsole` does not exist or is not writable (a plain
+  install), the host falls back to `<data>/workspace` as before. `RCONSOLE_HOST_HOME` overrides the path.
+  **This needs a redeploy / container restart** (the entrypoint runs at start).
+- **File manager:** the always-visible ☑ button next to the new file / folder buttons and the **All** button in the
+  selection bar are gone. A **select-all checkbox** now appears at the start of the selection bar once at least one
+  item is selected (a dash while only some are), like other file managers. Ctrl/Cmd+A still works.
+- The login logo is smaller (96 px, was 132 px).
+- The app is called **Rconsole** in the PWA manifest (installed app name), the home-screen title, the page titles
+  and the README.
+
+### Fixed
+- **The prompt in a VM's interactive window** no longer shows the server's long host id and a bare `#`. It reads
+  `<system>@root:<dir>#` (`ubuntu@root:~#`, `alpine@root:/etc#`), coloured in bash. It comes from a managed
+  `~/.rconsole_prompt` that `.bashrc` / `.profile` load (existing VMs get it on their next launch; the old
+  per-VM `PS1=` line is retired).
+- **Returning from an interactive window no longer resets the directory.** Ending a terminal session used to delete
+  the tab on the server, so the next command ran in a new tab in the default directory (and the tab's history was
+  lost). The tab is kept now. On the host the directory the shell ended in is carried back too (`cd` inside
+  `bash`, then `exit`); inside a VM the console returns to the directory the window was opened from.
+
 ## 1.3.6 — 2026-11-02
 
 ### Added

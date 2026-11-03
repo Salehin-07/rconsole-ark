@@ -122,12 +122,15 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.3.6` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.3.7` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
-Changes the tab's working directory. Each tab remembers its own directory. On the host new tabs start in the
-**workspace** (`<data>/workspace`), which is part of every backup.
+Changes the tab's working directory. Each tab remembers its own directory, **including after an interactive window
+(nano, a shell, ...) closes**: you land where you were, not back in the default directory. New tabs start in
+`/home/rconsole` on the host and in `/root` in a VM. In the Docker image `/home/rconsole` is the persistent
+**workspace** (`<data>/workspace`), which is part of every backup; without it (a plain install) the host starts in
+`<data>/workspace`.
 ```text
 cd /srv/site     # absolute
 cd ..            # up
@@ -221,11 +224,12 @@ The 📁 button (tab bar) opens a visual file browser. Besides browsing, creatin
 | `Shift` + click | Select the range from the last clicked row. |
 | **Drag** on blank space | A rectangle selects every row it touches (`Ctrl`/`Shift` + drag adds to the selection); it scrolls when you drag near the top or bottom. |
 | Double-click a row's blank space | Open it. |
-| ☑ in the header, or `Ctrl`/`Cmd` + `A` | **Select all** (press ☑ again to clear). |
+| The **checkbox** at the start of the selection bar, or `Ctrl`/`Cmd` + `A` | **Select all** (click it again to clear; it shows a dash while only some rows are selected). There is no permanent select-all button: the checkbox appears once at least one item is selected. |
 | `Esc` | Clear the selection (a second `Esc` closes the browser). `Delete` deletes the selection. |
 | **Phone / tablet:** long-press a row | Select it, then **drag without lifting** to sweep over more rows. After that a tap toggles rows, and tapping a name no longer opens it until you clear the selection (✕ or `Esc`). A tap on blank space does nothing while nothing is selected, so scrolling never selects by accident. |
 
-A bar appears above the list with the count and total size and these actions: **All**, **Compress**, **Extract**
+A bar appears above the list (only while something is selected) with the select-all checkbox, the count and total
+size and these actions: **Compress**, **Extract**
 (only when every selected item is an archive), **Properties** (only when **exactly one** item is selected),
 **Delete** (one confirmation for everything) and ✕.
 
@@ -444,7 +448,7 @@ Options for `add` (put them **before** the command; `--` ends the options):
 |---|---|
 | `--vm <name>` | run inside that VM (default: your current system) |
 | `--host` | run on the server itself (**admins only**) |
-| `--cwd <dir>` | working directory (default: `/root` in a VM, the workspace on the host) |
+| `--cwd <dir>` | working directory (default: `/root` in a VM, `/home/rconsole` on the host) |
 | `--env KEY=VALUE` | environment variable (repeatable) — good for bot tokens |
 | `--expose PORT:NAME` | publish the app at `/NAME/` (like [`expose`](#expose)) |
 | `--no-autostart` | create it stopped; start with `service start` |

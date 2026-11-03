@@ -1,6 +1,6 @@
-<p align="center"><img src="static/logo.png" alt="rconsole logo" width="140"></p>
+<p align="center"><img src="static/logo.png" alt="Rconsole logo" width="140"></p>
 
-# rconsole — free hosting for your bots, websites and workers
+# Rconsole — free hosting for your bots, websites and workers
 
 > 🆓 **Start here → [FREE_HOSTING.md](FREE_HOSTING.md)** (host on Render's free tier from your phone) ·
 > 📦 **Other hosts** → [DEPLOY.md](DEPLOY.md) ·
@@ -8,7 +8,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.3.6** · MIT licensed
+**Version 1.3.7** · MIT licensed
 
 ## Why this exists
 
@@ -17,7 +17,7 @@ are never free. If you have no budget, that leaves you with nothing: you cannot 
 queue worker or an API with a background job anywhere, because every free plan sleeps, wipes its disk, and gives
 you no shell.
 
-rconsole is built for exactly that person. Put it on **one free web service** (Render's free tier is the
+Rconsole is built for exactly that person. Put it on **one free web service** (Render's free tier is the
 reference) and you get a small always-on Linux server that you control **from your phone, from anywhere**:
 
 * **A real terminal and your own Linux systems** (Debian, Ubuntu, Kali, Alpine) where you are `root` and can
@@ -37,7 +37,7 @@ decides, and the VM is a compatibility layer rather than a hard sandbox. FREE_HO
 
 ## What it is
 
-rconsole is a Flask web application that exposes a **Linux console** in the browser. It blends two modes:
+Rconsole is a Flask web application that exposes a **Linux console** in the browser. It blends two modes:
 
 1. **Line-mode console** — a stateful shell (`cd`, `help`, services, hosted-app management, user
    administration, background jobs, an AI agent) implemented natively in Python.
@@ -48,7 +48,7 @@ Commands run on one of two **targets**:
 
 | Target | What it is | Who |
 |--------|------------|-----|
-| `host` | The machine rconsole runs on, with the server's privileges | admins |
+| `host` | The machine Rconsole runs on, with the server's privileges | admins |
 | `vm`   | **Your own Linux system** (Debian by default) where you are `root` and can `apt install` anything — works even on locked-down hosts such as Render | everyone |
 
 ---
@@ -72,7 +72,7 @@ Commands run on one of two **targets**:
 - **`expose <port> <name>`**: run any server you like (`python main.py &`, `npm run dev`, …) on the host or in a
   VM and publish it at `https://<domain>/<name>/` — private by default, `--public` for admins.
 - **`neofetch` / `fetch`** that follow your target (the VM's own system in `vm`
-  mode, rconsole's in `host` mode) and adapt to phone-sized screens.
+  mode, Rconsole's in `host` mode) and adapt to phone-sized screens.
 - Tabs, each owning its own terminal session that keeps running in the
   background and reappears when you switch back.
 - Native, stateful console commands plus a real shell passthrough (pipes,
@@ -110,7 +110,7 @@ uv sync                      # create the environment
 uv run python main.py        # http://127.0.0.1:5000
 ```
 
-Log in as **`ark` / `ark`**. rconsole immediately asks you to replace that
+Log in as **`ark` / `ark`**. Rconsole immediately asks you to replace that
 password (`sudo cpass`) before anything else works. To skip the default
 entirely, set `RCONSOLE_ADMIN_PASSWORD` before the first start.
 
@@ -156,6 +156,7 @@ Everything is configured through environment variables (see `config.py`).
 | `RCONSOLE_MAX_USERS` | Account cap — this is a one-person / small-team tool | `10` |
 | `RCONSOLE_MAX_UPLOAD_MB` | Largest single file the file browser's upload accepts | `64` |
 | `RCONSOLE_MAX_EXTRACT_MB` | Most an archive may expand to when extracted in the file browser (zip-bomb guard) | `2048` |
+| `RCONSOLE_HOST_HOME` | Where the host shell starts (the Docker image links it to the persistent workspace); falls back to `<data>/workspace` if it is missing or not writable | `/home/rconsole` |
 | `RCONSOLE_DEFAULT_SYSTEM` | System `vm install` uses by default (`alpine` suits 512 MB instances) | `debian` |
 | `RCONSOLE_SUPERVISOR` | Run the service supervisor | `1` |
 | `RCONSOLE_ALLOWED_ORIGINS` | Extra hostnames the console is served from (comma separated). Auto-detected via `Host`, `X-Forwarded-Host` and Render's hostname; set it only if you still see `cross-origin request blocked` | – |
@@ -167,7 +168,7 @@ Everything is configured through environment variables (see `config.py`).
 | `RCONSOLE_VM_ROOTFS_URL` / `RCONSOLE_VM_ROOTFS_SHA256` | Use your own root filesystem tarball (e.g. Debian) | Alpine latest-stable |
 | `RCONSOLE_VM_PROOT` | Path to a `proot` binary | auto-detect / download |
 
-Secrets that rconsole generates are stored `0600` in the data dir, so sessions
+Secrets that Rconsole generates are stored `0600` in the data dir, so sessions
 and password hashes survive restarts and are shared by every process. They are
 **never** passed to user commands or hosted apps.
 
@@ -272,7 +273,7 @@ ark@debian:/root$ python3 --version
 Each system is a root filesystem run under [proot](https://proot-me.github.io/)
 (user-space `chroot` + fake root, no kernel privileges). The file navigator,
 editor, `fm`, `cd` and the agent are all confined to the chosen system's
-filesystem — `..` and symlinks cannot escape it. rconsole uses **proot 5.5.0**: on
+filesystem — `..` and symlinks cannot escape it. Rconsole uses **proot 5.5.0**: on
 x86-64 it downloads that exact, checksum-verified build the first time it is
 needed, because older proots (such as the one Ubuntu/Debian package) cannot run
 Ubuntu 26.04's Rust-based coreutils (`coreutils: unknown program 'prooted-…'`).
@@ -329,10 +330,10 @@ Things to know:
 they look right on a phone as well as a desktop:
 
 - **In a VM** they show that VM's own system — distro, package count, shell — by
-  running a small `rfetch` shim that rconsole installs inside every VM. The same
+  running a small `rfetch` shim that Rconsole installs inside every VM. The same
   `neofetch` works when you type it inside `vm shell`, whichever system you chose.
-- **On the host** they show rconsole's own summary of the server.
-- `rfetch` always shows rconsole's. Flags: `--no-logo`, `--plain` (VM shim).
+- **On the host** they show Rconsole's own summary of the server.
+- `rfetch` always shows Rconsole's. Flags: `--no-logo`, `--plain` (VM shim).
 
 Layout is chosen from your screen width: logo beside the details on wide screens,
 a short logo above on medium ones, and details only (long values shortened with
@@ -366,10 +367,10 @@ calling the terminal websocket or the file APIs directly.
 | `service add\|list\|start\|stop\|restart\|logs\|rm` | Supervised bots/workers — see [COMMANDS.md](COMMANDS.md#service). Everyone. |
 | `keepalive` · `sudo backup` · `sudo reboot --yes` | Stay awake, back up/restore, restart in place — see [FREE_HOSTING.md](FREE_HOSTING.md). |
 | `expose <port> <name>` · `expose list` · `expose rm <name>` | Publish a server you started at `/<name>/` — see [Hosting web apps](#hosting-web-apps). Everyone. |
-| `version` | Print the rconsole version. |
+| `version` | Print the Rconsole version. |
 | `rconsole update [--check\|--yes\|--rollback]` | Check for a new release and update to it (admins) — see [Updating rconsole](#updating-rconsole). |
 | `vm …` | Your systems (`vm list`, `vm install`, `vm shell`, `vm use`, `vm doctor`, …) — see above. Available to everyone. |
-| `neofetch` / `fetch` / `rfetch` | System summary: your VM's (in `vm` mode) or rconsole's (`host` mode); `rfetch` is always rconsole's. Fits your screen width. |
+| `neofetch` / `fetch` / `rfetch` | System summary: your VM's (in `vm` mode) or Rconsole's (`host` mode); `rfetch` is always Rconsole's. Fits your screen width. |
 | `<cmd> &`, `jobs`, `jobout %n`, `jobtail %n`, `fg %n`, `kill %n` | Background jobs. |
 | `logout` | Log out (anyone). |
 | `sudo cpass` / `cuser` | Change a password / rename a user (state and VM move with the name). |
@@ -401,9 +402,9 @@ append ` &` to run longer ones as a job.
 
 ## Hosting web apps
 
-Two ways, both behind rconsole's login (unless you use `expose --public`):
+Two ways, both behind Rconsole's login (unless you use `expose --public`):
 
-**`expose` — you start the program, rconsole publishes it.** Works for anything that serves HTTP, on the host
+**`expose` — you start the program, Rconsole publishes it.** Works for anything that serves HTTP, on the host
 or inside any VM:
 
 ```text
@@ -416,7 +417,7 @@ Apps that don't know they live under a path prefix can use `expose 8000 myapp --
 links in HTML/CSS). The proxy sends `X-Forwarded-Prefix`, so prefix-aware frameworks work natively. Details and
 limits (no WebSockets) are in [COMMANDS.md](COMMANDS.md#expose).
 
-**`service` — rconsole starts and keeps the app running** (this replaces `sudo serve` / `sudo gunicorn`,
+**`service` — Rconsole starts and keeps the app running** (this replaces `sudo serve` / `sudo gunicorn`,
 removed in 1.2.2):
 
 ```text
@@ -427,7 +428,7 @@ $ service logs app
 
 - Apps bind `127.0.0.1:<port>` and are reachable only through the proxy at
   `https://<your-domain>/<name>/…`, and only by logged-in users.
-- The proxy never forwards rconsole's own session cookie to your app, and
+- The proxy never forwards Rconsole's own session cookie to your app, and
   passes multiple `Set-Cookie` headers through intact (Django's `csrftoken` +
   `sessionid` work).
 
@@ -435,7 +436,7 @@ $ service logs app
 
 ## AI agent (`sudo agent`) — in-console, no PTY
 
-rconsole ships a **native, line-mode AI coding agent** so you get tool-using
+Rconsole ships a **native, line-mode AI coding agent** so you get tool-using
 AI assistance without fighting a browser-hostile PTY TUI. It calls an
 OpenAI-compatible (or Anthropic) API directly and can run tools **inside
 your current target (host or VM — see `vm mode`)** — `bash`, `read_file`, `write_file`,
@@ -566,7 +567,7 @@ Config files live in [`deploy/`](deploy/) (`docker-compose.yml`, `Caddyfile`,
 
 ## Security model
 
-What rconsole enforces, and what it does not.
+What Rconsole enforces, and what it does not.
 
 **Authentication**
 - PBKDF2-HMAC-SHA256 (210k rounds), per-user salt + a random pepper that is
@@ -619,7 +620,7 @@ a locally served root filesystem (download → checksum → extract → run).
 
 ---
 
-## Updating rconsole
+## Updating Rconsole
 
 ```text
 rconsole update --check     # is a newer release available? (everyone)
@@ -641,10 +642,10 @@ rconsole](COMMANDS.md#updating-rconsole). Every feature is catalogued in [FEATUR
 |---------|-------------|
 | "Password change required" / commands refused after login | You used the default password. Run `sudo cpass`. |
 | `host access is restricted to admins` | Non-admins use the VM: `vm install`, then `vm shell`. |
-| `vm install` fails: "proot cannot run" | Either the platform blocks `ptrace` (rconsole already retries without seccomp acceleration — use a VPS then), or the proot is too old (`unknown program 'prooted-…'`): rconsole fetches 5.5.0 on x86-64; elsewhere install a newer one. |
+| `vm install` fails: "proot cannot run" | Either the platform blocks `ptrace` (Rconsole already retries without seccomp acceleration — use a VPS then), or the proot is too old (`unknown program 'prooted-…'`): Rconsole fetches 5.5.0 on x86-64; elsewhere install a newer one. |
 | `bash: cannot set terminal process group … no job control` | Fixed in current versions (the terminal now gets a controlling terminal). Update. |
-| Kali prints "mkdir: cannot create directory '/dev/net'" or a "minimal installation" banner | Fixed: every VM gets a private writable `/dev/net` and the banner is hidden by `~/.hushlogin`. Update rconsole; new VMs get it at install, existing ones on the next launch (the banner file: `touch ~/.hushlogin`). |
-| `apt install` stops at "Please select the geographic area" | Fixed: VMs never ask questions (`DEBIAN_FRONTEND=noninteractive`). Update rconsole. |
+| Kali prints "mkdir: cannot create directory '/dev/net'" or a "minimal installation" banner | Fixed: every VM gets a private writable `/dev/net` and the banner is hidden by `~/.hushlogin`. Update Rconsole; new VMs get it at install, existing ones on the next launch (the banner file: `touch ~/.hushlogin`). |
+| `apt install` stops at "Please select the geographic area" | Fixed: VMs never ask questions (`DEBIAN_FRONTEND=noninteractive`). Update Rconsole. |
 | `pip install psycopg2` fails to build ("pg_config executable not found") | Run `vm setup python` first (installs the compiler and `libpq-dev`/`postgresql-dev`). |
 | A VM command hangs or "timed out" | `apt`/builds can exceed the 60–90 s limit for plain commands: use `vm shell` or add `&`. `vm doctor` shows if DNS/network is the cause. |
 | "Choose a system" dropdown keeps appearing | You have several VMs and no default: pick one (it is remembered), or `vm use <name>`. |
@@ -657,7 +658,7 @@ rconsole](COMMANDS.md#updating-rconsole). Every feature is catalogued in [FEATUR
 | Hosted app exits immediately | The error shows the app's log; in VM mode install `python3`/`gunicorn` in the VM (`vm setup python`). `service logs <name>` shows its output. |
 | Instance falls asleep / bots stop after a while | `keepalive` — is there a public URL and is it enabled? See [FREE_HOSTING.md](FREE_HOSTING.md#stay-awake). |
 | Everything is gone after a redeploy | Backups weren't configured (`sudo backup` shows what's missing) — see [FREE_HOSTING.md](FREE_HOSTING.md). |
-| `uv: command not found` (or `cargo`, `bun`, …) right after installing it in a VM | Fixed: plain commands now have `~/.local/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/go/bin` on `PATH` and read `~/.profile`. Update rconsole. (Interactive `vm shell` always worked because the installer's `source` line ran there.) |
+| `uv: command not found` (or `cargo`, `bun`, …) right after installing it in a VM | Fixed: plain commands now have `~/.local/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/go/bin` on `PATH` and read `~/.profile`. Update Rconsole. (Interactive `vm shell` always worked because the installer's `source` line ran there.) |
 | `expose` link gives 502 | Nothing is listening on that port yet (`expose list` shows `[down]`) — start your app. |
 | Hosted app not reachable | Is it running (`service list`) and exposed (`expose list`)? Open `/<name>/`. |
 | `rconsole update` says "this is a git checkout" | Update that install with `git pull` (or `git checkout vX.Y.Z`); `--force` overwrites its files from the release archive. |

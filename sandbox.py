@@ -783,16 +783,45 @@ def _seed_home(rootfs, home, vm):
     except OSError:
         pass
     _write_env_file(home)
-    rc = home / ".bashrc"
-    marker = "# rconsole prompt"
+    _ensure_prompt(home)
+
+
+PROMPT_FILE = ".rconsole_prompt"
+PROMPT_SOURCE = f'[ -r "$HOME/{PROMPT_FILE}" ] && . "$HOME/{PROMPT_FILE}"   # rconsole prompt'
+# The interactive prompt says which system you are in (<name>@root:<dir>), not the machine's long host id.
+# bash gets colours; busybox ash / dash only understand the plain form.
+PROMPT_FILE_TEXT = r"""# Managed by rconsole: the prompt shows which system you are in, e.g. ubuntu@root:~#
+case $- in
+  *i*)
+    if [ -n "$BASH_VERSION" ]; then
+      PS1='\[\e[1;32m\]${RCONSOLE_VM:-vm}@root\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ '
+    else
+      PS1='${RCONSOLE_VM:-vm}@root:\w\$ '
+    fi
+    ;;
+esac
+"""
+
+
+def _ensure_prompt(home):
+    """Create/refresh ``~/.rconsole_prompt`` and make ``.bashrc`` / ``.profile`` read it (once).
+
+    Also retires the older per-VM ``PS1=`` line this module used to append to ``.bashrc``."""
+    home = Path(home)
     try:
-        text = rc.read_text() if rc.exists() else ""
-        if marker not in text:
-            with open(rc, "a") as f:
-                f.write(f"\n{marker}\n"
-                        f"PS1='\\[\\e[1;32m\\]\\u@{vm}\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]\\$ '\n")
+        path = home / PROMPT_FILE
+        if not path.exists() or path.read_text() != PROMPT_FILE_TEXT:
+            path.write_text(PROMPT_FILE_TEXT)
+        for name in (".bashrc", ".profile"):
+            rc = home / name
+            text = rc.read_text() if rc.exists() else ""
+            new = re.sub(r"\n# rconsole prompt\nPS1=[^\n]*\n", "\n", text)
+            if PROMPT_FILE not in new:
+                new = new.rstrip("\n") + "\n\n" + PROMPT_SOURCE + "\n"
+            if new != text:
+                rc.write_text(new)
         prof = home / ".profile"
-        ptext = prof.read_text() if prof.exists() else ""
+        ptext = prof.read_text()
         if ".bashrc" not in ptext:
             with open(prof, "a") as f:
                 f.write('\n[ -n "$BASH_VERSION" ] && [ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"\n')
@@ -869,6 +898,8 @@ def sync_guest_tools(sid, vm=None):
         # that it is the user's file (deleting it brings the banner back for good).
         home = home_path(sid, vm)
         _write_env_file(home)               # existing VMs pick this up on next launch
+        if home.is_dir():
+            _ensure_prompt(home)
         done = home / ".rconsole-hush-done"
         if home.is_dir() and not done.exists():
             (home / ".hushlogin").touch(exist_ok=True)

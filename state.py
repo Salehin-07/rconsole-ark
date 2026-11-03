@@ -41,10 +41,16 @@ _flusher_started = False
 
 
 def default_cwd():
-    """Where host (passthrough) commands start: the persistent workspace.
+    """Where host (passthrough) commands start: ``/home/rconsole`` when that exists and is writable
+    (in Docker it is the persistent workspace), else the workspace in the data dir.
 
-    It lives in the data dir, so it is part of every backup (unlike the app
+    The workspace lives in the data dir, so it is part of every backup (unlike the app
     directory, which a redeploy replaces)."""
+    try:
+        if os.path.isdir(config.HOST_HOME) and os.access(config.HOST_HOME, os.R_OK | os.W_OK | os.X_OK):
+            return config.HOST_HOME
+    except OSError:
+        pass
     try:
         config.WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
         return str(config.WORKSPACE_DIR)
@@ -349,6 +355,24 @@ def set_terminal(sess, username, tab_id, cmd, cwd):
         tab["cwd"] = cwd
         save_now(username)
         return tab
+
+
+def end_terminal(username, tab_id, cwd=None):
+    """An interactive session ended: turn its tab back into a plain console tab.
+
+    The tab (its directory, history) stays, so the next command runs where the user was instead of in
+    a freshly created tab at the default directory. ``cwd`` (when known) is where the shell ended up."""
+    with STATE_LOCK:
+        sess = STATE.get(username)
+        tab = sess["tabs"].get(tab_id) if sess else None
+        if tab is None:
+            return False
+        tab["isTerminal"] = False
+        tab["cmd"] = ""
+        if cwd:
+            tab["cwd"] = cwd
+        save_now(username)
+        return True
 
 
 def remove_tab(username, tab_id):

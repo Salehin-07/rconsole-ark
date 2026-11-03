@@ -1,6 +1,6 @@
 {
-  "name": "rconsole",
-  "short_name": "rconsole",
+  "name": "Rconsole",
+  "short_name": "Rconsole",
   "description": "A Linux console in your browser: host bots, websites and workers from anywhere.",
   "start_url": "/console",
   "scope": "/",

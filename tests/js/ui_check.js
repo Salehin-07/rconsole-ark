@@ -410,18 +410,24 @@ async function load(phone) {
     click(list);
     check("clicking the empty area clears the selection", selected().length === 0 && $("files-sel").hidden === true);
 
-    // -- select all
-    $("files-selall").click();
-    check("the select-all button selects every row", selected().length === 5 && $("files-selall").classList.contains("on"));
-    $("files-selall").click();
-    check("pressing it again clears", selected().length === 0);
+    // -- select all: no permanent button; the checkbox shows up with the selection bar
+    check("no select-all button in the toolbar", !$("files-selall") && !$("fsel-all"));
+    check("the select-all checkbox is hidden while nothing is selected", $("files-sel").hidden === true);
+    click(fillOf(1));
+    check("one selected row: checkbox shown, partially checked", $("files-sel").hidden === false
+      && $("fsel-check").indeterminate === true && $("fsel-check").checked === false);
+    $("fsel-check").click();
+    check("the checkbox selects every row", selected().length === 5 && $("fsel-check").checked === true
+      && $("fsel-check").indeterminate === false);
+    $("fsel-check").click();
+    check("clicking it again clears (and hides the bar)", selected().length === 0 && $("files-sel").hidden === true);
     key(list, "a", { ctrlKey: true });
     check("Ctrl+A selects everything", selected().length === 5);
     check("Extract is hidden when a folder / plain files are included", $("fsel-extract").hidden === true);
     key(list, "Escape");
     check("Esc clears the selection first", selected().length === 0 && !$("files").hidden);
-    $("fsel-all").click();
-    check("the bar's All button selects everything too", selected().length === 5);
+    key(list, "a", { ctrlKey: true });
+    check("Ctrl+A selects everything again", selected().length === 5);
     $("fsel-clear").click();
     check("the bar's cross clears it", selected().length === 0);
 

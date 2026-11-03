@@ -87,8 +87,8 @@ You are done: the site stays awake, and a redeploy no longer costs you your work
 
 ## Run things
 
-Everything below keeps working across restarts once backups are on. Work in `/root` of a VM (or the workspace on
-the host): that is what gets saved.
+Everything below keeps working across restarts once backups are on. Work in `/root` of a VM (or `/home/rconsole` on
+the host: the persistent workspace): that is what gets saved.
 
 ### A static website
 ```text

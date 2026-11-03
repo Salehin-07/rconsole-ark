@@ -1,6 +1,6 @@
 # rconsole features
 
-Every feature of rconsole 1.3.6, by area. This is the **map**; the details live in
+Every feature of rconsole 1.3.7, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.
@@ -43,7 +43,7 @@ root; everyone). One worker process with threads; all state in one data director
 |---|---|
 | **Line mode** | Type a command, get its output. `cd` is stateful per tab; pipes, redirects, `&&`, `;` work (a real shell runs anything that is not a built-in). |
 | **Tabs** | Each tab has its own directory, history and terminal. Terminals keep running in the background and re-attach when you come back; closing a tab kills its terminal. |
-| **Real terminal** | Interactive programs open in an xterm.js window with a real PTY (ConPTY on Windows): job control, Ctrl+C, resize, colours, a ✕ button (or Esc) to close. See [section 12](#12-running-real-programs). |
+| **Real terminal** | Interactive programs open in an xterm.js window with a real PTY (ConPTY on Windows): job control, Ctrl+C, resize, colours, a ✕ button (or Esc) to close; the console carries on in the directory you were in. See [section 12](#12-running-real-programs). |
 | **Sessions that survive** | Tabs, history, aliases and running terminals are kept across reloads and logouts. |
 | **`help`** | Lists the commands; `help` also prints the version. |
 | **`clear` / `cls`** | Clears the screen. |
@@ -70,7 +70,7 @@ root; everyone). One worker process with threads; all state in one data director
 | **Editor: touch symbol bar** | Tab, outdent, undo/redo, Find, comment toggle and the symbols that are awkward on a phone keyboard (brackets, quotes, `;` `:` `=` `/` `\` and more) above the keyboard. |
 | **`fm [path]`** | In-console file manager: `cd`, `up`, `open`, `cat`, `rm`, `mkdir`, `touch`, `mv`, `?`, `q`; the directory carries over when you quit. |
 | **📁 file browser** | Visual navigator: browse, open in the editor, create, rename, delete; download and upload (see COMMANDS.md). |
-| **File manager: selecting** | Click the blank space of a row to select it (the name still opens it); Ctrl/Cmd+click toggles, Shift+click selects a range, **drag a rectangle** to select many (Ctrl/Shift adds), double-click opens. On phones **long-press** a row, then drag to sweep over more rows; taps then toggle. **Select all** (☑ button, Ctrl/Cmd+A), Esc clears, Delete key deletes. |
+| **File manager: selecting** | Click the blank space of a row to select it (the name still opens it); Ctrl/Cmd+click toggles, Shift+click selects a range, **drag a rectangle** to select many (Ctrl/Shift adds), double-click opens. On phones **long-press** a row, then drag to sweep over more rows; taps then toggle. **Select all** (a checkbox at the start of the selection bar, shown once something is selected; Ctrl/Cmd+A), Esc clears, Delete key deletes. |
 | **File manager: compress** | Selected items become one archive in the same folder: **zip, tar, tar.gz, tar.bz2, tar.xz**, tar.zst (Python 3.14+), **7z** (needs `bsdtar`; admins can also use 7-Zip), RAR (admins with the `rar` tool installed), and one-file **gz, bz2, xz, zst**. Symlinks are stored as links, never followed; an existing archive is never overwritten (`name (2).zip`). |
 | **File manager: extract** | zip (also jar/war/apk/whl), tar family, gz/bz2/xz/zst, and through `bsdtar` **7z, RAR, CAB, ISO, CPIO, DEB, RPM, LZH, XAR**. *Extract to a new folder* (uses the archive's own single top folder if it has one) or *Extract here* (never overwrites). |
 | **File manager: safe extraction** | Every entry is created with `dir_fd` + `O_NOFOLLOW`: `..`, absolute and drive-letter names are refused, nothing is written through a symlink, devices/FIFOs/hard links are skipped, setuid bits dropped. Zip-bomb guards: expanded size (`RCONSOLE_MAX_EXTRACT_MB`), 200,000 entries, free disk space. Confined (VM) users only get `bsdtar` for external formats. |
@@ -248,7 +248,7 @@ All through environment variables (`config.py`); the full table with defaults is
 |---|---|
 | Server | `PORT`, `RCONSOLE_DATA_DIR`, `RCONSOLE_THREADS`, `RCONSOLE_TRUST_PROXY`, `RCONSOLE_ALLOWED_ORIGINS`, `RCONSOLE_COOKIE_SECURE`, `RCONSOLE_PUBLIC_URL` |
 | Secrets and login | `RCONSOLE_SECRET`, `RCONSOLE_PEPPER`, `RCONSOLE_ADMIN_PASSWORD`, `RCONSOLE_MIN_PASSWORD`, `RCONSOLE_LOGIN_ATTEMPTS`, `RCONSOLE_LOGIN_LOCKOUT`, `RCONSOLE_MAX_USERS` |
-| Systems | `RCONSOLE_VM`, `RCONSOLE_DEFAULT_MODE`, `RCONSOLE_DEFAULT_SYSTEM`, `RCONSOLE_ALLOW_USER_HOST`, `RCONSOLE_USER_VM_PROC`, `RCONSOLE_RUN_AS_ROOT`, `RCONSOLE_VM_ROOTFS_URL`, `RCONSOLE_VM_ROOTFS_SHA256`, `RCONSOLE_VM_PROOT` |
+| Systems | `RCONSOLE_VM`, `RCONSOLE_DEFAULT_MODE`, `RCONSOLE_DEFAULT_SYSTEM`, `RCONSOLE_ALLOW_USER_HOST`, `RCONSOLE_USER_VM_PROC`, `RCONSOLE_RUN_AS_ROOT`, `RCONSOLE_HOST_HOME`, `RCONSOLE_VM_ROOTFS_URL`, `RCONSOLE_VM_ROOTFS_SHA256`, `RCONSOLE_VM_PROOT` |
 | Services | `RCONSOLE_SUPERVISOR` |
 | Files | `RCONSOLE_MAX_UPLOAD_MB`, `RCONSOLE_MAX_EXTRACT_MB` |
 | Staying alive | `RCONSOLE_KEEPALIVE`, `RCONSOLE_KEEPALIVE_INTERVAL`, `RCONSOLE_KEEPALIVE_EXTRA` |

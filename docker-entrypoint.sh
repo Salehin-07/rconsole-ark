@@ -19,6 +19,18 @@ SYNC="python /app/updater.py sync"
 DATA="${RCONSOLE_DATA_DIR:-/data}"
 mkdir -p "$DATA"
 
+# The host shell starts in /home/rconsole. Make that the persistent workspace ($DATA/workspace, which is
+# what backups include) instead of a throw-away directory inside the image. Whatever the image put in the
+# home directory (.bashrc, .profile, ...) is kept. Never fatal.
+if [ "$(id -u)" = "0" ] && [ ! -L /home/rconsole ]; then
+    mkdir -p "$DATA/workspace"
+    if [ -d /home/rconsole ]; then
+        cp -an /home/rconsole/. "$DATA/workspace/" 2>/dev/null || true
+        rm -rf /home/rconsole
+    fi
+    ln -s "$DATA/workspace" /home/rconsole 2>/dev/null || echo "[rconsole] could not link /home/rconsole" >&2
+fi
+
 if [ "$(id -u)" = "0" ] && [ "${RCONSOLE_RUN_AS_ROOT:-0}" != "1" ]; then
     if [ "$(stat -c %u "$DATA")" != "10001" ]; then
         chown -R 10001:10001 "$DATA"

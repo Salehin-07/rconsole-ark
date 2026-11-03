@@ -95,8 +95,11 @@ class AuthFlowTests(Base):
         for needle in ('id="editor-find"', 'id="ef-query"', 'id="editor-keys"', 'id="editor-statusbar"',
                        'id="es-fs-up"', 'id="es-fs-down"', 'id="es-indent"', 'id="editor-curline"',
                        'id="files-sel"', 'id="fsel-compress"', 'id="fsel-extract"', 'id="fsel-props"',
-                       'id="fsel-delete"', 'id="files-selall"', 'id="files-dialog"'):
+                       'id="fsel-delete"', 'id="fsel-check"', 'id="files-dialog"'):
             self.assertIn(needle, page)
+        # no always-visible Select all / All buttons: the checkbox lives in the selection bar
+        self.assertNotIn('id="files-selall"', page)
+        self.assertNotIn('id="fsel-all"', page)
         # the font buttons live in the editor's top bar (next to Save / Close), not in the status bar
         bar = page[page.index('id="editor-bar"'):page.index('id="editor-find"')]
         self.assertIn('id="es-fs-up"', bar)

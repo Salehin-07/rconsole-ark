@@ -87,12 +87,12 @@ def attach(ws, sid, tab_id, cmd, cwd, cols=80, rows=24):
                 except Exception:
                     pass
             elif t == "kill":
-                # User explicitly closed the tab: stop its processes and remove
-                # the session + server-side tab so nothing lingers.
+                # The terminal was closed (or ended): stop its processes and drop the session. The tab itself
+                # stays (keeping its directory); closing the tab for real goes through /api/close_tab.
                 session.kill()
                 with SESSIONS_LOCK:
                     SESSIONS.pop((sid, tab_id), None)
-                state.remove_tab(sid, tab_id)
+                state.end_terminal(sid, tab_id, getattr(session, "last_cwd", None))
                 break
     finally:
         # Detach only: the session lives on so the user can return to it.

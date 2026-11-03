@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>rconsole — {{ username }}@rconsole</title>
+  <title>Rconsole — {{ username }}@rconsole</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=cache_v) }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='xterm.css', v=cache_v) }}">
   <link rel="manifest" href="/static/manifest.webmanifest">
@@ -13,7 +13,7 @@
   <meta name="theme-color" content="#0d1117">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="rconsole">
+  <meta name="apple-mobile-web-app-title" content="Rconsole">
 </head>
 <body>
   <div id="app">
@@ -47,7 +47,6 @@
       <div id="files-bar">
         <span id="files-crumb" title="current directory"></span>
         <span class="editor-spacer"></span>
-        <button id="files-selall" type="button" title="Select all (Ctrl/Cmd+A)" aria-label="Select all">☑</button>
         <button id="files-up" type="button" title="Up one directory">⬆</button>
         <button id="files-newfile" type="button" title="New file">＋📄</button>
         <button id="files-newdir" type="button" title="New folder">＋📁</button>
@@ -66,9 +65,9 @@
         <input id="files-pickdir" type="file" multiple webkitdirectory hidden>
       </div>
       <div id="files-sel" hidden>
+        <input id="fsel-check" type="checkbox" title="Select all / none (Ctrl/Cmd+A)" aria-label="Select all items in this folder">
         <span id="fsel-count" aria-live="polite">0 selected</span>
         <span class="editor-spacer"></span>
-        <button id="fsel-all" type="button" title="Select everything in this folder">All</button>
         <button id="fsel-compress" type="button" title="Compress the selected items into an archive">Compress</button>
         <button id="fsel-extract" type="button" title="Extract the selected archive(s)" hidden>Extract</button>
         <button id="fsel-props" type="button" title="Properties of the selected item" hidden>Properties</button>

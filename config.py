@@ -136,6 +136,9 @@ LOG_DIR = DATA_DIR / "logs"
 # Where host-mode commands start (and what backups include): anything you keep
 # here — bots, sites, scripts — is part of the data that survives a restore.
 WORKSPACE_DIR = DATA_DIR / "workspace"
+# Where the host shell starts. In the Docker image /home/rconsole is the persistent workspace (the entrypoint
+# links it to $DATA/workspace); anywhere it does not exist or is not writable, the workspace dir is used.
+HOST_HOME = os.environ.get("RCONSOLE_HOST_HOME") or "/home/rconsole"
 
 MIN_PASSWORD_LEN = max(4, env_int("RCONSOLE_MIN_PASSWORD", 8))
 # rconsole is built for one person or a small team on a small (often free)

@@ -69,6 +69,7 @@ class TermSession:
         self.alive = True
         self.exited = False
         self.vm = ""                # the VM this terminal runs in ("" = the host)
+        self.last_cwd = None        # host shells: the directory the shell was last seen in
         self._spawn()
         threading.Thread(target=self._reader, daemon=True).start()
         threading.Thread(target=self._watchdog, daemon=True).start()
@@ -177,6 +178,29 @@ class TermSession:
             self._append(s)
             self._broadcast(s)
 
+    # ------------------------------------------------------------ cwd tracking
+    def _sample_cwd(self):
+        """Remember a host shell's current directory (read from /proc while it runs: once the shell
+        has exited it is too late). VM shells run under proot, whose real directory is not a guest
+        path, so those keep the directory the terminal was opened in."""
+        if self.vm or sys.platform == "win32" or self.proc is None:
+            return
+        try:
+            d = os.readlink("/proc/%d/cwd" % self.proc.pid)
+        except OSError:
+            return
+        if not (d and os.path.isdir(d)):
+            return
+        # /proc shows the resolved path: keep the user's spelling when the start dir is a symlink
+        # (/home/rconsole -> the persistent workspace).
+        try:
+            base = os.path.realpath(self.cwd)
+            if base != self.cwd and (d == base or d.startswith(base + os.sep)):
+                d = self.cwd + d[len(base):]
+        except (OSError, TypeError):
+            pass
+        self.last_cwd = d
+
     # --------------------------------------------------------------- watchdog
     def _watchdog(self):
         rc = None
@@ -185,8 +209,14 @@ class TermSession:
                 time.sleep(0.2)
         else:
             try:
-                self.proc.wait()
-                rc = self.proc.returncode
+                import subprocess
+                while True:
+                    self._sample_cwd()
+                    try:
+                        rc = self.proc.wait(timeout=0.5)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
             except Exception:
                 pass
         self.stop.set()
@@ -210,6 +240,13 @@ class TermSession:
             )
         except Exception:
             pass
+        # Keep the tab (and where the shell ended up) so the line console carries on in the same
+        # directory instead of falling back to the default one.
+        try:
+            import state as _state
+            _state.end_terminal(self.sid, self.tab_id, self.last_cwd)
+        except Exception:
+            pass
         # Tell the client the process has exited so it can automatically return
         # to the line console instead of leaving the user stuck in the terminal
         # view (the "ws") with a dead session.
@@ -217,16 +254,13 @@ class TermSession:
             # Prefix control messages with SOH (\x01) so raw terminal output can
             # never be misinterpreted as a control frame (e.g. a program printing
             # the string '{"t":"exit"}' would otherwise kick the user to console).
-            self._broadcast("\x01" + json.dumps({"t": "exit"}))
+            self._broadcast("\x01" + json.dumps({"t": "exit", "cwd": self.last_cwd}))
         except Exception:
             pass
-        # A finished session can't be usefully re-attached, so tear it down
-        # server-side too (drop the in-memory session and the persisted tab).
+        # A finished session can't be usefully re-attached, so drop it from memory.
         try:
-            import state as _state
             with SESSIONS_LOCK:
                 SESSIONS.pop((self.sid, self.tab_id), None)
-            _state.remove_tab(self.sid, self.tab_id)
         except Exception:
             pass
         try:

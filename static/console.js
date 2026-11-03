@@ -914,7 +914,7 @@ async function openPty(cmd, tabId) {
       try {
         const msg = JSON.parse(e.data.slice(1));
         if (msg && msg.t === "exit") {
-          onPtyExit(tabId);
+          onPtyExit(tabId, msg.cwd);
         }
       } catch (err) { /* ignore malformed control frame */ }
       return;
@@ -1043,10 +1043,11 @@ function stripAnsi(s) {
 // The PTY process ended on its own (one-shot command, or the user quit a
 // full-screen program). Capture the output into the console's scrollback and
 // drop back to the line console so the user isn't stuck in the dead terminal.
-function onPtyExit(tabId) {
+function onPtyExit(tabId, cwd) {
   const t = tabs.find((x) => x.id === tabId);
   if (!t) return;
   t._exited = true;
+  if (cwd) t.cwd = cwd;               // stay where the shell ended up
   if (t.ptyText) {
     const lines = stripAnsi(t.ptyText).replace(/\r/g, "").split("\n");
     for (const l of lines) {
@@ -3133,7 +3134,9 @@ function applySelectionUI() {
   const items = selectedEntries();
   elFSel.hidden = items.length === 0;
   const total = filesState.entries.length;
-  $f("files-selall").classList.toggle("on", total > 0 && items.length === total);
+  const chk = $f("fsel-check");
+  chk.checked = total > 0 && items.length === total;
+  chk.indeterminate = items.length > 0 && items.length < total;
   if (!items.length) return;
   const d = FM.describeSelection(items);
   elFSelCount.textContent = d.count + (d.count === 1 ? " item" : " items") + " selected" + (d.files ? " · " + FM.fmtBytes(d.bytes) : "");
@@ -3626,8 +3629,7 @@ $f("fsel-extract").addEventListener("click", openExtractDialog);
 $f("fsel-props").addEventListener("click", () => showProperties(selectedEntries()[0]));
 $f("fsel-delete").addEventListener("click", deleteSelected);
 $f("fsel-clear").addEventListener("click", clearSelection);
-$f("fsel-all").addEventListener("click", selectAll);
-$f("files-selall").addEventListener("click", () => {
+$f("fsel-check").addEventListener("click", () => {
   const total = filesState.entries.length;
   if (total && filesState.selected.size === total) clearSelection(); else selectAll();
 });
