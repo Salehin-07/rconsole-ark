@@ -115,9 +115,13 @@ class MultiVm(unittest.TestCase):
 
     def test_home_gets_dotfiles_and_a_prompt_naming_the_vm(self):
         self.install("debian")
-        bashrc = (sandbox.home_path("alice", "debian") / ".bashrc").read_text()
-        self.assertIn("u@debian", bashrc)
-        self.assertIn(".bashrc", (sandbox.home_path("alice", "debian") / ".profile").read_text())
+        home = sandbox.home_path("alice", "debian")
+        # the prompt reads <system>@root and is loaded from both .bashrc and .profile
+        self.assertIn(".rconsole_prompt", (home / ".bashrc").read_text())
+        self.assertIn(".rconsole_prompt", (home / ".profile").read_text())
+        self.assertIn("${RCONSOLE_VM:-vm}@root", (home / ".rconsole_prompt").read_text())
+        self.assertEqual(sandbox._vm_env("alice", "debian")["RCONSOLE_VM"], "debian")
+        self.assertIn(".bashrc", (home / ".profile").read_text())
 
     def test_existing_vms_get_hushlogin_once(self):
         self.install("kali")
