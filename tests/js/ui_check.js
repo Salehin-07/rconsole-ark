@@ -414,8 +414,8 @@ async function load(phone) {
     check("no select-all button in the toolbar", !$("files-selall") && !$("fsel-all"));
     check("the select-all checkbox is hidden while nothing is selected", $("files-sel").hidden === true);
     click(fillOf(1));
-    check("one selected row: checkbox shown, partially checked", $("files-sel").hidden === false
-      && $("fsel-check").indeterminate === true && $("fsel-check").checked === false);
+    check("one selected row: checkbox shown, empty (only two states, never a dash)", $("files-sel").hidden === false
+      && $("fsel-check").indeterminate === false && $("fsel-check").checked === false);
     $("fsel-check").click();
     check("the checkbox selects every row", selected().length === 5 && $("fsel-check").checked === true
       && $("fsel-check").indeterminate === false);

@@ -224,7 +224,7 @@ The 📁 button (tab bar) opens a visual file browser. Besides browsing, creatin
 | `Shift` + click | Select the range from the last clicked row. |
 | **Drag** on blank space | A rectangle selects every row it touches (`Ctrl`/`Shift` + drag adds to the selection); it scrolls when you drag near the top or bottom. |
 | Double-click a row's blank space | Open it. |
-| The **checkbox** at the start of the selection bar, or `Ctrl`/`Cmd` + `A` | **Select all** (click it again to clear; it shows a dash while only some rows are selected). There is no permanent select-all button: the checkbox appears once at least one item is selected. |
+| The **checkbox** at the start of the selection bar, or `Ctrl`/`Cmd` + `A` | **Select all** (empty or ticked; click it again to clear). There is no permanent select-all button: the checkbox appears once at least one item is selected. |
 | `Esc` | Clear the selection (a second `Esc` closes the browser). `Delete` deletes the selection. |
 | **Phone / tablet:** long-press a row | Select it, then **drag without lifting** to sweep over more rows. After that a tap toggles rows, and tapping a name no longer opens it until you clear the selection (✕ or `Esc`). A tap on blank space does nothing while nothing is selected, so scrolling never selects by accident. |
 

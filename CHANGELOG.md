@@ -18,7 +18,7 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
   **This needs a redeploy / container restart** (the entrypoint runs at start).
 - **File manager:** the always-visible ☑ button next to the new file / folder buttons and the **All** button in the
   selection bar are gone. A **select-all checkbox** now appears at the start of the selection bar once at least one
-  item is selected (a dash while only some are), like other file managers. Ctrl/Cmd+A still works.
+  item is selected (empty, or ticked when everything is selected; clicking it selects all / none), like other file managers. Ctrl/Cmd+A still works.
 - The login logo is smaller (96 px, was 132 px).
 - The app is called **Rconsole** in the PWA manifest (installed app name), the home-screen title, the page titles
   and the README.

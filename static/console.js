@@ -3136,7 +3136,6 @@ function applySelectionUI() {
   const total = filesState.entries.length;
   const chk = $f("fsel-check");
   chk.checked = total > 0 && items.length === total;
-  chk.indeterminate = items.length > 0 && items.length < total;
   if (!items.length) return;
   const d = FM.describeSelection(items);
   elFSelCount.textContent = d.count + (d.count === 1 ? " item" : " items") + " selected" + (d.files ? " · " + FM.fmtBytes(d.bytes) : "");

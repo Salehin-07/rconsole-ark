@@ -1168,7 +1168,18 @@ body.touch #editor-bar .editor-fs-btn { min-width: 44px; font-size: 20px; paddin
 #files-sel button[hidden] { display: none; }
 #files-sel button:hover { border-color: var(--blue); }
 #files-sel button.danger:hover { border-color: var(--red); color: var(--red); }
-#fsel-check { width: 18px; height: 18px; margin: 0 8px 0 2px; accent-color: var(--blue); cursor: pointer; flex: 0 0 auto; }
+#fsel-check {
+  -webkit-appearance: none; appearance: none;
+  width: 20px; height: 20px; margin: 0 8px 0 2px; flex: 0 0 auto;
+  border: 2px solid var(--dim); border-radius: 5px; background: transparent;
+  cursor: pointer; position: relative;
+}
+#fsel-check:hover { border-color: var(--blue); }
+#fsel-check:checked { background: var(--blue); border-color: var(--blue); }
+#fsel-check:checked::after {
+  content: "✓"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: #0d1117; font-size: 14px; font-weight: 700; line-height: 1;
+}
 
 #files-band {
   position: absolute;
