@@ -56,8 +56,10 @@ source archive instead, or make the package public in the repository's *Packages
 **4. No Docker** — extract the archive, `uv sync`, then `uv run python serve.py`
 (see `deploy/rconsole.service` for systemd).
 
-**No budget?** rconsole is made to run your bots, sites and workers on a *free* tier (Render's free plan, with a
-built-in keep-alive and encrypted backups to a private git repo). Start with **`FREE_HOSTING.md`**.
+**No budget?** Rconsole is made to run your bots, sites and workers on a *free* tier (Render's free plan, with a
+built-in keep-alive and encrypted backups to a private git repo). It cannot prevent provider restarts and loses
+anything changed since the last backup. Start with **`FREE_HOSTING.md`**. Full documentation:
+https://salehin-07.github.io/rconsole-ark/
 
 Deploying to Railway, Fly.io, Kubernetes, AWS/GCP/Azure, a VPS or a Raspberry Pi? Follow **`DEPLOY.md`**.
 All commands are documented in **`COMMANDS.md`**.

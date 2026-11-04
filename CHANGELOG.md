@@ -3,6 +3,38 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.9 — 2026-11-05
+
+### Fixed
+- **`RCONSOLE_BACKUP_TOKEN` and `RCONSOLE_BACKUP_PASSPHRASE` reached host child processes.** The docs said server
+  secrets never reach user commands, hosted apps or services, but only four secrets were stripped. Both are now removed
+  from the environment of every command, terminal, job, service and hosted app on the host shell (VMs never inherited
+  the server environment). Backups are unaffected: the backup engine reads them itself.
+- **Documentation contradicted the code and itself.** README still described the shared PID namespace removed in
+  1.3.8; DEPLOY said the free Render blueprint has a 5 GB disk (only `render.paid.yaml` does); "never sleeps",
+  "as many VMs as you like", "services survive redeploys" and "open terminals reconnect" promised more than the
+  implementation does; the architecture diagram said Alpine only; `RCONSOLE_VM_ROOTFS_URL` was documented as an
+  Alpine-only default; the README listed Python 3.12 as passing though 3.14 is required; the shutdown backup was
+  documented as 25 s (it waits about 22 s); Koyeb was listed as a free option for new users; the settings tables
+  omitted `RCONSOLE_VM_PIDNS`, `RCONSOLE_RESTORE_DEPS`, `RCONSOLE_UPDATE_API`, `RCONSOLE_LOG_LEVEL`,
+  `RCONSOLE_DOMAIN`, `RCONSOLE_VERSION` and the Docker-shim variables, and gave wrong defaults for
+  `RCONSOLE_TRUST_PROXY`, `RCONSOLE_COOKIE_SECURE` and `RCONSOLE_USER_VM_PROC`.
+
+### Added
+- **Documentation website** (GitHub Pages, <https://salehin-07.github.io/rconsole-ark/>) built from the repository's
+  own Markdown by `scripts/build_docs.py`: quick start, guides, command reference, search, dark mode, mobile layout.
+  New pages: backups and restore, updating and rollback, configuration, security model, architecture, compatibility.
+- `SECURITY.md` (how to report a vulnerability).
+- **One authoritative environment-variable list** (`scripts/envvars.py`); the tables in README, FEATURES and the site
+  are generated from it, and tests fail when the code, the list or any document disagree.
+- Documentation tests for cross-document facts: version, Python version, Render blueprints, backup limits, release
+  asset names, per-user limits, secret stripping, broken links.
+
+### Notes
+- No restart-sensitive behaviour changed apart from the secret stripping. Host-shell scripts that read
+  `RCONSOLE_BACKUP_TOKEN` or `RCONSOLE_BACKUP_PASSPHRASE` from the environment must now get them another way.
+- Enable the site once: repository **Settings → Pages → Source: GitHub Actions**.
+
 ## 1.3.8 — 2026-11-04
 
 ### Fixed

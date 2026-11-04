@@ -208,6 +208,7 @@ UPDATE_DIR = DATA_DIR / "update"
 # Environment variables that must never leak into user commands or hosted apps.
 SECRET_ENV_VARS = (
     "RCONSOLE_SECRET", "RCONSOLE_PEPPER", "RCONSOLE_ADMIN_PASSWORD", "RCONSOLE_UPDATE_TOKEN",
+    "RCONSOLE_BACKUP_TOKEN", "RCONSOLE_BACKUP_PASSPHRASE",
 )
 
 

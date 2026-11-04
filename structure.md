@@ -7,7 +7,7 @@ rconsole/
 ├── config.py               # All environment-driven settings + persisted secrets
 ├── FREE_HOSTING.md         # The purpose of rconsole: free Render-tier hosting for bots/sites/workers (start here)
 ├── fileops.py              # File-manager engine: compress / extract (safe, no symlink writes), properties, multi-delete, background jobs
-├── keepalive.py            # Self-ping of the public URL so free instances never sleep (+ cmd_keepalive.py)
+├── keepalive.py            # Self-ping of the public URL so free instances are not suspended for inactivity (+ cmd_keepalive.py)
 ├── backup.py               # Encrypted snapshots -> private git repo/folder; restore on a fresh instance (+ cmd_backup.py)
 ├── bootstrap.py            # Imported first by app.py: restores a backup BEFORE secrets are generated
 ├── services.py             # Supervisor: named commands that autostart + restart on crash (+ cmd_service.py)
@@ -27,6 +27,12 @@ rconsole/
 ├── cmd_hosting.py          # kprocess (kill a process by PID)
 ├── cmd_users.py            # logout, suser/auser/nauser/ruser, muser/cpass/cuser, rboot
 ├── cmd_vm.py               # vm: list / install <name> / shell / run / mode / reset / remove / status
+├── SECURITY.md             # How to report a vulnerability (links to docs/security.md)
+├── docs/                   # Documentation-site sources: index, quick-start, backup, upgrading, configuration (generated table),
+│                           #   security, architecture, compatibility. The site also renders README/FEATURES/DEPLOY/COMMANDS/... as they are.
+├── scripts/envvars.py      # THE list of every environment variable (name, default, description); tables in the docs are generated from it
+├── scripts/build_docs.py   # `--write` regenerates the tables, `--check` fails if stale, `--site DIR [--strict]` builds the GitHub Pages site
+├── .github/workflows/docs.yml  # builds and publishes the site to GitHub Pages
 ├── devsetup.py             # `vm setup <profile>`: per-family package sets + install scripts (python, build, node, ...)
 ├── cmd_fetch.py            # neofetch / fetch (target aware, width responsive) + rfetch
 ├── vmtools/

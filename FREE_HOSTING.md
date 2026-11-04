@@ -1,7 +1,8 @@
-# Free hosting with rconsole
+# Free hosting with Rconsole
 
-rconsole exists for one reason: **to give a person with no budget a real, always-on server they can run from
-their phone.**
+Rconsole exists for one reason: **to give a person with no budget a real Linux server, kept awake as far as a free
+tier allows, that they can run from their phone.** It is not an uptime guarantee: the provider can restart or stop
+your instance at any time.
 
 Free hosting tiers will happily serve a small website. What they never give away is the part you actually need
 for a **bot**, a **scraper**, a **queue worker** or an **API with a background job**: a machine where you can run
@@ -12,8 +13,8 @@ three catches:
 
 | The catch on a free tier | What rconsole does about it |
 |---|---|
-| **It sleeps after ~15 min without visitors** (and your bot goes with it) | A built-in **keep-alive** pings its own public URL every 10 minutes. No external monitor needed. |
-| **No persistent disk — every deploy/restart starts blank** | Encrypted **backups** to a free private git repo, **automatic restore** on boot, VMs and toolchains **rebuilt**, services **restarted**. |
+| **It sleeps after ~15 min without visitors** (and your bot goes with it) | A built-in **keep-alive** pings its own public URL every 10 minutes, which prevents *inactivity* suspension. It cannot stop provider restarts, maintenance or an exhausted monthly allowance. |
+| **No persistent disk — every deploy/restart starts blank** | Encrypted **backups** (every 15 min when something changed) to a free private git repo, **automatic restore** on boot, Linux systems and toolchains **rebuilt**, services **started again**. Changes since the last backup are lost. |
 | **Redeploying to fix something wipes the disk anyway** | `sudo reboot` restarts rconsole **in place** (files and VMs stay), no redeploy. |
 | **You are on a phone** | A responsive UI you can **install as an app**; pickers and menus built for touch. |
 
@@ -142,12 +143,14 @@ service add scraper --vm debian --cwd /root/scraper sh -c 'while true; do python
 ```text
  running         deploy / restart                 new blank instance                 minutes later
  ─────────  ─►  SIGTERM: final backup  ─►  boot: no users.json → restore  ─►  VMs reinstalled + `vm setup`
- services        (≤ 25 s, encrypted,        backup (secrets first!)             re-applied, services restarted,
+ services        (≤ ~22 s, best effort,        backup (secrets first!)             re-applied, services restarted,
  + files         pushed to your repo)                                           keep-alive resumes
 ```
 * Backups run **every 15 minutes if something changed**, plus once at shutdown.
-* The repo only ever holds **one** snapshot (each push replaces the branch), so it stays small.
-* Restore never overwrites files that already exist, and refuses anything outside the expected folders.
+* The repo only ever holds **one** snapshot (each push replaces the branch with a single commit); a failed push leaves the previous snapshot in place.
+* The shutdown backup is **best effort**: a forced kill can skip it, so the worst-case loss is everything since the last successful backup (up to 15 minutes).
+* Restore at boot only runs on a blank instance and never overwrites files that already exist (`sudo backup restore --yes` does); it refuses anything outside the expected folders.
+* Full details and a test procedure: [Backups and restore](docs/backup.md).
 * Not saved: system files (re-downloaded), caches, `node_modules`/virtualenvs, files over 20 MB, running processes
   (services bring those back), logs. If a snapshot would exceed 40 MB, `sudo backup now` tells you which folders
   are too big — keep large data elsewhere.

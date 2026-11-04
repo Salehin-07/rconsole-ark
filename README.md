@@ -2,13 +2,16 @@
 
 # Rconsole — free hosting for your bots, websites and workers
 
+> 🌐 **[Documentation website](https://salehin-07.github.io/rconsole-ark/)** ·
 > 🆓 **Start here → [FREE_HOSTING.md](FREE_HOSTING.md)** (host on Render's free tier from your phone) ·
 > 📦 **Other hosts** → [DEPLOY.md](DEPLOY.md) ·
 > 📖 **Every command** → [COMMANDS.md](COMMANDS.md) ·
+> ⚙️ **Every setting** → [docs/configuration.md](docs/configuration.md) ·
+> 🔒 **Security** → [docs/security.md](docs/security.md) ·
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.3.8** · MIT licensed
+**Version 1.3.9** · MIT licensed
 
 ## Why this exists
 
@@ -18,22 +21,26 @@ queue worker or an API with a background job anywhere, because every free plan s
 you no shell.
 
 Rconsole is built for exactly that person. Put it on **one free web service** (Render's free tier is the
-reference) and you get a small always-on Linux server that you control **from your phone, from anywhere**:
+reference) and you get a small Linux server that you control **from your phone, from anywhere** and that the free tier's idle
+suspension does not take offline:
 
-* **A real terminal and your own Linux systems** (Debian, Ubuntu, Kali, Alpine) where you are `root` and can
-  install anything — no host privileges needed.
+* **A real terminal and your own Linux environments** (Debian, Ubuntu, Kali, Alpine; PRoot-based, not true virtual
+  machines) where you are `root` and can install anything — no host privileges needed.
 * **Run anything, keep it running**: `service add` starts bots and workers at boot and restarts them when they
   crash. Publish websites (static *or* dynamic) with `service add … --expose` / `expose`.
-* **It doesn't fall asleep**: a built-in keep-alive pings its own public URL every 10 minutes — no uptime monitor
-  needed.
-* **A wiped disk isn't the end**: encrypted backups go to a free private git repo; a fresh instance restores
-  itself, rebuilds your VMs and restarts your services. `sudo reboot` restarts in place when you just need a
+* **It resists idle suspension**: a built-in keep-alive pings its own public URL every 10 minutes, which prevents
+  *inactivity-based* sleeping. It cannot prevent provider restarts, maintenance, an exhausted monthly allowance or
+  policy changes.
+* **A wiped disk isn't the end**: encrypted backups go to a free private git repo (every 15 minutes when something
+  changed); a fresh instance restores itself, rebuilds your Linux systems and starts your services again. Anything
+  changed since the last backup, and every running process, is lost (see [Backups](docs/backup.md)). `sudo reboot` restarts in place when you just need a
   restart, with no redeploy.
 * **Made for a thumb**: a responsive UI you can install as an app.
 
 It is designed for **one person or a small team** (default cap: 10 accounts) — not for the public — so it keeps
 things simple and small. Be honest about the limits: free instances have ~512 MB RAM, restart when the provider
-decides, and the VM is a compatibility layer rather than a hard sandbox. FREE_HOSTING.md spells out what to expect.
+decides, and the Linux environments are a compatibility layer rather than a hard sandbox. "Free" means free on a
+platform that has a free tier; other hosts in DEPLOY.md may charge. FREE_HOSTING.md spells out what to expect.
 
 ## What it is
 
@@ -63,7 +70,7 @@ Commands run on one of two **targets**:
   dropdown (see [The VM](#the-vm-vm)).
 - **`service`**: bots and workers that **start at boot and restart when they crash** (`service add tgbot --vm
   debian python bot.py`), with logs, env vars and optional web exposure.
-- **Free-tier survival**: built-in **keep-alive** (never sleeps), **encrypted backups + automatic restore**
+- **Free-tier survival**: built-in **keep-alive** (prevents inactivity-based suspension), **encrypted backups + automatic restore**
   (VMs and toolchains rebuilt, services restarted), `sudo reboot` without a redeploy.
 - **`rconsole update`**: checks GitHub for a new release and installs it safely — console locked while it runs,
   checksum-verified, tested before it is applied, data untouched, automatic rollback. See
@@ -94,10 +101,11 @@ Commands run on one of two **targets**:
 
 ## Requirements
 
-- Python **>= 3.14** (see `.python-version`). The test-suite also passes on 3.12.
+- Python **>= 3.14** (see `.python-version`). Older versions are not supported. See [docs/compatibility.md](docs/compatibility.md).
 - [`uv`](https://docs.astral.sh/uv/) for dependency management (or `pip install -r requirements.txt`).
 - **VM**: Linux. `proot` is fetched automatically on x86-64 (checksum-verified);
-  on other CPUs install it (`apt install proot` / `apk add proot`).
+  on other CPUs install **proot 5.5.0 or newer** yourself (`apt install proot` / `apk add proot` may be older: check
+  `proot --version`, or point `RCONSOLE_VM_PROOT` at a newer build).
 - **Windows**: `pywinpty` (ConPTY) is installed automatically; the VM is unavailable there, and gunicorn is not
   installed — use `uv run python serve.py` (built-in server fallback).
 
@@ -130,55 +138,130 @@ forces one, `RCONSOLE_HOST` (built-in server only) sets the bind address (defaul
 
 ## Configuration
 
-Everything is configured through environment variables (see `config.py`).
+Everything is configured through environment variables. The reference below is **generated** from one list
+(`scripts/envvars.py`) that a test keeps in sync with the code; the same list is on the
+[documentation website](https://salehin-07.github.io/rconsole-ark/configuration.html).
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `PORT` | Listen port | `5000` |
-| `RCONSOLE_DATA_DIR` | Users, state, secrets, VMs, logs. **Point at a persistent disk** (`/data` on Render) | `./data` |
-| `RCONSOLE_SECRET` | Session signing key | random, **persisted** in the data dir |
-| `RCONSOLE_PEPPER` | Password-hash pepper | random, **persisted** in the data dir |
-| `RCONSOLE_ADMIN_PASSWORD` | Initial password for `ark` | `ark` (forces a change) |
-| `RCONSOLE_MIN_PASSWORD` | Minimum password length | `8` |
-| `RCONSOLE_VM` | Enable the VM feature | `1` |
-| `RCONSOLE_DEFAULT_MODE` | Where admins' plain commands run: `host` or `vm` | `host` |
-| `RCONSOLE_RUN_AS_ROOT` | Docker only: keep root in the container so admins' host shell is real root (single-owner deployments; see [DEPLOY.md](DEPLOY.md#13-root-vs-unprivileged)) | `0` |
-| `RCONSOLE_ALLOW_USER_HOST` | Let **non-admins** use the real host shell (full RCE — leave off) | `0` |
-| `RCONSOLE_USER_VM_PROC` | Expose host `/proc` to non-admin VMs (`ps`/`top` work, but see Security) | `0` |
-| `RCONSOLE_TRUST_PROXY` | Trust `X-Forwarded-*` (one proxy hop) | on when `RENDER` is set |
-| `RCONSOLE_PUBLIC_URL` | The site's public URL (auto-detected on Render, Fly, Railway, Koyeb) — what the keep-alive pings | auto |
-| `RCONSOLE_KEEPALIVE` / `..._INTERVAL` / `..._EXTRA` | Ping our own URL so a free instance never sleeps (default **on for Render**); seconds between pings (600); extra URLs to ping | auto / `600` / – |
-| `RCONSOLE_BACKUP_URL` + `RCONSOLE_BACKUP_TOKEN` | A **private git repo** (and a token with write access to it only) that receives encrypted backups; or `RCONSOLE_BACKUP_DIR` for a folder | – |
-| `RCONSOLE_BACKUP_PASSPHRASE` | **Required for backups** — encrypts them (keep a copy elsewhere!) | – |
-| `RCONSOLE_BACKUP_BRANCH` / `RCONSOLE_BACKUP_USER` / `RCONSOLE_BACKUP_ENCRYPT` / `RCONSOLE_RESTORE_SETUP` | Branch that receives snapshots · git user paired with the token · encrypt snapshots · re-run `vm setup` profiles after a restore | `rconsole-backup` / `x-access-token` / `1` / `1` |
-| `RCONSOLE_BACKUP_INTERVAL` / `RCONSOLE_BACKUP_MAX_MB` | Seconds between backups when something changed (900) · size limit (40) | `900` / `40` |
-| `RCONSOLE_UPDATE_REPO` / `RCONSOLE_UPDATE_TOKEN` | Where `rconsole update` looks for releases (`owner/repo`, your fork) · optional GitHub token (private fork, rate limit) | `Salehin-07/rconsole-ark` / – |
-| `RCONSOLE_MAX_USERS` | Account cap — this is a one-person / small-team tool | `10` |
-| `RCONSOLE_MAX_UPLOAD_MB` | Largest single file the file browser's upload accepts | `64` |
-| `RCONSOLE_MAX_EXTRACT_MB` | Most an archive may expand to when extracted in the file browser (zip-bomb guard) | `2048` |
-| `RCONSOLE_HOST_HOME` | Where the host shell starts (the Docker image links it to the persistent workspace); falls back to `<data>/workspace` if it is missing or not writable | `/home/rconsole` |
-| `RCONSOLE_DEFAULT_SYSTEM` | System `vm install` uses by default (`alpine` suits 512 MB instances) | `debian` |
-| `RCONSOLE_SUPERVISOR` | Run the service supervisor | `1` |
-| `RCONSOLE_ALLOWED_ORIGINS` | Extra hostnames the console is served from (comma separated). Auto-detected via `Host`, `X-Forwarded-Host` and Render's hostname; set it only if you still see `cross-origin request blocked` | – |
-| `RCONSOLE_COOKIE_SECURE` | `Secure` session cookie (HTTPS only) | on when `RENDER` is set |
-| `RCONSOLE_LOGIN_ATTEMPTS` / `RCONSOLE_LOGIN_LOCKOUT` | Failed logins before lockout / base lockout seconds (doubles per repeat, max 15 min) | `5` / `30` |
-| `RCONSOLE_THREADS` | gunicorn threads (≈ open terminals) | `64` |
-| `RCONSOLE_SERVER` | `serve.py` only: force `gunicorn` or `builtin` (default: gunicorn where it works, else built-in) | auto |
-| `RCONSOLE_HOST` | `serve.py` built-in server only: bind address | `0.0.0.0` |
-| `RCONSOLE_VM_ROOTFS_URL` / `RCONSOLE_VM_ROOTFS_SHA256` | Use your own root filesystem tarball (e.g. Debian) | Alpine latest-stable |
-| `RCONSOLE_VM_PROOT` | Path to a `proot` binary | auto-detect / download |
+<!-- BEGIN GENERATED: env-reference -->
 
-Secrets that Rconsole generates are stored `0600` in the data dir, so sessions
-and password hashes survive restarts and are shared by every process. They are
-**never** passed to user commands or hosted apps.
+### Server
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PORT` | `5000` | Port to listen on. Most platforms set it for you. |
+| `RCONSOLE_DATA_DIR` | `./data` (`/data` in the Docker image; the attached volume on Railway) | Where users, state, secrets, VMs, logs, the workspace and update files live. **Point it at a persistent disk**, or configure backups. |
+| `RCONSOLE_THREADS` | `64` | gunicorn threads. Each open terminal holds one for as long as the tab is connected, so this is roughly the number of terminals. |
+| `RCONSOLE_LOG_LEVEL` | `info` | gunicorn log level. |
+| `RCONSOLE_SERVER` *(`serve.py`)* | auto | `serve.py` only: force `gunicorn` or `builtin`. Default: gunicorn where it works, otherwise the built-in threaded server (Windows). |
+| `RCONSOLE_HOST` *(`serve.py`)* | `0.0.0.0` | `serve.py` built-in server only: bind address. gunicorn always binds `0.0.0.0`. |
+| `RCONSOLE_TRUST_PROXY` | on when a managed platform is detected, else off | Trust `X-Forwarded-*` headers (one proxy hop). Detected platforms: Render, Railway, Fly.io, Koyeb, Heroku, Google Cloud Run, Azure. |
+| `RCONSOLE_COOKIE_SECURE` | on when a managed platform is detected, else off | Mark the session cookie `Secure` (HTTPS only). Turn it on yourself behind your own HTTPS proxy. |
+| `RCONSOLE_ALLOWED_ORIGINS` | - | Extra hostnames the console is served from, comma separated. Normally auto-detected from `Host`, `X-Forwarded-Host` and the platform hostname; set it only if you see `cross-origin request blocked`. |
+| `RCONSOLE_PUBLIC_URL` | auto-detected on Render, Railway, Fly.io, Koyeb, Heroku | The site's public URL. The keep-alive pings it. |
+| `RCONSOLE_RUN_AS_ROOT` *(Docker image)* | `0` | Docker image only: keep root inside the container so an admin's host shell is real root (single-owner setups). Default: drop to an unprivileged user. |
+
+### Accounts and login
+
+| Variable | Default | What it does |
+|---|---|---|
+| `RCONSOLE_SECRET` | random, persisted in the data dir | Session signing key. Never passed to user commands or hosted apps. |
+| `RCONSOLE_PEPPER` | random, persisted in the data dir | Password-hash pepper. Never passed to user commands or hosted apps. |
+| `RCONSOLE_ADMIN_PASSWORD` | `ark` (a password change is forced) | Initial password of the `ark` admin. Set it before the first start. Never passed to user commands. |
+| `RCONSOLE_MIN_PASSWORD` | `8` | Minimum password length (never below 4). |
+| `RCONSOLE_MAX_USERS` | `10` | Account cap. Rconsole is for one person or a small team. |
+| `RCONSOLE_LOGIN_ATTEMPTS` | `5` | Failed logins before a lockout starts. |
+| `RCONSOLE_LOGIN_LOCKOUT` | `30` | Base lockout in seconds; it doubles on each repeat, up to 15 minutes. |
+
+### Linux systems (VMs)
+
+| Variable | Default | What it does |
+|---|---|---|
+| `RCONSOLE_VM` | `1` | Enable the Linux systems feature (`vm`). Linux hosts only. (Inside a Linux system Rconsole sets `RCONSOLE_VM` to that system's *name*, e.g. `debian`: that is output for your scripts, not a setting.) |
+| `RCONSOLE_DEFAULT_MODE` | `host` | Where an admin's plain commands run: `host` or `vm`. Non-admins always use `vm`. |
+| `RCONSOLE_DEFAULT_SYSTEM` | `debian` | System that `vm install` uses when you name none (`alpine` suits 512 MB instances). |
+| `RCONSOLE_ALLOW_USER_HOST` | `0` | Let **non-admins** run commands on the real host. This is remote code execution: leave it off. |
+| `RCONSOLE_USER_VM_PROC` | `0` | Bind the host's full `/proc` into VMs that have no PID namespace of their own (`ps`/`top` then show host processes: see the security model). VMs with their own PID namespace always see only their own processes. |
+| `RCONSOLE_VM_PIDNS` | `auto` | One PID namespace per VM. `auto`/`on`: use it when the host allows user namespaces and say so in `vm doctor` when it does not; `off`: never (VMs share the server's PID space). |
+| `RCONSOLE_HOST_HOME` | `/home/rconsole` | Where the host shell starts. The Docker image links it to the persistent workspace; if it is missing or not writable, `<data>/workspace` is used. |
+| `RCONSOLE_VM_ROOTFS_URL` | - | Use your own root filesystem tarball for **every** system you install (mirrors, air-gapped hosts, tests). Default: the catalog's checksum-verified image for the system you pick. |
+| `RCONSOLE_VM_ROOTFS_SHA256` | - | Expected SHA-256 of the override tarball. |
+| `RCONSOLE_VM_PROOT` | auto-detect / download | Path to a `proot` binary (5.5.0 or newer). |
+
+### Services and hosted apps
+
+| Variable | Default | What it does |
+|---|---|---|
+| `RCONSOLE_SUPERVISOR` | `1` | Run the `service` supervisor. |
+
+### Files
+
+| Variable | Default | What it does |
+|---|---|---|
+| `RCONSOLE_MAX_UPLOAD_MB` | `64` | Largest single file the file browser accepts. |
+| `RCONSOLE_MAX_EXTRACT_MB` | `2048` | Most an archive may expand to when extracted in the file browser (zip-bomb guard; minimum 16). |
+
+### Staying awake
+
+| Variable | Default | What it does |
+|---|---|---|
+| `RCONSOLE_KEEPALIVE` | on on Render, off elsewhere | Ping our own public URL so a free instance is not suspended for inactivity. It cannot prevent provider restarts, quota limits or maintenance. |
+| `RCONSOLE_KEEPALIVE_INTERVAL` | `600` | Seconds between pings (minimum 60). |
+| `RCONSOLE_KEEPALIVE_EXTRA` | - | Comma-separated extra URLs to ping as well. |
+
+### Backups and restore
+
+| Variable | Default | What it does |
+|---|---|---|
+| `RCONSOLE_BACKUP_URL` | - | A **private** git repository that receives the snapshots. |
+| `RCONSOLE_BACKUP_TOKEN` | - | Token with write access to that repository only. Not passed to user commands. |
+| `RCONSOLE_BACKUP_USER` | `x-access-token` | Git user name paired with the token. |
+| `RCONSOLE_BACKUP_BRANCH` | `rconsole-backup` | Branch that holds the single snapshot. |
+| `RCONSOLE_BACKUP_DIR` | - | Back up to this folder or mount instead of a git repository. |
+| `RCONSOLE_BACKUP_PASSPHRASE` | - | **Required for encrypted backups.** Keep a copy somewhere else: without it a backup cannot be read. Not passed to user commands. |
+| `RCONSOLE_BACKUP_ENCRYPT` | `1` | Encrypt snapshots. Turning it off stores them in plain text. |
+| `RCONSOLE_BACKUP_INTERVAL` | `900` | Seconds between backups when something changed (minimum 60). |
+| `RCONSOLE_BACKUP_MAX_MB` | `40` | Largest snapshot accepted. Files over 20 MB are always left out. |
+| `RCONSOLE_RESTORE_SETUP` | `1` | Re-run each VM's `vm setup` profiles after a restore. |
+| `RCONSOLE_RESTORE_DEPS` | `1` | Reinstall each VM's recorded packages, virtualenvs and Node projects after a restore. |
+
+### Updating
+
+| Variable | Default | What it does |
+|---|---|---|
+| `RCONSOLE_UPDATE_REPO` | `Salehin-07/rconsole-ark` | GitHub `owner/repo` that `rconsole update` reads releases from. Point it at your fork. |
+| `RCONSOLE_UPDATE_TOKEN` | - | Optional GitHub token for `rconsole update` (private forks, rate limits). Not passed to user commands. |
+| `RCONSOLE_UPDATE_API` | `https://api.github.com` | GitHub API base. Only for tests and GitHub Enterprise mirrors. |
+
+### Docker Compose files
+
+| Variable | Default | What it does |
+|---|---|---|
+| `RCONSOLE_DOMAIN` *(compose files)* | - (required) | `deploy/.env` only: the public hostname Caddy serves and obtains a certificate for. Also becomes `RCONSOLE_ALLOWED_ORIGINS`. The server itself never reads it. |
+| `RCONSOLE_VERSION` *(compose files)* | `latest` | `deploy/docker-compose.image.yml` only: the image tag to pull from `ghcr.io/salehin-07/rconsole-ark`. |
+
+### Docker compatibility layer (inside VMs)
+
+| Variable | Default | What it does |
+|---|---|---|
+| `DRUN_MODE` *(inside VMs)* | `P1` on the host shell, `F1` inside a VM | `drun` / `docker run` wrapper: udocker execution mode (`P1` = proot, `F1` = fakechroot). |
+| `DRUN_PULL_OPTS` *(inside VMs)* | - | Extra options for the image pull. |
+| `DOCKER_SHIM_LOCAL` *(inside VMs)* | `0` (`drun` sets `1`) | Force the local udocker path even if `DOCKER_HOST` is set. |
+| `DOCKER_HOST` *(inside VMs)* | - | With a real Docker client installed (`vm setup docker`), forwards everything to that daemon. |
+
+<!-- END GENERATED: env-reference -->
+
+Secrets that Rconsole generates are stored `0600` in the data dir, so sessions and password hashes survive restarts.
+`RCONSOLE_SECRET`, `RCONSOLE_PEPPER`, `RCONSOLE_ADMIN_PASSWORD`, `RCONSOLE_UPDATE_TOKEN`, `RCONSOLE_BACKUP_TOKEN` and
+`RCONSOLE_BACKUP_PASSPHRASE` are removed from the environment of user commands and hosted apps. Values you save with
+`sudo env` are different: they are plain JSON in the data directory (see [docs/security.md](docs/security.md)).
 
 ---
 
 ## The VM (`vm`)
 
-Every user can have private Linux systems — **as many as you like**: just one,
-two, or all four at once. Each is a separate machine with its **own root
-filesystem and its own `/root`**; nothing is shared. Inside one you are `root`
+Every user can have private Linux environments — **several, subject to the host's disk and RAM**: just one,
+two, or all four distributions at once. Each is a PRoot-based environment (not a virtual machine) with its **own
+root filesystem and its own `/root`**. Inside one you are `root`
 and can install anything. It needs **no host privileges** — that is the point: on
 Render (or any container that gives you no `sudo`) the VM still gives you a fully
 permissive machine.
@@ -287,10 +370,12 @@ automatically.
 
 Things to know:
 
-- **It is not a hard security boundary.** proot is a compatibility layer:
-  guest processes share the server's uid and PID namespace. Only create
-  accounts for people you trust. (Non-admin guests only see the harmless
-  `/proc/{uptime,meminfo,cpuinfo,loadavg,version}` files, not host processes.)
+- **It is not a hard security boundary.** proot is a compatibility layer: every guest runs under the server's one
+  user id. Since 1.3.8 each VM also gets **its own PID namespace** where the host allows user namespaces (`vm doctor`
+  shows `pid ns:`): `ps`, `top` and `kill` then see only that VM. Where the host forbids it there is no process
+  isolation; everyone sees only the harmless `/proc/{uptime,meminfo,cpuinfo,loadavg,version}` files, and `vm ps` /
+  `vm kill` are the scoped view. Docker's default seccomp profile blocks namespaces: see
+  [docs/security.md](docs/security.md). Only create accounts for people you trust.
 - **Long commands:** a plain command or `vm run` is cut off after 60–90 s (hosting
   platforms drop HTTP requests around 100 s). For `apt upgrade`, builds and the
   like use `vm shell` (no limit, Ctrl+C works) or append `&` to run a background job.
@@ -320,8 +405,9 @@ Things to know:
   removes the half-built VM instead of leaving it broken. **`vm doctor`** runs a
   checklist (shell, programs, root, write access, DNS, internet, package manager)
   and shows exactly which step fails.
-- Other CPU architectures: install `proot` 5.5+ yourself (the Dockerfile adds the
-  distro one, which may be older). Debian, Ubuntu and Kali publish arm64 images too.
+- Other CPU architectures (arm64, e.g. Raspberry Pi): install `proot` **5.5.0 or newer** yourself (the Dockerfile
+  adds the distro one, which may be older; check `proot --version`, set `RCONSOLE_VM_PROOT` to a newer build). All four
+  systems publish arm64 images.
 - Hosted apps in a VM: run them inside the VM (`vm setup python`, then
   `service add app --vm debian --cwd /root/app --expose 8000:app gunicorn -b 127.0.0.1:8000 app:app`).
 
@@ -497,42 +583,17 @@ Inside a session, slash commands are available:
 - **Token usage report** per turn and per session.
 - **Safety guard** — on the *host*, the `bash` tool refuses obviously destructive
   commands (`rm -rf /`, `mkfs`, `dd` on disks, `shutdown`, …); run those directly
-  in the console if you truly intend them. Inside your **VM** the guard is off:
-  it is your sandbox, and `vm reset` rebuilds it.
+  in the console if you truly intend them. Inside your **VM** the guard is off
+  because those are your own files (not because PRoot isolates the host), and `vm reset` rebuilds the system.
 
 ---
 
 ## Architecture
 
-```
-Browser (xterm.js)
-   │  HTTP(S)            REST /api/run  (line-mode commands)
-   ▼
-Flask app (app.py)   ── before_request: Origin/CSRF check → auth guard
-   ├── /api/run  → interp.py ──┬─ commands.py (built-ins: cmd_*.py, editor, agent, fun)
-   │                           ├─ jobs.py      (background `cmd &`)
-   │                           └─ shell passthrough
-   ├── /ws       → ptyhost.py → termsess.py (persistent PTY)
-   ├── /api/file|dir|fs  (editor + file navigator)
-   ├── /api/update/status (progress of `rconsole update`; the console is locked while it runs)
-   └── /<folder>/<port>/…  → proxy → hosted app process
-                │
-   every launch and every file access goes through
-                ▼
-        sandbox.py  ── authorizes (admin? mode?) and picks the target
-            ├── host: the server's shell/filesystem (admins)
-            └── vm:   proot + per-user Alpine rootfs, path-confined FsView
-```
-
-Key points:
-
-- **`sandbox.py` is the single choke point.** `sandbox.spec()` turns a command
-  into argv/cwd/env for the right target *and* enforces permissions;
-  `sandbox.fs()` returns the path namespace for file access. The interpreter,
-  jobs, PTY sessions, hosted apps, the editor, the file APIs and the AI agent all
-  use them, so there is exactly one place to audit.
-- Server state lives in `state.py`; users in `data/users.json` (atomic, `0600`).
-- Everything is in-process memory, so run **one worker with threads**.
+Flask app, one authorization point (`sandbox.py`) in front of every launch and file access, per-user PRoot
+environments, a service supervisor and a path-based reverse proxy, all in **one process with many threads**. The
+diagram, what lives where on disk and the lifecycles are in [docs/architecture.md](docs/architecture.md); every module
+is described in [structure.md](structure.md).
 
 ---
 
@@ -559,8 +620,8 @@ docker build -t rconsole . && docker run -p 5000:5000 -v rconsole-data:/data \
   -e RCONSOLE_ADMIN_PASSWORD='choose-a-strong-one' rconsole
 ```
 
-Rules that apply everywhere: **one instance only**, a **persistent volume** at
-`RCONSOLE_DATA_DIR`, **websockets with long idle timeouts**, and **HTTPS** in front.
+Rules that apply everywhere: **one instance only**, **either** a persistent volume at `RCONSOLE_DATA_DIR` **or**
+[backups](docs/backup.md) to restore from, **websockets with long idle timeouts**, and **HTTPS** in front.
 Config files live in [`deploy/`](deploy/) (`docker-compose.yml`, `Caddyfile`,
 `nginx.conf`, `fly.toml`, `k8s.yaml`, systemd unit) plus [`render.yaml`](render.yaml).
 
@@ -568,47 +629,18 @@ Config files live in [`deploy/`](deploy/) (`docker-compose.yml`, `Caddyfile`,
 
 ## Security model
 
-What Rconsole enforces, and what it does not.
-
-**Authentication**
-- PBKDF2-HMAC-SHA256 (210k rounds), per-user salt + a random pepper that is
-  persisted (never a constant in the source). Old hashes are upgraded on login.
-- Failed logins are throttled per (IP, username) and per IP with exponential
-  lockout; the response never reveals whether a username exists.
-- The factory `ark`/`ark` login works only to set a new password.
-- Minimum password length 8; usernames can't be `.`/`..` or contain path characters.
-- Users file: atomic writes, `0600`, mtime-cached, and **quarantined** (not
-  silently reset) if it is ever corrupt.
-
-**Web**
-- Cross-site POSTs and websocket handshakes are rejected (Origin /
-  `Sec-Fetch-Site` check) on top of `SameSite=Lax`, `HttpOnly`, and `Secure`
-  cookies; `X-Frame-Options`, `nosniff` and HSTS (over HTTPS) are set.
-- The session cookie is named `rconsole_session` so hosted Flask apps' own
-  `session` cookie can't collide with or clobber it.
-
-**Authorization**
-- Host access is admin-only and enforced in `sandbox.spec()`, which runs for the
-  line console, jobs, hosted apps **and the terminal websocket** (whose command
-  arrives from the browser and is untrusted). File APIs are confined by
-  `sandbox.fs()`; a non-admin can reach only their own VM filesystem.
-- Server secrets are stripped from the environment of every user process.
-
-**Not covered** — be honest with yourself about these:
-- The VM is not a hardened sandbox (shared uid/PID namespace). Treat every
-  account as trusted, or run one container per tenant.
-- Admins are root-equivalent on the server's container by design.
-- Hosted apps run as the server's user and are not isolated from each other.
-- API keys saved with `sudo env` are stored in `data/state/*.json` (`0600`,
-  plaintext). Use disk encryption if that matters.
-- No TLS in-process: terminate HTTPS at the platform/proxy.
+Rconsole is for one owner and a few trusted people. Passwords are PBKDF2-hashed with a persisted pepper, logins are
+throttled, cross-site requests are rejected, and every launch and file access passes one authorization point. The
+Linux environments are **not** a hardened sandbox: separate files, and (where allowed) separate PID namespaces, but one
+user id, one kernel and no resource limits. The full model, including where secrets live and what is not covered, is in
+[docs/security.md](docs/security.md). Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
 ---
 
 ## Testing
 
 ```bash
-uv run python -m unittest discover -s tests          # ~340 tests
+uv run python -m unittest discover -s tests          # about 500 tests
 RCONSOLE_VM_PROOT=/path/to/proot RCONSOLE_TEST_BUSYBOX=/path/to/busybox \
   uv run python -m unittest discover -s tests -v     # include real-VM end-to-end tests
 uv run ruff check .
@@ -628,6 +660,7 @@ rconsole update --check     # is a newer release available? (everyone)
 rconsole update             # check, show what is new, ask, update (admins)
 rconsole update --rollback  # back to the previous version
 ```
+See [docs/upgrading.md](docs/upgrading.md) for what each kind of update touches and what survives.
 The update **locks the whole console** while it runs (nothing else can be done, no command can run), downloads the
 release, **verifies its SHA-256**, **tests it in a separate process before touching anything**, stops services and
 terminals, takes a final backup, swaps the program files atomically (keeping a rollback copy) and restarts in place.
@@ -653,7 +686,7 @@ rconsole](COMMANDS.md#updating-rconsole). Every feature is catalogued in [FEATUR
 | `vm install` fails to download | Server has no outbound HTTPS, or the mirror is blocked. Set `RCONSOLE_VM_ROOTFS_URL` to a reachable tarball. |
 | `apt: not found` / `apk: not found` in the VM | Different systems, different tools: Alpine uses `apk add`, Debian/Ubuntu/Kali use `apt install`. `vm status` shows which one you have. |
 | `vm install debian` says "already installed" | Switch with `vm reset --yes` (keeps `/root`), then `vm install debian`. |
-| Logged out after every deploy | No persistent disk / `RCONSOLE_DATA_DIR`; the generated secrets were lost. Mount a disk or set `RCONSOLE_SECRET`. |
+| Logged out after every deploy | No persistent disk / `RCONSOLE_DATA_DIR`; the generated secrets were lost. Mount a disk, configure backups, or set `RCONSOLE_SECRET` and `RCONSOLE_PEPPER`. |
 | `{"error":"cross-origin request blocked"}` after login | Your proxy rewrites `Host` without `X-Forwarded-Host`. The server log names the blocked host — add it to `RCONSOLE_ALLOWED_ORIGINS`. |
 | "Too many failed attempts" | Login lockout; wait the stated seconds. |
 | Hosted app exits immediately | The error shows the app's log; in VM mode install `python3`/`gunicorn` in the VM (`vm setup python`). `service logs <name>` shows its output. |

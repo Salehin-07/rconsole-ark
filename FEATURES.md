@@ -1,6 +1,6 @@
-# rconsole features
+# Rconsole features
 
-Every feature of rconsole 1.3.8, by area. This is the **map**; the details live in
+Every feature of Rconsole 1.3.9, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.
@@ -42,9 +42,9 @@ root; everyone). One worker process with threads; all state in one data director
 | Feature | What you get |
 |---|---|
 | **Line mode** | Type a command, get its output. `cd` is stateful per tab; pipes, redirects, `&&`, `;` work (a real shell runs anything that is not a built-in). |
-| **Tabs** | Each tab has its own directory, history and terminal. Terminals keep running in the background and re-attach when you come back; closing a tab kills its terminal. |
+| **Tabs** | Each Rconsole tab has its own directory, history and terminal. A terminal keeps running while you switch tabs, refresh the browser or close the browser tab, and re-attaches when you return; closing the *Rconsole* tab (✕) kills its terminal. |
 | **Real terminal** | Interactive programs open in an xterm.js window with a real PTY (ConPTY on Windows): job control, Ctrl+C, resize, colours, a ✕ button (or Esc) to close; the console carries on in the directory you were in. See [section 12](#12-running-real-programs). |
-| **Sessions that survive** | Tabs, history, aliases and running terminals are kept across reloads and logouts. |
+| **What survives what** | Browser reload or logout: tabs, history, aliases **and** the running terminal programs. Server restart, `sudo reboot`, `rconsole update` or a redeploy: tabs, history, aliases and each tab's folder come back, but the programs that ran in terminals, jobs and hand-started apps are **stopped** (a reopened tab gets a fresh terminal). See [Updating](docs/upgrading.md). |
 | **`help`** | Lists the commands; `help` also prints the version. |
 | **`clear` / `cls`** | Clears the screen. |
 | **`history`** | Command history of the current tab. |
@@ -120,7 +120,7 @@ persistent `/root`. You are `root` inside and can install anything; no host priv
 | **`expose <port> <name>`** | Publishes a server you started (host or any VM) at `https://<domain>/<name>/`. Private by default (rconsole login), `--public` for admins (webhooks, demos), `--rewrite` fixes root-relative links in HTML/CSS. Up to 20 per user; names unique across users. |
 | **`expose list` / `expose rm` / `unexpose`** | List with `[up]`/`[down]`, remove one, several, or `all`. |
 | **Reverse proxy** | Pooled; sends `X-Forwarded-Prefix/Host/Proto`, rewrites redirects into the prefix, passes multiple `Set-Cookie` through, never forwards rconsole's own session cookie; requests are buffered with a 30 s timeout (no WebSockets through it). |
-| **`service`** | Named commands rconsole **keeps running**: start at boot, restart on crash with 2 s → 60 s back-off (reset after a minute of stability), live in a VM or on the host, survive redeploys (included in backups). `service add\|list\|start\|stop\|restart\|logs\|rm\|help`. |
+| **`service`** | Named commands rconsole **keeps running**: start at boot, restart on crash with 2 s → 60 s back-off (reset after a minute of stability), live in a VM or on the host, are restored after a redeploy (definitions are in the backups; processes are stopped and started again once the VM is rebuilt). "Boot" means Rconsole's own startup. `service add\|list\|start\|stop\|restart\|logs\|rm\|help`. |
 | **`service add` options** | `--vm`, `--host` (admins), `--cwd`, `--env KEY=VALUE` (repeatable; good for bot tokens), `--expose PORT:NAME` (also publishes it), `--no-autostart`. Up to 10 per user. |
 | **`kprocess`** | 🔒 Kill a process by PID, or everything the session hosts. Refuses to kill rconsole itself. |
 | **Everything together** | `service add app --vm debian --cwd /root/app --expose 8000:app gunicorn -b 127.0.0.1:8000 app:app` starts it, restarts it, logs it and publishes it. |
@@ -133,7 +133,7 @@ Made for hosts that **sleep when idle and wipe the disk on every deploy** — se
 
 | Feature | What you get |
 |---|---|
-| **`keepalive`** | Pings the site's own public URL (`/healthz`) every 10 minutes so a free instance never sleeps. On by default on Render; `keepalive now`, `sudo keepalive off\|on`; also pings extra URLs (`RCONSOLE_KEEPALIVE_EXTRA`). |
+| **`keepalive`** | Pings the site's own public URL (`/healthz`) every 10 minutes so a free instance is not suspended for inactivity (it cannot prevent provider restarts or quota limits). On by default on Render; `keepalive now`, `sudo keepalive off\|on`; also pings extra URLs (`RCONSOLE_KEEPALIVE_EXTRA`). |
 | **`backup`** | 🔒 Encrypted snapshots to a **private git repo** (history never accumulates: each push replaces the branch) or a folder. Saves users and secrets, per-user state, the workspace, exposures, services, each VM's `/root`, the VM list and `vm setup` profiles, and the installed release of `rconsole update`. `sudo backup`, `now`, `restore --yes`, `help`. Runs every 15 minutes if something changed and once at shutdown. |
 | **Automatic restore** | On a blank instance the latest backup is restored **before anything else starts**; VMs are reinstalled, profiles re-applied and **packages reinstalled** (system, pip, npm, virtualenvs, Node projects) in the background; each VM stays locked (`restoring`) until done, then its services start by themselves. |
 | **`reboot`** | 🔒 Restarts in place without a redeploy (`sudo reboot --yes`: final backup → stop everything → reload), or `--hard` to exit the process. Services start again; the page reconnects. |
@@ -234,20 +234,36 @@ Any word that is not a built-in is run by a real shell in your current target (6
 | **Docker image** | Runs as an unprivileged user by default (`RCONSOLE_RUN_AS_ROOT=1` for single-owner setups), data in `/data`, gunicorn with one worker and `RCONSOLE_THREADS` threads, health check on `/healthz`; the entrypoint also re-applies a saved update (`updater.py sync`). |
 | **Render** | `render.yaml` (free plan, keep-alive + backups) and `render.paid.yaml` (persistent disk); detection of the public URL and trusted proxy. |
 | **VPS** | `docker compose` with Caddy (automatic HTTPS) or nginx (`deploy/nginx.conf`), systemd notes — see [DEPLOY.md](DEPLOY.md). |
-| **Local** | `uv run python main.py` (Python ≥ 3.14; the tests also pass on 3.12); Windows supported (ConPTY, no VM). |
+| **Local** | `uv run python serve.py` (Python ≥ 3.14, older versions are not supported); Windows supported (ConPTY, no VM). |
 | **`serve.py` launcher** | `uv run python serve.py` runs gunicorn where it works (Linux, macOS, containers) and **falls back to a built-in threaded server where it does not (Windows)**, with the same shutdown work. `RCONSOLE_SERVER=gunicorn\|builtin` forces one; `RCONSOLE_HOST` sets the built-in server's bind address. gunicorn is not installed on Windows. |
 | **CI and releases** | GitHub Actions runs lint and the test-suite; pushing a `vX.Y.Z` tag publishes a release with `rconsole-X.Y.Z.tar.gz`, a `.zip` and `SHA256SUMS` from the changelog — the archive `rconsole update` installs. Dependabot keeps dependencies current. |
-| **Tests** | ~340 tests, including HTTP-level, authorization, path confinement, backups, the updater and documentation drift guards; real-VM end-to-end tests run when `proot` and a static `busybox` exist. |
+| **Tests** | about 500 tests, including HTTP-level, authorization, path confinement, backups, the updater and documentation drift guards; real-VM end-to-end tests run when `proot` and a static `busybox` exist. |
 
 ---
 
 ## 14. Settings
 
 All through environment variables (`config.py`); the full table with defaults is in
-[README → Configuration](README.md#configuration).
+[docs/configuration.md](docs/configuration.md) (generated from the same list as this table).
+
+<!-- BEGIN GENERATED: env-names -->
 
 | Area | Variables |
 |---|---|
+| Server | `PORT`, `RCONSOLE_DATA_DIR`, `RCONSOLE_THREADS`, `RCONSOLE_LOG_LEVEL`, `RCONSOLE_SERVER`, `RCONSOLE_HOST`, `RCONSOLE_TRUST_PROXY`, `RCONSOLE_COOKIE_SECURE`, `RCONSOLE_ALLOWED_ORIGINS`, `RCONSOLE_PUBLIC_URL`, `RCONSOLE_RUN_AS_ROOT` |
+| Accounts and login | `RCONSOLE_SECRET`, `RCONSOLE_PEPPER`, `RCONSOLE_ADMIN_PASSWORD`, `RCONSOLE_MIN_PASSWORD`, `RCONSOLE_MAX_USERS`, `RCONSOLE_LOGIN_ATTEMPTS`, `RCONSOLE_LOGIN_LOCKOUT` |
+| Linux systems (VMs) | `RCONSOLE_VM`, `RCONSOLE_DEFAULT_MODE`, `RCONSOLE_DEFAULT_SYSTEM`, `RCONSOLE_ALLOW_USER_HOST`, `RCONSOLE_USER_VM_PROC`, `RCONSOLE_VM_PIDNS`, `RCONSOLE_HOST_HOME`, `RCONSOLE_VM_ROOTFS_URL`, `RCONSOLE_VM_ROOTFS_SHA256`, `RCONSOLE_VM_PROOT` |
+| Services and hosted apps | `RCONSOLE_SUPERVISOR` |
+| Files | `RCONSOLE_MAX_UPLOAD_MB`, `RCONSOLE_MAX_EXTRACT_MB` |
+| Staying awake | `RCONSOLE_KEEPALIVE`, `RCONSOLE_KEEPALIVE_INTERVAL`, `RCONSOLE_KEEPALIVE_EXTRA` |
+| Backups and restore | `RCONSOLE_BACKUP_URL`, `RCONSOLE_BACKUP_TOKEN`, `RCONSOLE_BACKUP_USER`, `RCONSOLE_BACKUP_BRANCH`, `RCONSOLE_BACKUP_DIR`, `RCONSOLE_BACKUP_PASSPHRASE`, `RCONSOLE_BACKUP_ENCRYPT`, `RCONSOLE_BACKUP_INTERVAL`, `RCONSOLE_BACKUP_MAX_MB`, `RCONSOLE_RESTORE_SETUP`, `RCONSOLE_RESTORE_DEPS` |
+| Updating | `RCONSOLE_UPDATE_REPO`, `RCONSOLE_UPDATE_TOKEN`, `RCONSOLE_UPDATE_API` |
+| Docker Compose files | `RCONSOLE_DOMAIN`, `RCONSOLE_VERSION` |
+| Docker compatibility layer (inside VMs) | `DRUN_MODE`, `DRUN_PULL_OPTS`, `DOCKER_SHIM_LOCAL`, `DOCKER_HOST` |
+
+<!-- END GENERATED: env-names -->
+
+---|---|
 | Server | `PORT`, `RCONSOLE_DATA_DIR`, `RCONSOLE_THREADS`, `RCONSOLE_TRUST_PROXY`, `RCONSOLE_ALLOWED_ORIGINS`, `RCONSOLE_COOKIE_SECURE`, `RCONSOLE_PUBLIC_URL` |
 | Secrets and login | `RCONSOLE_SECRET`, `RCONSOLE_PEPPER`, `RCONSOLE_ADMIN_PASSWORD`, `RCONSOLE_MIN_PASSWORD`, `RCONSOLE_LOGIN_ATTEMPTS`, `RCONSOLE_LOGIN_LOCKOUT`, `RCONSOLE_MAX_USERS` |
 | Systems | `RCONSOLE_VM`, `RCONSOLE_DEFAULT_MODE`, `RCONSOLE_DEFAULT_SYSTEM`, `RCONSOLE_ALLOW_USER_HOST`, `RCONSOLE_USER_VM_PROC`, `RCONSOLE_RUN_AS_ROOT`, `RCONSOLE_HOST_HOME`, `RCONSOLE_VM_ROOTFS_URL`, `RCONSOLE_VM_ROOTFS_SHA256`, `RCONSOLE_VM_PROOT` |

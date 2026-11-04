@@ -80,8 +80,8 @@ class FeaturesDocTests(unittest.TestCase):
         from version import __version__
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn(f"**Version {__version__}**", readme)
-        self.assertIn("rconsole features", self.FEATURES)
-        self.assertIn(f"Every feature of rconsole {__version__}", self.FEATURES)
+        self.assertIn("# Rconsole features", self.FEATURES)
+        self.assertIn(f"Every feature of Rconsole {__version__}", self.FEATURES)
         self.assertTrue((ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("## ")[1].startswith(__version__))
 
     def test_every_documented_file_exists(self):

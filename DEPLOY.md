@@ -1,4 +1,4 @@
-# Deploying rconsole
+# Deploying Rconsole
 
 > **No budget?** rconsole's main purpose is to run bots, websites and workers on a **free** tier. Follow
 > **[FREE_HOSTING.md](FREE_HOSTING.md)** first (Render free + a private backup repo). This guide covers every other
@@ -25,13 +25,21 @@ satisfies these five rules works; the rest of this guide is just *how* on each o
 | # | Rule | Why |
 |---|------|-----|
 | 1 | **Exactly one instance** (one container/process) | Sessions, terminals, jobs and hosted apps live in that process's memory. Two instances = users bounce between them and lose terminals. |
-| 2 | **A persistent volume** mounted somewhere, with `RCONSOLE_DATA_DIR` pointing at it | Users, passwords, secrets, saved tabs and **every user's VM** live there. Without it, each deploy resets everything. |
+| 2 | **Persistent storage: a volume, or backups** | *Architecture A:* a persistent volume with `RCONSOLE_DATA_DIR` pointing at it; data survives redeploys. *Architecture B:* no volume (e.g. Render free), but [backups](docs/backup.md) to a private repo: the instance restores itself after every restart, with minutes of downtime and loss of anything since the last backup. With neither, each deploy resets everything. |
 | 3 | **Websockets + long idle timeouts** | The browser terminal is a websocket. Proxies that cut idle connections after 30–60 s will drop terminals. |
 | 4 | **HTTPS in front** | Login cookies are `Secure`; never expose the console over plain HTTP on the internet. |
 | 5 | **Outbound internet** | `vm install` downloads proot 5.5.0 (from GitHub, checksum-verified, once) and the system image (Alpine/Debian/Ubuntu/Kali mirrors), and `apk`/`apt` fetch packages. |
 
-Recommended size: **1 vCPU / 1 GB RAM** for a few users; add RAM if people build
-software or run hosted apps. Each VM costs ~10–150 MB of disk depending on the
+Rough starting sizes (estimates, not guaranteed minimums):
+
+| Use | Suggested start |
+|---|---|
+| One person, a terminal and a bot or two | 512 MB–1 GB RAM (an Alpine system suits 512 MB) |
+| A few users, a few hosted apps | 1 GB RAM, 1 vCPU |
+| Several web apps, package builds, compilers | 2 GB+ RAM |
+| Several users compiling in parallel | 2–4 GB+ RAM |
+
+A large package install can use several hundred MB at once; Rconsole sets no per-user memory or CPU limit. Each VM costs ~10–150 MB of disk depending on the
 system you pick, plus whatever the user installs — and a user can keep several, so
 budget disk for roughly *users × systems*.
 
@@ -51,25 +59,30 @@ The container image does the right thing automatically:
 
 Every [GitHub release](../../releases) contains what you need to host rconsole yourself: the complete source
 (`rconsole-<version>.tar.gz` / `.zip`, including the Dockerfile and `deploy/` configs), a ready-to-use
-`docker-compose.yml` + `Caddyfile` + `.env.example`, and `SHA256SUMS` (verify with `sha256sum -c SHA256SUMS`).
+`docker-compose.yml` + `Caddyfile` + `env.example` (GitHub drops the leading dot; in the repo it is
+`deploy/.env.example`; rename it to `.env`), and `SHA256SUMS` (verify with `sha256sum -c SHA256SUMS`).
 A multi-arch container image is published to `ghcr.io/<owner>/<repo>` with each release. Or just clone the repo.
 
 ## 2. Choose a platform
 
-| Platform | Works? | Persistent disk | Effort | Notes |
-|----------|:------:|-----------------|:------:|-------|
-| [**Render**](#4-render) | ✅ | Paid plans only (disk) | ⭐ | One-click blueprint (`render.yaml`). Free plan resets on every deploy and sleeps when idle. |
-| [**Railway**](#5-railway) | ✅ | Volumes | ⭐ | Auto-detects the Dockerfile and the volume path. |
-| [**Fly.io**](#6-flyio) | ✅ | Volumes (one machine) | ⭐⭐ | Real microVMs; good global regions (e.g. Singapore). |
-| [**Koyeb / Northflank**](#7-koyeb-and-northflank) | ✅ | Volumes (paid) | ⭐⭐ | Docker deploy from GitHub. |
-| [**Any VPS** (Hetzner, DigitalOcean Droplet, Vultr, Linode, OVH, Oracle Cloud)](#8-any-vps-docker-compose--caddy) | ✅✅ | Local disk | ⭐⭐ | **Best value and most control.** Docker Compose + Caddy gives automatic HTTPS. |
-| [**Bare metal / VM without Docker**](#9-linux-server-without-docker-systemd) | ✅✅ | Local disk | ⭐⭐⭐ | `uv` + systemd + nginx. |
-| [**AWS**](#10-aws-google-cloud-azure) | ✅ | EBS / EFS | ⭐⭐⭐ | Use **Lightsail/EC2** (simplest) or ECS+EFS. App Runner has no volumes. |
-| [**Google Cloud**](#10-aws-google-cloud-azure) | ⚠️ | Compute Engine disk | ⭐⭐⭐ | Use a **Compute Engine VM**. Cloud Run is stateless — demo only. |
-| [**Azure**](#10-aws-google-cloud-azure) | ✅ | Azure Files / disk | ⭐⭐⭐ | VM, or Container Apps with an Azure Files volume and max 1 replica. |
-| [**Kubernetes**](#11-kubernetes) | ✅ | PVC | ⭐⭐⭐ | `deploy/k8s.yaml`: 1 replica, `Recreate` strategy. |
-| [**Home server / Raspberry Pi / Termux**](#12-home-server-raspberry-pi-or-phone) | ✅ | Local disk | ⭐⭐ | Reach it privately with Tailscale or a Cloudflare Tunnel. |
-| **Heroku** | ⚠️ | ❌ none | – | Ephemeral filesystem: everything resets at least daily. Not recommended. |
+> **Provider terms last verified: 5 November 2026** (Koyeb and Railway checked against their own published pages;
+> others are described from their documented behaviour). Free tiers, prices and signup rules change often: check the
+> provider's current page before you commit. **"Works" means Rconsole runs there, not that it is free.**
+
+| Platform | Works? | Free for new users? | Persistent disk | Effort | Notes |
+|----------|:------:|---------------------|-----------------|:------:|-------|
+| [**Render**](#4-render) | ✅ | Free plan (no disk; 512 MB, restarts, idle suspension) | Paid plans only (disk) | ⭐ | One-click blueprint (`render.yaml`). The free plan has no disk: it restores from [backups](docs/backup.md) after every restart and suspends when idle. |
+| [**Railway**](#5-railway) | ✅ | One-time trial credit, then a small monthly free credit; always-on use needs a paid plan | Volumes | ⭐ | Auto-detects the Dockerfile and the volume path. |
+| [**Fly.io**](#6-flyio) | ✅ | No: machines and volumes are billed | Volumes (one machine) | ⭐⭐ | Real microVMs; good global regions (e.g. Singapore). |
+| [**Koyeb / Northflank**](#7-koyeb-and-northflank) | ✅ | **Koyeb: no** for new accounts (paid plans only). Northflank: check its current terms | Volumes (paid) | ⭐⭐ | Docker deploy from GitHub. |
+| [**Any VPS** (Hetzner, DigitalOcean Droplet, Vultr, Linode, OVH, Oracle Cloud)](#8-any-vps-docker-compose--caddy) | ✅✅ | Paid (Oracle Cloud's Always Free offer exists but capacity and verification vary by region and account) | Local disk | ⭐⭐ | **Best value and most control.** Docker Compose + Caddy gives automatic HTTPS. |
+| [**Bare metal / VM without Docker**](#9-linux-server-without-docker-systemd) | ✅✅ | Your own hardware | Local disk | ⭐⭐⭐ | `uv` + systemd + nginx. |
+| [**AWS**](#10-aws-google-cloud-azure) | ✅ | No (trial credits may apply) | EBS / EFS | ⭐⭐⭐ | Use **Lightsail/EC2** (simplest) or ECS+EFS. App Runner has no volumes. |
+| [**Google Cloud**](#10-aws-google-cloud-azure) | ⚠️ | No (trial credits may apply) | Compute Engine disk | ⭐⭐⭐ | Use a **Compute Engine VM**. Cloud Run is stateless — demo only. |
+| [**Azure**](#10-aws-google-cloud-azure) | ✅ | No (trial credits may apply) | Azure Files / disk | ⭐⭐⭐ | VM, or Container Apps with an Azure Files volume and max 1 replica. |
+| [**Kubernetes**](#11-kubernetes) | ✅ | Depends on the cluster | PVC | ⭐⭐⭐ | `deploy/k8s.yaml`: 1 replica, `Recreate` strategy. |
+| [**Home server / Raspberry Pi / Termux**](#12-home-server-raspberry-pi-or-phone) | ✅ | Your own hardware | Local disk | ⭐⭐ | Reach it privately with Tailscale or a Cloudflare Tunnel. |
+| **Heroku** | ⚠️ | No | ❌ none | – | Ephemeral filesystem: everything resets at least daily. Not recommended. |
 | **PythonAnywhere, Vercel, Netlify, Cloudflare Pages/Workers, GitHub Pages** | ❌ | – | – | No long-running processes/websockets. They cannot run rconsole. |
 
 **Not sure? Use a VPS** (section 8). Everything works exactly as designed there,
@@ -96,22 +109,28 @@ for deployment:
 
 ## 4. Render
 
-**Best for:** the fastest start. The **free plan works** (keep-alive and backups are built in — see
-[FREE_HOSTING.md](FREE_HOSTING.md)); a **paid instance** adds a persistent disk. [`render.yaml`](render.yaml) is the
+**Best for:** the fastest start. The **free plan runs Rconsole** (512 MB RAM, a small CPU share, roughly 750
+instance-hours a month, no disk, idle suspension and provider-driven restarts; keep-alive and backups are built in,
+see [FREE_HOSTING.md](FREE_HOSTING.md)) but it is for experiments and light workloads, not a substitute for a VPS; a **paid instance** adds a persistent disk. [`render.yaml`](render.yaml) is the
 free blueprint, [`render.paid.yaml`](render.paid.yaml) the one with a disk.
 
 1. Push the repo to GitHub.
 2. Render dashboard → **New → Blueprint** → pick the repo. Render reads
    [`render.yaml`](render.yaml): a Docker web service, a health check on
-   `/healthz`, generated `RCONSOLE_SECRET`/`RCONSOLE_PEPPER`, and a 5 GB disk at `/data`.
+   `/healthz`, generated `RCONSOLE_SECRET`/`RCONSOLE_PEPPER` and **no disk**: `/data` is ephemeral and recovery relies on your
+   backup repository. (The 5 GB disk at `/data` belongs to [`render.paid.yaml`](render.paid.yaml), the paid blueprint.)
 3. When prompted, enter **`RCONSOLE_ADMIN_PASSWORD`**.
 4. Wait for the deploy to go **Live**, open the `*.onrender.com` URL, log in as `ark`.
 5. Run `vm list`, then `vm install <name>`.
 
-**Prefer clicking through manually?** New → *Web Service* → *Docker* runtime →
-*Instance type* a paid one → *Advanced → Add Disk* with **mount path `/data`** →
-add the environment variables from [section 3](#3-settings-you-will-touch) and set
-**Health Check Path** to `/healthz`.
+**Prefer clicking through manually?** New → *Web Service* → *Docker* runtime, then:
+
+* **Free:** instance type *Free*, no disk. Set `RCONSOLE_DATA_DIR=/data`, `RCONSOLE_ADMIN_PASSWORD`,
+  `RCONSOLE_BACKUP_URL`, `RCONSOLE_BACKUP_TOKEN`, `RCONSOLE_BACKUP_PASSPHRASE`, and a long random `RCONSOLE_SECRET` and
+  `RCONSOLE_PEPPER` (the blueprint generates these for you). Health Check Path `/healthz`. Then check recovery with
+  [the backup test](docs/backup.md#test-it-once).
+* **Paid:** a paid instance type, *Advanced → Add Disk* with **mount path `/data`**, the variables from
+  [section 3](#3-settings-you-will-touch), Health Check Path `/healthz`.
 
 **Using the native Python runtime instead of Docker?** It works, with limits (no
 `apt` on the host shell; the VM still works because proot is downloaded at
@@ -132,6 +151,9 @@ each deploy) and the service sleeps when idle, which also ends terminals.
 
 ## 5. Railway
 
+Railway bills by usage. New accounts get a one-time trial credit, after which only a small monthly credit is free;
+an always-on service with a volume generally needs a paid plan. Check [Railway's pricing](https://docs.railway.com/pricing/plans) first.
+
 1. **New Project → Deploy from GitHub repo.** Railway detects the `Dockerfile`.
 2. **Add a Volume** (service → *Settings → Volumes* or the command palette) and
    mount it at **`/data`**. rconsole also auto-detects Railway's volume path if you
@@ -146,6 +168,9 @@ The container fixes the volume's ownership itself, so you do not need
 ---
 
 ## 6. Fly.io
+
+Fly.io bills for machine time and for volumes, so this is **not** a permanent free deployment. Check
+[Fly.io's pricing](https://fly.io/docs/about/pricing/) before you create the machine and volume.
 
 Fly runs your image in a real microVM close to your users (try `sin` for South
 Asia). Install `flyctl`, then from the repo root:
@@ -170,6 +195,11 @@ with `fly certs add console.example.com` and `RCONSOLE_ALLOWED_ORIGINS`.
 
 Both build straight from your GitHub repo's `Dockerfile`.
 
+> **Koyeb:** since February 2026 Koyeb is part of Mistral AI and **new organisations must subscribe to a paid plan**
+> (Pro or above); the free Starter plan only continues for organisations that already had it ([announcement](https://www.koyeb.com/blog/koyeb-is-joining-mistral-ai-to-build-the-future-of-ai-infrastructure)).
+> Do not rely on Koyeb as a free option. Northflank: confirm that your plan includes a volume and long-running
+> websocket connections before you commit.
+
 * **Koyeb:** *Create Service → GitHub →* builder **Dockerfile**, port **5000**
   (HTTP), health check **`/healthz`**, add a **Volume** mounted at `/data` (paid
   instance types), instances **min = max = 1**, and the environment variables above.
@@ -177,8 +207,9 @@ Both build straight from your GitHub repo's `Dockerfile`.
   Dockerfile build, add a **volume** at `/data`, port **5000** public HTTP,
   replicas **1**.
 
-If a platform's free tier has no volume, rconsole still runs but forgets everything
-on redeploy.
+If a platform's free tier has no volume, Rconsole still runs, but its disk is wiped on every redeploy or restart
+unless you configure [backups](docs/backup.md): then it restores itself (minutes of downtime, and anything since the
+last backup is lost).
 
 ---
 
@@ -192,7 +223,7 @@ a Contabo box** — anything with Docker.
    DNS **A record** (`console.example.com`) at its IP.
 2. **Install Docker** (official script):
    ```bash
-   curl -fsSL https://get.docker.com | sh
+   curl -fsSL https://get.docker.com | sh   # needs Docker 24+ with the Compose plugin; x86-64 or arm64
    ```
 3. **Get the code and configure:**
    ```bash
@@ -298,8 +329,10 @@ Never set `replicas` above 1, and do not use an autoscaler.
 
 * **Raspberry Pi / home PC (arm64 or x86-64):** run it with Docker Compose
   (section 8, skip Caddy) or `uv run python serve.py` (gunicorn on Linux; a built-in fallback on Windows). On ARM,
-  install proot from the package manager (`sudo apt install proot`), since the
-  prebuilt download is x86-64 only; the Docker image already includes it.
+  install **proot 5.5.0 or newer** yourself, since the prebuilt download is x86-64 only. The package manager's
+  version (`sudo apt install proot`) may be older and then cannot run Ubuntu 26.04's Rust coreutils: check
+  `proot --version`, and point `RCONSOLE_VM_PROOT` at a newer build if needed. The Docker image includes the
+  distribution's proot (also check its version).
 * **Reach it from outside without opening ports:**
   * **Tailscale:** install on the server and your devices, then browse to
     `http://<machine-name>:5000`. Private by default — the safest choice for a
@@ -307,8 +340,9 @@ Never set `replicas` above 1, and do not use an autoscaler.
   * **Cloudflare Tunnel:** `cloudflared tunnel --url http://localhost:5000` for a
     quick public HTTPS URL, or a named tunnel for your own domain. Add the public
     hostname to `RCONSOLE_ALLOWED_ORIGINS` and set `RCONSOLE_COOKIE_SECURE=1`.
-* **Android (Termux):** `pkg install python git proot`, clone the repo,
-  `pip install -r requirements.txt`, run `python main.py`. Use Tailscale or a
+* **Android (Termux, untested):** `pkg install python git proot`, clone the repo, `pip install -r requirements.txt`,
+  run `python main.py`. Rconsole needs **Python 3.14+**: check `python --version` first. Android may kill background
+  processes, which stops service supervision. This is for local use. Use Tailscale or a
   tunnel to open it from other devices.
 
 ---
@@ -339,7 +373,9 @@ Do this once, in order:
 2. **Create real accounts** (`sudo muser`) instead of sharing `ark`.
 3. **Check the data survives:** run `vm list`, `vm install debian` (or any),
    create a file in `/root`, then trigger a redeploy/restart and confirm the VM and
-   file are still there. If not, the volume or `RCONSOLE_DATA_DIR` is wrong.
+   file are still there. On a volume, if not, the volume or `RCONSOLE_DATA_DIR` is wrong. **On a disk-less host**
+   this only proves the *restore* works: also run `sudo backup` and follow [the backup test](docs/backup.md#test-it-once)
+   (encrypted snapshot arrives, passphrase decrypts it, a clean instance restores it, services start).
 4. **Test the terminal:** `vm shell` should show a prompt and accept typing. If it
    connects then drops after a minute, your proxy's idle timeout is too short
    (see troubleshooting).
@@ -353,8 +389,8 @@ Do this once, in order:
 * Docker Compose: `git pull && docker compose up -d --build`.
 * systemd: `git pull && uv sync --frozen && sudo systemctl restart rconsole`.
 
-Open terminals reconnect after a restart; background jobs and hosted apps are
-stopped and must be started again.
+Open terminal tabs come back (same folder, history kept) as **fresh terminals**: the programs that ran in them,
+background jobs and hand-started apps are stopped and must be started again. `service`s start again by themselves.
 
 ### Backups and restore
 
