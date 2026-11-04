@@ -3,6 +3,48 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.8 — 2026-11-04
+
+### Fixed
+- **VMs shared one PID space.** Every VM of every user ran in the server's PID namespace: an admin's VM listed
+  everyone's processes (the server, other users' VMs) and `kill` (even `kill -9 -1`) reached them all. Each VM now
+  gets **its own PID namespace** (`unshare --user --pid`, new `pidns.py`, init in `pidns_init.py`): inside a VM
+  `ps`, `top`, `kill` and `/proc` show only that VM's processes, with PIDs starting at 1, and `kill -9 -1` only
+  reaches that VM. All commands of one VM (terminals, jobs, services, hosted apps) share its namespace, so a
+  service started in one terminal is visible from another. The namespace's init reaps zombies and exits when the
+  server dies, so nothing is orphaned.
+- On a host that forbids user namespaces rconsole still works, without isolation: it says so in `vm doctor`
+  (`pid ns:` line), and **admins' VMs no longer get the host's whole `/proc`** (everyone gets only the harmless
+  system files, as normal users already did). Use `vm ps` / `vm kill` there. `RCONSOLE_VM_PIDNS=off` restores the
+  old behaviour, `on` is the same as `auto` but documents intent.
+- **A restore could start services on a half-built VM.** After a redeploy a VM was marked ready as soon as its system
+  was reinstalled, so a service could start before its `vm setup` profiles were back and crash-loop. A VM is now
+  **locked in a `restoring` state** (set before the supervisor's first pass) until its system, setups **and
+  packages** are back; its services wait, then start by themselves.
+
+### Added
+- **Dependency manifest per VM** (`deps.json`, part of every backup, new `vmdeps.py`): before each backup rconsole
+  records what is installed in each VM — manually installed system packages (`apk` world / `apt-mark showmanual`),
+  `pip` packages of the system Python, global `npm` packages, **every Python virtualenv under `/root` with its
+  packages**, and every **Node project** that had a `node_modules` (with its lockfile type). `node_modules` and
+  virtualenvs are not in backups, so this list is what brings them back. It is refreshed only when something
+  changed (directory mtimes), never while a VM is being restored, and a partial restore never makes it forget
+  what could not be reinstalled.
+- **Full restore:** after a redeploy each VM is rebuilt, its profiles re-applied, then everything in its manifest
+  reinstalled (`apk add`/`apt-get install`, `pip install -r`, `npm install -g`, venvs recreated, `npm ci` / `yarn` /
+  `pnpm install` in projects). Failures are per item, logged, and shown by `vm deps`. `RCONSOLE_RESTORE_DEPS=0` skips it.
+- `vm ps [name]`, `vm kill <pid> [name] [--9]`, `vm deps [name]` (`capture` / `restore` run it now).
+- `vm doctor` and `vm status` show the PID-namespace mode and the `restoring` state.
+- Tests: PID isolation between VMs and users, `kill -1` containment, the no-namespace fallback, manifest
+  parsing/merge/restore script, and "services wait for a full restore".
+
+### Notes
+- The Docker image now installs `util-linux` explicitly (`unshare`, `nsenter`). Docker's default seccomp profile
+  blocks user namespaces: on plain Docker add `--security-opt seccomp=unconfined` (or a profile allowing
+  `unshare`/`setns`) to get isolation; `vm doctor` tells you which mode you are in. Not verified on Render.
+- Not captured: files outside `/root` (`/etc`, `/opt`, `/usr/local`), custom apt repositories, and **host-shell**
+  packages (admin host mode). Keep projects under `/root`.
+
 ## 1.3.7 — 2026-11-03
 
 ### Added

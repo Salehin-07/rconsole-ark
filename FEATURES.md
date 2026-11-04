@@ -1,6 +1,6 @@
 # rconsole features
 
-Every feature of rconsole 1.3.7, by area. This is the **map**; the details live in
+Every feature of rconsole 1.3.8, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.
@@ -102,6 +102,8 @@ persistent `/root`. You are `root` inside and can install anything; no host priv
 | **`vm remove <name\|all> --yes`** | Deletes a VM and its `/root`. |
 | **`vm setup <profile> [name]`** | Ready-made toolchains installed as a background job with live progress: `python` (with headers for psycopg2, mysqlclient, Pillow, lxml, cryptography…), `build`, `node`, `rust`, `db`, `tools`, `docker`, `udocker`, `kali` (Kali toolset), `all`. Profiles are remembered and re-applied after a restore. |
 | **`vm update [name]`** | Updates a VM to the latest version, safely (Alpine walks to the **newest release**, one release at a time; Debian/Ubuntu/Kali get all newer packages of their release; `--stay` = packages only): **locks** it (nothing can start in it, what ran there stops), checks the package database, takes a **snapshot** (hard links: almost no disk), upgrades without questions (config files kept), **verifies**, and on *any* problem — failure, timeout, shutdown, even a crash — **restores the snapshot**. `/root` is never touched. Admins must be in the host shell; a normal user with one system has everything stop while it runs (name optional), with several only that VM is locked. `--yes` confirms, `--log` shows the run, `vm status` shows progress. |
+| **`vm ps [name]`** · **`vm kill <pid> [name]`** | Processes of one VM. Each VM has its **own PID namespace** (`RCONSOLE_VM_PIDNS`, default `auto`), so `ps`/`top`/`kill`/`/proc` inside it show only its processes (PIDs from 1) and `kill -9 -1` stays inside; where the host forbids user namespaces these two commands are the scoped view (found through proot) and `vm doctor` says "NOT isolated". |
+| **`vm deps [name]`** | What a restore will reinstall in a VM: system packages, pip, global npm, virtualenvs and Node projects under `/root` (`deps.json`, taken before each backup). `vm deps capture` records now, `vm deps restore` reinstalls now. `RCONSOLE_RESTORE_DEPS=0` disables restoring. |
 | **`vm doctor [name]`** | Step-by-step health check: shell, programs, root, write, DNS, internet, packages. |
 | **`vm help`** | Short usage. |
 | **No questions asked** | Installs are non-interactive (`DEBIAN_FRONTEND=noninteractive`); `pip install` works without `--break-system-packages`; Kali gets a writable `/dev/net` and no banner; user tool directories (`~/.local/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/go/bin`) are on `PATH`. |
@@ -133,7 +135,7 @@ Made for hosts that **sleep when idle and wipe the disk on every deploy** — se
 |---|---|
 | **`keepalive`** | Pings the site's own public URL (`/healthz`) every 10 minutes so a free instance never sleeps. On by default on Render; `keepalive now`, `sudo keepalive off\|on`; also pings extra URLs (`RCONSOLE_KEEPALIVE_EXTRA`). |
 | **`backup`** | 🔒 Encrypted snapshots to a **private git repo** (history never accumulates: each push replaces the branch) or a folder. Saves users and secrets, per-user state, the workspace, exposures, services, each VM's `/root`, the VM list and `vm setup` profiles, and the installed release of `rconsole update`. `sudo backup`, `now`, `restore --yes`, `help`. Runs every 15 minutes if something changed and once at shutdown. |
-| **Automatic restore** | On a blank instance the latest backup is restored **before anything else starts**; VMs are reinstalled and profiles re-applied in the background; services start again. |
+| **Automatic restore** | On a blank instance the latest backup is restored **before anything else starts**; VMs are reinstalled, profiles re-applied and **packages reinstalled** (system, pip, npm, virtualenvs, Node projects) in the background; each VM stays locked (`restoring`) until done, then its services start by themselves. |
 | **`reboot`** | 🔒 Restarts in place without a redeploy (`sudo reboot --yes`: final backup → stop everything → reload), or `--hard` to exit the process. Services start again; the page reconnects. |
 | **`/healthz`** | Public health probe: `{"ok": true, "version": …}`. Answers even while an update is running. |
 | **Sleep-proof deploys** | Render blueprints for the free plan (`render.yaml`) and for a persistent disk (`render.paid.yaml`). |
@@ -252,6 +254,7 @@ All through environment variables (`config.py`); the full table with defaults is
 | Services | `RCONSOLE_SUPERVISOR` |
 | Files | `RCONSOLE_MAX_UPLOAD_MB`, `RCONSOLE_MAX_EXTRACT_MB` |
 | Staying alive | `RCONSOLE_KEEPALIVE`, `RCONSOLE_KEEPALIVE_INTERVAL`, `RCONSOLE_KEEPALIVE_EXTRA` |
+| VM isolation / restore | `RCONSOLE_VM_PIDNS` (`auto` \| `on` \| `off`: one PID namespace per VM), `RCONSOLE_RESTORE_DEPS` (reinstall each VM's packages after a restore, default on) |
 | Backups | `RCONSOLE_BACKUP_URL`, `RCONSOLE_BACKUP_TOKEN`, `RCONSOLE_BACKUP_DIR`, `RCONSOLE_BACKUP_PASSPHRASE`, `RCONSOLE_BACKUP_INTERVAL`, `RCONSOLE_BACKUP_MAX_MB`, `RCONSOLE_BACKUP_BRANCH` (branch that receives snapshots, default `rconsole-backup`), `RCONSOLE_BACKUP_USER` (git user for the token, default `x-access-token`), `RCONSOLE_BACKUP_ENCRYPT` (default on; turning it off stores plain snapshots), `RCONSOLE_RESTORE_SETUP` (re-run `vm setup` profiles after a restore, default on) |
 | Updating | `RCONSOLE_UPDATE_REPO`, `RCONSOLE_UPDATE_TOKEN`, `RCONSOLE_UPDATE_API` (GitHub API base; tests / Enterprise mirrors only) |
 | Docker shim | `DRUN_MODE`, `DRUN_PULL_OPTS`, `DOCKER_SHIM_LOCAL`, `DOCKER_HOST` |

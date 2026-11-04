@@ -12,12 +12,13 @@ ENV PYTHONUNBUFFERED=1 \
     RCONSOLE_DATA_DIR=/data
 
 # proot  : runs the per-user VM without privileges
+# util-linux: unshare/nsenter give every VM its own PID namespace (when the host allows it)
 # tini   : PID 1 that reaps the many short-lived PTY/job children
 # bsdtar : (package libarchive-tools) lets the file browser create 7z and extract 7z / RAR / CAB / ISO ...
 # the rest: everyday tools for the *host* shell (admins)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      proot tini git curl ca-certificates nano vim-tiny procps less openssh-client libarchive-tools \
+      proot tini util-linux git curl ca-certificates nano vim-tiny procps less openssh-client libarchive-tools \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

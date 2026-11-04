@@ -33,11 +33,12 @@ Set up (once), as environment variables on your host:
   (or RCONSOLE_BACKUP_DIR=/some/folder to back up to a folder instead)
 
 What is saved: users and secrets, settings, the workspace, exposures, services, each VM's /root
-and the list of VMs and `vm setup` profiles. NOT saved: VM system files (re-downloaded), caches,
-node_modules/venvs, files over 20 MB, running processes.
+the list of VMs, their `vm setup` profiles and a list of what is installed in each (system packages, pip,
+npm, virtualenvs, Node projects). NOT saved: VM system files (reinstalled from that list), the venvs and
+node_modules themselves (reinstalled), caches, files over 20 MB, running processes.
 
 Then: backups run every 15 minutes when something changed (and once more at shutdown); a fresh
-instance restores itself at boot, rebuilds your VMs and restarts your services."""
+instance restores itself at boot, rebuilds your VMs (system, profiles, packages) and restarts your services."""
 
 
 def _ago(ts):

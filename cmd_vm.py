@@ -18,7 +18,10 @@ Subcommands::
     vm remove <name|all> --yes     delete a VM and its /root
     vm setup <profile> [name]      install Python/build tools/Node/Docker/Kali tools (see `vm setup`)
     vm update [name]      update a VM to the latest version (Alpine: newest release), safely
-    vm doctor [name]      check that a VM works and show what is wrong if not
+    vm ps [name]          list the processes of a VM (each VM has its own PID space)
+  vm kill <pid> [name]  stop one process of a VM (--9 forces it)
+  vm deps [name]        packages a restore will reinstall; `capture` / `restore` run it now
+  vm doctor [name]      check that a VM works and show what is wrong if not
 
 With a single VM you never need to type its name. With several, commands that
 need to know which one show a picker (a dropdown in the browser).
@@ -34,7 +37,9 @@ import commands
 import devsetup
 import distros
 import jobs
+import pidns
 import sandbox
+import vmdeps
 import vmupdate
 
 RUN_TIMEOUT = 90      # under Render's 100 s HTTP limit; use `vm shell` or `&` for more
@@ -53,6 +58,9 @@ _USAGE = """\
   vm setup <profile> [n] install python, build tools, node, docker, kali ... (`vm setup` lists them)
   vm update [name]      update to the latest version, safely (locks it; rolls back on any problem)
                         --stay keeps the current release (packages only)
+  vm ps [name]          processes running in a VM (each VM sees only its own)
+  vm kill <pid> [name]  stop one of them (add --9 to force)
+  vm deps [name]        what a restore will reinstall (`vm deps capture` / `vm deps restore` run it now)
   vm doctor [name]      diagnose a VM"""
 
 
@@ -121,11 +129,11 @@ def _status(sid, cols, only=None):
         for i in infos:
             mark = "*" if i["vm"] == active and mode == sandbox.VM else " "
             st = {"ready": "", "installing": " (installing…)", "updating": " (updating…, locked)",
-                  "failed": " (install FAILED)", "absent": ""}[i["state"]]
+                  "failed": " (install FAILED)", "absent": "", "restoring": " (restoring…, locked)"}[i["state"]]
             title = i["distro"] or i["label"] or i["vm"]
             size = f" · {_human(i['disk'])}" if i["disk"] is not None else ""
             lines.append(f"{mark} {i['vm']:<8}{title}{size}{st}")
-            if i["message"] and i["state"] in ("installing", "updating", "failed"):
+            if i["message"] and i["state"] in ("installing", "updating", "failed", "restoring"):
                 lines.append(_wrap(i["message"], cols or 80, 11))
             last = vmupdate.summary(sid, i["vm"]) if i["state"] == "ready" else ""
             if last and (only or i["vm"] == active):
@@ -221,7 +229,11 @@ def _doctor(ctx, vm):
     lines = [f"Doctor: {vm} ({d['distro'] or d['label'] or '?'})", "=" * 24,
              f"proot   : {proot or 'MISSING'} (v{sandbox.proot_version(proot) if proot else '?'})",
              f"seccomp : {'off' if sandbox._seccomp_off() else 'on'}",
-             f"kernel  : {platform.release()}  cpu: {platform.machine()}", ""]
+             f"kernel  : {platform.release()}  cpu: {platform.machine()}",
+             "pid ns  : " + ("own namespace per VM (processes are isolated)" if pidns.active() else
+                             "NOT isolated — " + (pidns.probe()[1] or "unavailable")
+                             + " (VMs share the server's PID space; see FEATURES.md, RCONSOLE_VM_PIDNS)"),
+             ""]
     host = {"alpine": "dl-cdn.alpinelinux.org", "debian": "deb.debian.org"}.get(
         vm, "archive.ubuntu.com" if vm == "ubuntu" else "http.kali.org" if vm == "kali"
         else "deb.debian.org")
@@ -448,6 +460,53 @@ def cmd_vm(ctx, args):
 
     if sub in ("update", "upgrade"):
         return _update(ctx, rest)
+
+    if sub in ("ps", "kill", "deps"):
+        flags = [a for a in rest if a.startswith("--")]
+        pos = [a for a in rest if not a.startswith("--")]
+        action = None
+        if sub == "deps" and pos and pos[0] in ("capture", "restore", "show"):
+            action, pos = pos[0], pos[1:]
+        pid = None
+        if sub == "kill":
+            if not pos or not pos[0].isdigit():
+                return "usage: vm kill <pid> [name] [--9]"
+            pid, pos = int(pos[0]), pos[1:]
+        vms = sandbox.installed_vms(sid)
+        if not vms:
+            return _no_vm_reply(sid)
+        name = pos[0] if pos else sandbox.active_vm(sid) or (vms[0] if len(vms) == 1 else None)
+        if not name:
+            return _picker(sid, "Which system?", f"vm {sub} " + (f"{pid} " if pid else "") + "{vm}", install=False)
+        if name not in vms:
+            return f"vm: '{name}' is not installed (see `vm`)."
+        if sub == "ps":
+            rows = pidns.vm_procs(sid, name)
+            if not rows:
+                return f"{name}: nothing is running."
+            out = [f"{name}: {len(rows)} process(es)" + ("" if pidns.running(sid, name) else
+                   "  (no PID namespace: host PIDs)"), "  PID  STAT  RSS(MB)  CPU(s)  COMMAND"]
+            out += [f"{r['pid']:>5}  {r['state']:<4}  {r['rss_kb'] / 1024:>7.1f}  {r['cpu_s']:>6}  {r['cmd'][:60]}"
+                    for r in rows]
+            return "\n".join(out)
+        if sub == "kill":
+            import signal
+            ok = pidns.kill_proc(sid, name, pid, signal.SIGKILL if "--9" in flags else signal.SIGTERM)
+            return f"{name}: signalled {pid}." if ok else f"{name}: no process {pid} here (see `vm ps {name}`)."
+        reason = sandbox.busy_reason(sid, name)
+        if reason:
+            return f"vm: {reason}"
+        if action == "capture":
+            ok, msg = vmdeps.capture(sid, name, force=True)
+            return f"{name}: " + ("recorded — " + vmdeps.summary(sid, name) if ok else "could not record: " + msg)
+        if action == "restore":
+            ok, failed = vmdeps.restore(sid, name)
+            return f"{name}: " + ("everything reinstalled." if ok else "some items failed: " + failed)
+        rep = vmdeps.last_report(sid, name)
+        text = f"{name}: {vmdeps.summary(sid, name)}"
+        if rep:
+            text += "\nlast restore: " + ("ok" if rep["ok"] else "failed: " + "; ".join(rep["failed"][:5]))
+        return text
 
     if sub in ("doctor", "check", "diagnose"):
         vms = sandbox.installed_vms(sid)

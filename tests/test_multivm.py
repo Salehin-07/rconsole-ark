@@ -20,8 +20,11 @@ import app as rapp
 import auth
 import config
 import distros
+import pidns
 import sandbox
+import services
 import state
+import vmdeps
 
 PROOT = os.environ.get("RCONSOLE_VM_PROOT") or shutil.which("proot")
 BUSYBOX = os.environ.get("RCONSOLE_TEST_BUSYBOX") or shutil.which("busybox")
@@ -468,6 +471,189 @@ class MultiVm(unittest.TestCase):
         self.assertEqual(sandbox.installed_vms("alice"), ["kali"])
         meta = json.loads((sandbox.vm_dir("alice", "kali") / "distro.json").read_text())
         self.assertEqual(meta["id"], "kali")
+
+    # ------------------------------------------------- PID isolation (v1.3.8)
+    def _numeric_proc_dirs(self, cmd_vm, sid="alice"):
+        out = self.run_in(f"@vm:{cmd_vm} ls /proc", sid=sid).stdout.split()
+        return [x for x in out if x.isdigit()]
+
+    @unittest.skipUnless(pidns.probe()[0], "this host does not allow user namespaces")
+    def test_every_vm_has_its_own_pid_space(self):
+        auth.create_user("bob", "longenough1")
+        self.install("alpine", "debian")
+        self.install("alpine", sid="bob")
+        sp = sandbox.spec("alice", "@vm:alpine sleep 40", "/root")
+        sleeper = subprocess.Popen(sp.argv, cwd=sp.cwd, env=sp.env, stdout=subprocess.DEVNULL)
+        try:
+            import time
+            for _ in range(80):
+                if any("sleep" in r["cmd"] for r in pidns.vm_procs("alice", "alpine")):
+                    break
+                time.sleep(0.1)
+            self.assertTrue(any("sleep" in r["cmd"] for r in pidns.vm_procs("alice", "alpine")))
+            # another VM of the same user, and another user's VM, see none of it
+            for sid, vm in (("alice", "debian"), ("bob", "alpine")):
+                self.assertFalse(any("sleep 40" in r["cmd"] for r in pidns.vm_procs(sid, vm)))
+                self.assertLessEqual(len(self._numeric_proc_dirs(vm, sid)), 3)   # init, proot, shell/ls
+                self.assertEqual(self.run_in(f"@vm:{vm} cat /proc/1/cmdline | tr '\\0' ' '", sid=sid).returncode, 0)
+            # `kill -9 -1` in one VM only reaches that VM
+            self.run_in("@vm:debian kill -9 -1", sid="alice")
+            self.assertIsNone(sleeper.poll())
+            self.assertTrue(pidns.running("alice", "alpine"))
+            # its own namespace PIDs start at 1 and `vm ps` can signal by that PID
+            rows = pidns.vm_procs("alice", "alpine")
+            target = next(r for r in rows if "sleep 40" in r["cmd"])
+            self.assertLess(target["pid"], 50)
+            self.assertTrue(pidns.kill_proc("alice", "alpine", target["pid"]))
+            sleeper.wait(timeout=10)
+            self.assertFalse(pidns.kill_proc("alice", "debian", 1))             # never the init
+        finally:
+            sleeper.kill()
+            pidns.stop_all()
+
+    def test_without_namespaces_the_vm_still_hides_host_processes(self):
+        saved = dict(pidns._probe_cache)
+        pidns._probe_cache.update(ok=False, reason="test: blocked")
+        try:
+            self.install("alpine", sid="ark")
+            sp = sandbox.spec("ark", "@vm:alpine ls /proc", "/root")        # even for the admin
+            self.assertNotIn("nsenter", sp.argv)
+            self.assertNotIn("-b /proc ", " ".join(sp.argv) + " ")
+            self.assertEqual(self.run_in("@vm:alpine ls /proc", sid="ark").returncode, 0)
+        finally:
+            pidns._probe_cache.clear()
+            pidns._probe_cache.update(saved)
+
+    def test_pidns_can_be_turned_off(self):
+        saved = (config.VM_PIDNS, dict(pidns._probe_cache))
+        config.VM_PIDNS = "off"
+        pidns._probe_cache.clear()
+        try:
+            self.assertFalse(pidns.active())
+            self.assertIn("RCONSOLE_VM_PIDNS", pidns.probe()[1])
+        finally:
+            config.VM_PIDNS = saved[0]
+            pidns._probe_cache.clear()
+            pidns._probe_cache.update(saved[1])
+
+    # --------------------------------------- dependency manifest + full restore
+    def test_parse_manifest_sections(self):
+        out = "\n".join([
+            "@@captured", "@@apt", "curl", "git", "@@pyversion", "3.12.3", "@@pip", "requests==2.31.0", "flask==3.0.0",
+            "@@npmglobal", '{"dependencies":{"npm":{"version":"10"},"pm2":{"version":"5.3.0"}}}',
+            "@@venv ./app/.venv", "django==5.0", "#python 3.12", "@@node ./web", "npm-ci"])
+        m = vmdeps.parse(out)
+        self.assertEqual(m["system"], {"manager": "apt", "packages": ["curl", "git"]})
+        self.assertEqual(m["pip"]["packages"], ["requests==2.31.0", "flask==3.0.0"])
+        self.assertEqual(m["npm_global"], ["pm2@5.3.0"])
+        self.assertEqual(m["venvs"], [{"path": "app/.venv", "python": "3.12", "packages": ["django==5.0"]}])
+        self.assertEqual(m["node_projects"], [{"path": "web", "lock": "npm-ci"}])
+
+    def test_a_partial_restore_never_loses_what_failed(self):
+        old = {"system": {"packages": ["curl", "ffmpeg"]}, "pip": {"packages": ["requests==2.31.0", "aiohttp==3.9"]},
+               "npm_global": ["pm2@5"], "venvs": [{"path": "a", "packages": []}], "node_projects": []}
+        new = {"system": {"packages": ["curl"]}, "pip": {"packages": ["requests==2.31.0"]},
+               "npm_global": [], "venvs": [], "node_projects": [{"path": "w", "lock": "npm"}]}
+        vmdeps._merge_missing(new, old)
+        self.assertEqual(new["system"]["packages"], ["curl", "ffmpeg"])
+        self.assertEqual(new["pip"]["packages"], ["aiohttp==3.9", "requests==2.31.0"])
+        self.assertEqual(new["npm_global"], ["pm2@5"])
+        self.assertEqual([v["path"] for v in new["venvs"]], ["a"])
+
+    def test_restore_script_reinstalls_everything_the_manifest_lists(self):
+        self.install("debian")
+        root = sandbox.rootfs_path("alice", "debian")
+        (root / "usr/bin").mkdir(parents=True, exist_ok=True)
+        for tool in ("apt-get", "python3", "npm"):                      # recorders standing in for the real tools
+            f = root / "usr/bin" / tool
+            f.write_text('#!/bin/sh\necho "' + tool + ' $*" >> /root/calls.log\n')
+            f.chmod(0o755)
+        (sandbox.home_path("alice", "debian") / "web").mkdir()
+        (sandbox.home_path("alice", "debian") / "web/package.json").write_text("{}")
+        man = {"version": 1, "captured_at": 1, "family": "debian",
+               "system": {"manager": "apt", "packages": ["curl", "git"]},
+               "pip": {"python": "3.12.3", "packages": ["requests==2.31.0"]},
+               "npm_global": ["pm2@5.3.0"],
+               "venvs": [{"path": "bot/.venv", "python": "3.12", "packages": ["discord.py==2.3.2"]}],
+               "node_projects": [{"path": "web", "lock": "npm-ci"}]}
+        vmdeps._path("alice", "debian").write_text(json.dumps(man))
+        logs = []
+        ok, failed = vmdeps.restore("alice", "debian", log=logs.append)
+        calls = (sandbox.home_path("alice", "debian") / "calls.log").read_text()
+        self.assertIn("apt-get install -y --no-install-recommends curl git", calls)
+        self.assertIn("python3 -m pip install -r /tmp/rc-pip.txt", calls)
+        self.assertIn("npm install -g pm2@5.3.0", calls)
+        self.assertIn("python3 -m venv /root/bot/.venv", calls)
+        self.assertIn("npm ci", calls)
+        self.assertTrue(vmdeps.last_report("alice", "debian")["log"].count("==") >= 5)
+        self.assertTrue(logs and "dependencies for alice/debian" in logs[0])
+
+    def test_capture_keeps_the_old_list_when_the_vm_cannot_answer(self):
+        self.install("debian")
+        vmdeps._path("alice", "debian").write_text(json.dumps({"system": {"manager": "apt", "packages": ["curl"]},
+                                                              "pip": {"packages": []}, "captured_at": 1, "fp": "x"}))
+        sandbox._set_install("alice", "debian", "updating", "x")
+        try:
+            ok, msg = vmdeps.capture("alice", "debian", force=True)
+        finally:
+            sandbox._clear_install("alice", "debian")
+        self.assertFalse(ok)
+        self.assertEqual(vmdeps.load("alice", "debian")["system"]["packages"], ["curl"])
+
+    def test_services_wait_until_the_vm_is_fully_restored(self):
+        """After a redeploy a service must not start on a half-built VM: it is locked until packages are back."""
+        import backup
+        self.install("debian")
+        (sandbox.home_path("alice", "debian") / "bot.py").write_text("print('x')")
+        vmdeps._path("alice", "debian").write_text(json.dumps(
+            {"version": 1, "captured_at": 1, "system": {"manager": "apt", "packages": ["curl"]},
+             "pip": {"packages": ["requests==2.31.0"]}, "npm_global": [], "venvs": [], "node_projects": []}))
+        saved = (config.BACKUP_DIR, config.BACKUP_PASSPHRASE, config.BACKUP_ENCRYPT, config.BACKUP_URL)
+        config.BACKUP_DIR = str(Path(tempfile.mkdtemp(prefix="bk-dest-")))
+        config.BACKUP_URL, config.BACKUP_PASSPHRASE, config.BACKUP_ENCRYPT = "", "pass phrase", True
+        seen = []
+        real = vmdeps.restore
+        try:
+            config.RESTORE_DEPS = False          # keep the hand-written list (this tiny test VM has no pip to scan)
+            self.assertTrue(backup.backup_now(force=True)[0])
+            config.RESTORE_DEPS = True
+            helpers.wipe_vms()
+            self.assertTrue(backup.restore(force=False)[0])
+            self.assertTrue(vmdeps.load("alice", "debian")["pip"]["packages"])       # the list travelled in the backup
+
+            def watch(sid, vm, log=print):
+                box = []                         # ask from another thread, as the supervisor / a user would
+                t = threading.Thread(target=lambda: box.append(
+                    (sandbox.install_state(sid, vm)["state"], services._target_busy(sid, f"vm:{vm}"))))
+                t.start()
+                t.join()
+                seen.append((box[0][0], box[0][1], sandbox.installed(sid, vm)))
+                return real(sid, vm, log=log)
+            vmdeps.restore = watch
+            self.assertTrue(sandbox.restore_vms_background() or True)
+            for _ in range(300):
+                if sandbox.installed_vms("alice") and not sandbox._restoring:
+                    break
+                __import__("time").sleep(0.1)
+        finally:
+            vmdeps.restore = real
+            config.RESTORE_DEPS = True
+            shutil.rmtree(config.BACKUP_DIR, ignore_errors=True)
+            config.BACKUP_DIR, config.BACKUP_PASSPHRASE, config.BACKUP_ENCRYPT, config.BACKUP_URL = saved
+        self.assertTrue(seen, "dependencies were never restored")
+        state_, busy, installed = seen[0]
+        self.assertEqual(state_, "restoring")
+        self.assertIn("being restored", busy)
+        self.assertTrue(installed)                                   # the system is there, packages are not yet
+        self.assertIsNone(services._target_busy("alice", "vm:debian"))   # unlocked afterwards
+
+    def test_status_and_doctor_mention_the_new_things(self):
+        import cmd_vm
+        self.install("alpine")
+        ctx = {"sid": "alice", "cols": 80, "tab": {"cwd": "/root"}}
+        self.assertIn("nothing is running", cmd_vm.cmd_vm(ctx, ["ps"]) or "")
+        self.assertIn("vm kill", cmd_vm.cmd_vm(ctx, ["kill"]))
+        self.assertIn("dependency list", cmd_vm.cmd_vm(ctx, ["deps"]))
 
 
 if __name__ == "__main__":

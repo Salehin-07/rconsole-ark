@@ -22,6 +22,7 @@ import helpers  # noqa: F401
 import auth
 import config
 import distros
+import pidns
 import sandbox
 
 PROOT = os.environ.get("RCONSOLE_VM_PROOT") or shutil.which("proot")
@@ -209,8 +210,13 @@ class VmEndToEnd(unittest.TestCase):
         self.assertEqual(p.stderr.strip(), "")            # no "cannot open /proc/..." noise
         self.assertIn("Memory:", p.stdout)
         argv = " ".join(sp.argv)
-        self.assertNotIn("-b /proc ", argv + " ")         # whole /proc stays hidden
-        self.assertIn("/proc/meminfo:/proc/meminfo", argv)
+        if pidns.active():
+            # the VM has its own PID namespace, so the real /proc only lists its own processes
+            self.assertIn("nsenter", argv)
+            self.assertIn("-b /proc ", argv + " ")
+        else:
+            self.assertNotIn("-b /proc ", argv + " ")         # whole /proc stays hidden
+            self.assertIn("/proc/meminfo:/proc/meminfo", argv)
 
     def test_fetch_shim_adapts_to_screen_width(self):
         def run(cols):

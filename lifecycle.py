@@ -17,6 +17,7 @@ import threading
 import backup
 import fileops
 import jobs
+import pidns
 import services
 import state
 import termsess
@@ -61,6 +62,7 @@ def begin_shutdown():
         vmupdate.abort_all()            # roll an update in progress back before the final backup
         backup.final(timeout=FINAL_BACKUP_TIMEOUT)
     finally:
+        pidns.stop_all()                # take any leftover VM process down with its namespace
         _done.set()
 
 

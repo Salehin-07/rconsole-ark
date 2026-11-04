@@ -46,6 +46,9 @@ rconsole/
 ├── examples/               # Example hosted apps (run them with `service add … --expose`)
 │   └── guestbook/app.py    # Single-file Flask guestbook demo
 ├── gunicorn.conf.py        # Production server settings (1 worker + threads: state is in-memory)
+├── pidns.py                # one PID namespace per VM (unshare + nsenter), `vm ps` / `vm kill` scoping
+├── pidns_init.py           # PID 1 of a VM's namespace: reaps zombies, exits when the server dies
+├── vmdeps.py               # per-VM dependency manifest (deps.json): capture before backup, reinstall after restore
 ├── vmupdate.py             # `vm update`: lock, snapshot (hard links), upgrade, verify, rollback, crash recovery
 ├── serve.py                # Launcher: gunicorn if usable, else built-in threaded server (Windows)
 ├── Dockerfile              # Image with proot/git/tini preinstalled (Render, any Docker host)

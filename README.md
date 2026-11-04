@@ -8,7 +8,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.3.7** · MIT licensed
+**Version 1.3.8** · MIT licensed
 
 ## Why this exists
 
@@ -190,6 +190,7 @@ vm install <name>...  e.g. debian ubuntu:24.04 | all      vm reset [name] --yes 
 vm shell [name]       interactive shell in a VM           vm remove <name|all> --yes   delete it and its /root
 vm run [--vm n] <cmd> run one command in a VM             vm doctor [name]      diagnose a VM
 vm update [name]      update a VM to the latest version, safely (locks it; rolls back on any problem)
+vm ps / vm kill <pid> processes of a VM (own PID space)    vm deps [name]       what a restore reinstalls
 vm setup <profile>    install Python / build tools / Node / … in a VM (see below)
 ```
 

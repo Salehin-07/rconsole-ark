@@ -168,6 +168,8 @@ BACKUP_BRANCH = os.environ.get("RCONSOLE_BACKUP_BRANCH") or "rconsole-backup"
 BACKUP_INTERVAL = max(60, env_int("RCONSOLE_BACKUP_INTERVAL", 900))
 BACKUP_MAX_MB = max(1, env_int("RCONSOLE_BACKUP_MAX_MB", 40))
 RESTORE_SETUP = env_bool("RCONSOLE_RESTORE_SETUP", True)   # re-run `vm setup` profiles after a restore
+RESTORE_DEPS = env_bool("RCONSOLE_RESTORE_DEPS", True)     # reinstall each VM's packages / pip / npm after a restore
+VM_PIDNS = (os.environ.get("RCONSOLE_VM_PIDNS") or "auto").strip().lower()   # auto | on | off: one PID namespace per VM
 
 # --- the service supervisor (see services.py) ---------------------------------------
 SUPERVISOR = env_bool("RCONSOLE_SUPERVISOR", True)

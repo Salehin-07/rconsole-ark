@@ -122,7 +122,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.3.7` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.3.8` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -300,6 +300,9 @@ its own `/root`**. Inside one you are `root` and can install anything. Debian is
 | `vm remove <name\|all> --yes` | delete a VM **and** its `/root` |
 | `vm setup <profile> [name]` | install Python / build tools / Node … (below) |
 | `vm update [name] [--yes] [--stay] [--log]` | update a VM to the latest version, **safely** (Alpine: walks to the newest release one release at a time; Debian/Ubuntu/Kali: all newer packages of their release; `--stay` = packages only): locks it, snapshots, upgrades, verifies, and restores the snapshot on any problem. Name optional with one VM. Admins: from the host shell. `--yes` confirms stopping running terminals/jobs; `--log` shows the last run |
+| `vm ps [name]` | processes running in a VM (each VM has its own PID space; plumbing hidden) |
+| `vm kill <pid> [name] [--9]` | stop one process of a VM by the PID `vm ps` shows (never its init) |
+| `vm deps [name]` | what a restore will reinstall; `vm deps capture` records now, `vm deps restore` reinstalls now |
 | `vm doctor [name]` | step-by-step health check (shell, programs, root, write, DNS, internet, packages) |
 | `vm help` | short usage |
 

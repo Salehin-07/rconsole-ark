@@ -27,10 +27,12 @@ Which VM plain commands use is the user's *active* VM. With exactly one VM it is
 chosen automatically; with several, the user picks (:class:`NeedVmChoice` makes
 the client show a picker) and the choice is remembered.
 
-The VM is a user-space compatibility layer, **not a hard security boundary**:
-guest processes share the server's PID namespace and uid. Only create accounts
-for people you trust; use one container per tenant for hostile multi-tenancy.
-For that reason most of ``/proc`` is not exposed to non-admin guests.
+The VM is a user-space compatibility layer, **not a hard security boundary**: guest
+processes run as the server's uid. Each VM gets its own PID namespace (see
+:mod:`pidns`) where the host allows it, so processes of different VMs and users cannot
+see or signal each other; where it does not, they share the server's PID space and
+``/proc`` is limited to harmless system files. Only create accounts for people you
+trust; use one container per tenant for hostile multi-tenancy.
 
 Command prefix
 --------------
@@ -57,6 +59,7 @@ import requests
 import auth
 import config
 import distros
+import pidns
 import state
 
 HOST = "host"
@@ -612,6 +615,8 @@ def _extract(tarball, target):
 
 # ------------------------------------------------------------------ installing
 _installs = {}                   # (sid, vm) -> {"state": ..., "message": ...}
+_tl = threading.local()          # ._restorer is True on the thread that is rebuilding VMs (it may use a locked VM)
+_restoring = {}                  # (sid, vm) -> progress text, while a restore rebuilds that VM
 _installs_lock = threading.Lock()
 
 
@@ -621,6 +626,10 @@ def install_state(sid, vm):
         rec = dict(_installs.get((sid, vm)) or {})
     if rec.get("state") in ("installing", "updating", "failed"):
         return rec
+    with _installs_lock:
+        msg = _restoring.get((sid, vm))
+    if msg is not None:
+        return {"state": "restoring", "message": msg}
     return {"state": "ready" if installed(sid, vm) else "absent", "message": ""}
 
 
@@ -649,6 +658,11 @@ def busy_reason(sid, vm):
     st = install_state(sid, vm)["state"]
     if st == "installing":
         return f"{vm} is still installing; check `vm status`."
+    if st == "restoring":
+        if getattr(_tl, "restorer", False):
+            return None
+        return (f"{vm} is being restored from your backup ({install_state(sid, vm)['message']}); "
+                "it is locked until its packages are back (`vm status` shows progress).")
     if st == "updating":
         return (f"{vm} is being updated and is locked until it finishes (`vm status` shows "
                 f"progress). Use another system meanwhile, e.g. `vm use <name>`.")
@@ -730,7 +744,9 @@ def install_many(sid, choices, wait=False, skip_installed=False):
     t.start()
     if wait:
         t.join()
-        bad = [d.id for d, _ in plan if install_state(sid, d.id)["state"] != "ready"]
+        bad = [d.id for d, _ in plan
+               if (_installs.get((sid, d.id)) or {}).get("state") in ("installing", "updating", "failed")
+               or not installed(sid, d.id)]
         if bad:
             return False, install_state(sid, bad[0])["message"] or "failed"
         return True, "ready"
@@ -1004,6 +1020,7 @@ def reset(sid, vm=None, keep_home=True):
         return False
     if install_state(sid, vm)["state"] == "updating":
         raise SandboxError(f"{vm} is being updated; wait for it to finish (`vm status`).")
+    pidns.stop(sid, vm)                 # nothing may keep running from a system that is being deleted
     (base / READY_MARKER).unlink(missing_ok=True)
     (base / DISTRO_FILE).unlink(missing_ok=True)
     shutil.rmtree(rootfs_path(sid, vm), ignore_errors=True)
@@ -1059,39 +1076,74 @@ def missing_vms():
     return out
 
 
+def _set_restoring(sid, vm, msg):
+    with _installs_lock:
+        _restoring[(sid, vm)] = msg
+
+
+def _end_restoring(sid, vm):
+    with _installs_lock:
+        _restoring.pop((sid, vm), None)
+
+
 def restore_vms(log=print):
-    """Reinstall missing VMs one by one, then re-apply their recorded setups."""
+    """Rebuild missing VMs one by one: system, then `vm setup` profiles, then the recorded packages.
+
+    Each VM stays in the ``restoring`` state (locked; its services wait) until all of that
+    is done, so nothing starts on a half-built system."""
     import subprocess
 
     import devsetup
-    for user, vm, release in missing_vms():
-        choice = f"{vm}:{release}" if release and distros.CATALOG.get(vm) \
-            and release != distros.CATALOG[vm].default_release else vm
-        log(f"[rconsole] rebuilding {user}/{vm} …")
-        ok, msg = install(user, choice, wait=True)
-        if not ok:
-            log(f"[rconsole] could not rebuild {user}/{vm}: {msg}")
-            continue
-        if not config.RESTORE_SETUP:
-            continue
-        for profile in recorded_setups(user, vm):
-            try:
-                text = devsetup.script(profile, family(user, vm))
-                path = rootfs_path(user, vm) / "tmp" / f"rconsole-setup-{profile}.sh"
-                path.write_text(text)
-                path.chmod(0o755)
-                sp = spec(user, f"@vm:{vm} sh /tmp/{path.name}", "/root")
-                log(f"[rconsole] re-applying setup '{profile}' in {user}/{vm} …")
-                subprocess.run(sp.argv, cwd=sp.cwd, env=sp.env, capture_output=True, text=True,
-                               timeout=3600)
-            except Exception as e:
-                log(f"[rconsole] setup '{profile}' for {user}/{vm} failed: {e}")
+    import vmdeps
+    _tl.restorer = True
+    todo = missing_vms()
+    for user, vm, _r in todo:
+        _set_restoring(user, vm, "queued")
+    for user, vm, release in todo:
+        try:
+            choice = f"{vm}:{release}" if release and distros.CATALOG.get(vm) \
+                and release != distros.CATALOG[vm].default_release else vm
+            log(f"[rconsole] rebuilding {user}/{vm} …")
+            _set_restoring(user, vm, "installing the system")
+            ok, msg = install(user, choice, wait=True)
+            if not ok:
+                log(f"[rconsole] could not rebuild {user}/{vm}: {msg}")
+                continue
+            if config.RESTORE_SETUP:
+                for profile in recorded_setups(user, vm):
+                    _set_restoring(user, vm, f"re-applying setup '{profile}'")
+                    try:
+                        text = devsetup.script(profile, family(user, vm))
+                        path = rootfs_path(user, vm) / "tmp" / f"rconsole-setup-{profile}.sh"
+                        path.write_text(text)
+                        path.chmod(0o755)
+                        sp = spec(user, f"@vm:{vm} sh /tmp/{path.name}", "/root")
+                        log(f"[rconsole] re-applying setup '{profile}' in {user}/{vm} …")
+                        subprocess.run(sp.argv, cwd=sp.cwd, env=sp.env, capture_output=True, text=True,
+                                       timeout=3600)
+                    except Exception as e:
+                        log(f"[rconsole] setup '{profile}' for {user}/{vm} failed: {e}")
+            if config.RESTORE_DEPS:
+                _set_restoring(user, vm, "reinstalling packages")
+                try:
+                    vmdeps.restore(user, vm, log=log)
+                except Exception as e:
+                    log(f"[rconsole] dependencies for {user}/{vm} failed: {e}")
+        finally:
+            _end_restoring(user, vm)
+    _tl.restorer = False
+    log("[rconsole] VM restore finished")
 
 
 def restore_vms_background():
     """Start :func:`restore_vms` in a thread if anything needs rebuilding."""
-    if not supported() or not missing_vms():
+    if not supported():
         return False
+    todo = missing_vms()
+    if not todo:
+        return False
+    for user, vm, _r in todo:            # locked *now*, before the supervisor's first pass
+        _set_restoring(user, vm, "queued")
     import sys
     threading.Thread(target=restore_vms,
                      kwargs={"log": lambda m: print(m, file=sys.stderr, flush=True)},
@@ -1254,11 +1306,15 @@ def _vm_env(sid, vm, probe=False, tty=False):
     return env
 
 
-def _proot_prefix(sid, vm, cwd, admin, extra_binds=()):
+def _proot_prefix(sid, vm, cwd, admin, extra_binds=(), own_pidns=False):
     proot = find_proot()
     argv = [proot, "-0", "-r", str(rootfs_path(sid, vm)),
             "-b", "/dev", "-b", f"{home_path(sid, vm)}:{VM_HOME}"]
-    if admin or config.env_bool("RCONSOLE_USER_VM_PROC", False):
+    if own_pidns:
+        # Inside the VM's private PID namespace /proc lists only this VM's processes, so
+        # everybody (not just admins) gets the real one: ps, top, kill, free all just work.
+        argv += ["-b", "/proc"]
+    elif config.env_bool("RCONSOLE_USER_VM_PROC", False) or (admin and config.VM_PIDNS == "off"):
         argv += ["-b", "/proc"]
     else:
         # The full /proc exposes every host process (and their environments),
@@ -1317,7 +1373,10 @@ def spec(sid, cmd, cwd, forced=None, tty=False):
     guest_cwd = _vm_cwd(sid, tgt.vm, cwd)
     sh = _guest_shell(sid, tgt.vm)
     inner = [sh, "-c", cmd] if cmd else [sh, "-l"]
-    argv = _proot_prefix(sid, tgt.vm, guest_cwd, is_admin(sid)) + inner
+    ns = pidns.ensure(sid, tgt.vm)
+    argv = _proot_prefix(sid, tgt.vm, guest_cwd, is_admin(sid), own_pidns=ns) + inner
+    if ns:
+        argv = pidns.wrap(sid, tgt.vm, argv, str(config.VM_DIR))
     return Spec(argv, str(config.VM_DIR), _vm_env(sid, tgt.vm, tty=tty), VM, tgt.vm,
                 note=guest_cwd)
 
@@ -1336,7 +1395,10 @@ def argv_spec(sid, inner_argv, cwd, forced=None, extra_env=None, extra_binds=())
         return Spec(list(inner_argv), cwd, env, HOST)
     config.ensure_private_dir(config.VM_DIR)
     guest_cwd = _vm_cwd(sid, tgt.vm, cwd)
-    argv = _proot_prefix(sid, tgt.vm, guest_cwd, is_admin(sid), extra_binds) + list(inner_argv)
+    ns = pidns.ensure(sid, tgt.vm)
+    argv = _proot_prefix(sid, tgt.vm, guest_cwd, is_admin(sid), extra_binds, own_pidns=ns) + list(inner_argv)
+    if ns:
+        argv = pidns.wrap(sid, tgt.vm, argv, str(config.VM_DIR))
     env = _vm_env(sid, tgt.vm)
     env.update(extra_env or {})
     return Spec(argv, str(config.VM_DIR), env, VM, tgt.vm, note=guest_cwd)

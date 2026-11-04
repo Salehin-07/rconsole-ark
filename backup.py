@@ -139,7 +139,7 @@ def iter_files():
     for u in users:
         for v in (x for x in u.iterdir() if x.is_dir()):
             base = f"vm/{u.name}/{v.name}"
-            for meta in ("distro.json", "setup.json"):
+            for meta in ("distro.json", "setup.json", "deps.json"):
                 if (v / meta).is_file():
                     yield f"{base}/{meta}", v / meta
             yield from _walk(v / "home", f"{base}/home")
@@ -319,8 +319,25 @@ def make_archive(dest):
     return len(files), total
 
 
+def _refresh_manifests(reason):
+    """Record what is installed in each VM (pip/npm/apt/...) so a restore can reinstall it.
+
+    A VM that is still being rebuilt is skipped, so a backup taken mid-restore can never
+    overwrite the good list with an empty one."""
+    if not config.RESTORE_DEPS:
+        return
+    try:
+        import vmdeps
+        budget = 15 if reason == "shutdown" else 120
+        vmdeps.capture_all(deadline=time.time() + budget)
+    except Exception:
+        pass
+
+
 def backup_now(force=False, reason="manual"):
     """Snapshot and upload. Returns ``(ok, message)`` — never raises."""
+    if configured() and not problems():
+        _refresh_manifests(reason)          # before taking the lock: can take a while, `backup status` must not wait
     with _lock:
         bad = problems()
         if bad:
@@ -386,7 +403,7 @@ def _allowed(name):
     if parts[0] == "update":
         return name == "update/state.json" or (len(parts) >= 4 and parts[1] == "releases")
     if parts[0] == "vm" and len(parts) >= 4:
-        return parts[3] in ("distro.json", "setup.json", "home")
+        return parts[3] in ("distro.json", "setup.json", "deps.json", "home")
     return False
 
 
