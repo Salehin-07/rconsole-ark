@@ -8,6 +8,11 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
 ### Added
 - Tests for the `ln` shim, the `/proc` whitelist and the games `PATH` (`KaliLoginNoiseTests`).
 
+### Changed
+- **VMs start in `/home`** (new tabs, the interactive window, `vm run`, services without `--cwd`, and the fallback when a
+  directory is missing). The host shell is unchanged (`/home/rconsole`), and `$HOME` and `cd ~` inside a VM are still
+  `/root`. `/home` is created in VMs that lack it.
+
 ### Fixed
 - **Kali VM printed errors on start and after every command** (`ln: failed to create symbolic link '/dev/fd': Permission
   denied`, same for `/dev/stdin`, `/dev/stdout`, `/dev/stderr`, and `bash: /proc/sys/kernel/random/uuid: No such file

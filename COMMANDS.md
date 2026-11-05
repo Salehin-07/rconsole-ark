@@ -128,7 +128,7 @@ Prints the rconsole version, e.g. `rconsole 1.3.10` (also in the first line of `
 ### `cd`
 Changes the tab's working directory. Each tab remembers its own directory, **including after an interactive window
 (nano, a shell, ...) closes**: you land where you were, not back in the default directory. New tabs start in
-`/home/rconsole` on the host and in `/root` in a VM. In the Docker image `/home/rconsole` is the persistent
+`/home/rconsole` on the host and in `/home` in a VM (`cd ~` still goes to `/root`). In the Docker image `/home/rconsole` is the persistent
 **workspace** (`<data>/workspace`), which is part of every backup; without it (a plain install) the host starts in
 `<data>/workspace`.
 ```text
@@ -451,7 +451,7 @@ Options for `add` (put them **before** the command; `--` ends the options):
 |---|---|
 | `--vm <name>` | run inside that VM (default: your current system) |
 | `--host` | run on the server itself (**admins only**) |
-| `--cwd <dir>` | working directory (default: `/root` in a VM, `/home/rconsole` on the host) |
+| `--cwd <dir>` | working directory (default: `/home` in a VM, `/home/rconsole` on the host) |
 | `--env KEY=VALUE` | environment variable (repeatable) — good for bot tokens |
 | `--expose PORT:NAME` | publish the app at `/NAME/` (like [`expose`](#expose)) |
 | `--no-autostart` | create it stopped; start with `service start` |

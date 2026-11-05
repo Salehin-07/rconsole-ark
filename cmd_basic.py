@@ -108,7 +108,10 @@ def cmd_cd(ctx, args):
     except sandbox.SandboxError as e:
         return f"cd: {e}"
     target = args[0] if args else "~"
-    home = view.default_cwd() if not view.unrestricted else str(Path.home())
+    if view.unrestricted:
+        home = str(Path.home())
+    else:
+        home = sandbox.VM_HOME if view.root is not None else view.default_cwd()
     if target == "~" or target.startswith("~/"):
         target = home + target[1:]
     try:

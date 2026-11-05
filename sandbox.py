@@ -68,7 +68,8 @@ VM = "vm"
 ROOTFS_DIRNAME = "rootfs"
 HOME_DIRNAME = "home"
 READY_MARKER = ".ready"
-VM_HOME = "/root"
+VM_HOME = "/root"                  # the VM user's $HOME (what `cd ~` goes to)
+VM_START = "/home"                 # where a VM terminal/command starts when no directory is given
 
 # Static proot build published by the proot project (x86_64 only). On x86-64 we
 # always prefer this exact, tested build over whatever a distro packages: older
@@ -337,7 +338,7 @@ def target_label(sid):
 
 def default_cwd(sid, mode=None):
     mode = mode or effective_mode(sid)
-    return VM_HOME if mode == VM else state.default_cwd()
+    return VM_START if mode == VM else state.default_cwd()
 
 
 def reset_cwds(sid):
@@ -873,7 +874,7 @@ def _write_env_file(home):
 def _post_setup(rootfs, distro):
     """Small per-family tweaks so the system behaves under proot."""
     rootfs = Path(rootfs)
-    for d in ("dev", "proc", "tmp", "root", "etc", "usr/local/bin"):
+    for d in ("dev", "proc", "tmp", "root", "home", "etc", "usr/local/bin"):
         (rootfs / d).mkdir(parents=True, exist_ok=True)
     try:
         (rootfs / "tmp").chmod(0o1777)
@@ -1355,7 +1356,7 @@ def _proot_prefix(sid, vm, cwd, admin, extra_binds=(), own_pidns=False):
         pass
     for host_path, guest_path in extra_binds:
         argv += ["-b", f"{host_path}:{guest_path}"]
-    argv += ["-w", cwd or VM_HOME]
+    argv += ["-w", cwd or VM_START]
     if proot_supports(proot, "--kill-on-exit"):
         argv.append("--kill-on-exit")   # reap guest daemons when the shell exits
     return argv
@@ -1364,12 +1365,12 @@ def _proot_prefix(sid, vm, cwd, admin, extra_binds=(), own_pidns=False):
 def _vm_cwd(sid, vm, cwd):
     """Validate a guest cwd; fall back to the guest home."""
     if not cwd or not cwd.startswith("/"):
-        return VM_HOME
+        return VM_START
     try:
         host, _ = resolve_in_root(rootfs_path(sid, vm), cwd, binds=_binds(sid, vm))
-        return cwd if host.is_dir() or cwd == VM_HOME else VM_HOME
+        return cwd if host.is_dir() or cwd in (VM_HOME, VM_START) else VM_START
     except (OSError, SandboxError):
-        return VM_HOME
+        return VM_START
 
 
 def spec(sid, cmd, cwd, forced=None, tty=False):
@@ -1487,7 +1488,7 @@ class FsView:
             p = path if os.path.isabs(path) else os.path.join(cwd or state.default_cwd(), path)
             return Path(os.path.abspath(p))
         if not path.startswith("/"):
-            path = posixpath.join(cwd or VM_HOME, path)
+            path = posixpath.join(cwd or VM_START, path)
         return resolve_in_root(self.root, path, follow_last, binds=self.binds)[0]
 
     def virt(self, host_path):
@@ -1506,7 +1507,7 @@ class FsView:
         return "/" if rel == "." else "/" + rel.replace(os.sep, "/")
 
     def default_cwd(self):
-        return state.default_cwd() if self.root is None else VM_HOME
+        return state.default_cwd() if self.root is None else VM_START
 
     def child_virt(self, parent_virt, name):
         if self.root is None:

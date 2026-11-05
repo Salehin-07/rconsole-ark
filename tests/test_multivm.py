@@ -234,7 +234,7 @@ class MultiVm(unittest.TestCase):
         self.assertIn("Using debian", out[0]["output"])
         self.assertIn("uid=0", out[1]["output"])
         self.assertEqual(out[1]["target"], "debian")                   # prompt label
-        self.assertEqual(out[1]["cwd"], "/root")
+        self.assertEqual(out[1]["cwd"], "/home")
         self.assertNotIn("choice", self.run_cmd(c, "id"))              # the choice stuck
 
     def test_vm_commands_with_several_systems(self):
@@ -299,7 +299,7 @@ class MultiVm(unittest.TestCase):
         self.assertTrue(r["ok"])
         self.assertEqual(r["current"], "vm:debian")
         self.assertEqual(r["label"], "debian")
-        self.assertEqual(r["cwds"]["main"], "/root")
+        self.assertEqual(r["cwds"]["main"], "/home")
         self.assertFalse(c.post("/api/target", json={"target": "host"}).get_json()["ok"])   # not admin
         self.assertFalse(c.post("/api/target", json={"target": "vm:kali"}).get_json()["ok"])
         self.assertEqual(c.post("/api/target", json={"target": "nope"}).status_code, 400)

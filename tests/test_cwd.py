@@ -35,9 +35,10 @@ class DefaultCwdTests(unittest.TestCase):
         if "RCONSOLE_HOST_HOME" not in os.environ:
             self.assertEqual(self._home, "/home/rconsole")
 
-    def test_vm_default_is_root(self):
+    def test_vm_default_is_home_but_home_dir_stays_root(self):
         self.assertEqual(sandbox.VM_HOME, "/root")
-        self.assertEqual(sandbox.default_cwd("ark", sandbox.VM), "/root")
+        self.assertEqual(sandbox.VM_START, "/home")
+        self.assertEqual(sandbox.default_cwd("ark", sandbox.VM), "/home")
 
 
 class EndTerminalTests(unittest.TestCase):

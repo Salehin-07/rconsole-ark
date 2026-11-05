@@ -147,7 +147,7 @@ class VmEndToEnd(unittest.TestCase):
 
     def test_vm_cwd_is_honoured_and_validated(self):
         self.assertEqual(self.run_in_vm("pwd", cwd="/etc").stdout.strip(), "/etc")
-        self.assertEqual(self.run_in_vm("pwd", cwd="/nope").stdout.strip(), "/root")
+        self.assertEqual(self.run_in_vm("pwd", cwd="/nope").stdout.strip(), "/home")
 
     def test_forced_host_blocked_for_user(self):
         with self.assertRaises(sandbox.PermissionDenied):
@@ -159,7 +159,7 @@ class VmEndToEnd(unittest.TestCase):
         self.assertIn("uid=0", self.run_in_vm("@vm id", sid="ark").stdout)
         self.assertTrue(sandbox.set_mode("ark", "vm")[0])
         self.assertEqual(sandbox.effective_mode("ark"), sandbox.VM)
-        self.assertEqual(sandbox.default_cwd("ark"), "/root")
+        self.assertEqual(sandbox.default_cwd("ark"), "/home")
         self.assertTrue(sandbox.set_mode("ark", "host")[0])
         self.assertEqual(sandbox.spec("ark", "id", "/tmp").mode, sandbox.HOST)
 

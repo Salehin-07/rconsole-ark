@@ -246,7 +246,7 @@ def _command_line(svc):
 
 
 def _default_cwd(svc):
-    return state.default_cwd() if svc["target"] == "host" else sandbox.VM_HOME
+    return state.default_cwd() if svc["target"] == "host" else sandbox.VM_START
 
 
 def _launch(name, svc, rt, now):
