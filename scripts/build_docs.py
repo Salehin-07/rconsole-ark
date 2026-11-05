@@ -259,18 +259,18 @@ CSS = r"""
 @media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0d1117;--fg:#dfe6ee;--muted:#9aa7b6;--line:#232c38;--side:#10161e;
 --accent:#58a6ff;--accent-fg:#0d1117;--code:#18202b;--pre:#0a0e14;--pre-fg:#e6edf6;--callout:#112038;--callout-line:#58a6ff;--warn:#2b2110;
 --warn-line:#d9a441;--shadow:none}}
-*{box-sizing:border-box}html{scroll-padding-top:72px;-webkit-text-size-adjust:100%}
+*{box-sizing:border-box}html{scroll-padding-top:72px;-webkit-text-size-adjust:100%;overflow-x:hidden}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
-header.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;height:56px;padding:0 16px;background:var(--bg);
+header.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:10px;height:56px;padding:0 max(12px,env(safe-area-inset-right)) 0 max(12px,env(safe-area-inset-left));background:var(--bg);
 border-bottom:1px solid var(--line)}
-header.top .brand{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--fg)}
+header.top .brand{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--fg);white-space:nowrap;flex:0 0 auto}
 header.top .brand img{width:28px;height:28px;border-radius:6px}
 header.top .brand small{font-weight:500;color:var(--muted)}
 .spacer{flex:1}
-#q{width:min(340px,40vw);padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--side);color:var(--fg);font:inherit;font-size:14px}
+#q{flex:0 1 340px;min-width:0;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--side);color:var(--fg);font:inherit;font-size:14px}
 #q:focus{outline:2px solid var(--accent);outline-offset:0}
-.btn{border:1px solid var(--line);background:var(--side);color:var(--fg);border-radius:8px;padding:6px 10px;cursor:pointer;font:inherit;font-size:14px}
+.btn{flex:0 0 auto;white-space:nowrap;border:1px solid var(--line);background:var(--side);color:var(--fg);border-radius:8px;padding:6px 10px;cursor:pointer;font:inherit;font-size:14px}
 .btn:hover{border-color:var(--accent)}
 #menu{display:none}
 .wrap{display:grid;grid-template-columns:260px minmax(0,1fr) 220px;max-width:1380px;margin:0 auto}
@@ -285,9 +285,14 @@ main h2{margin:2.1em 0 .6em;padding-bottom:.3em;border-bottom:1px solid var(--li
 main h3{margin:1.7em 0 .5em;font-size:1.2rem}main h4{margin:1.4em 0 .4em}
 main p,main li{max-width:78ch}
 main img{max-width:100%;height:auto}
-code{background:var(--code);padding:.15em .4em;border-radius:5px;font:0.88em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+main{overflow-x:hidden}
+.cards{grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr))}
+main p,main li,main h1,main h2,main h3,main h4{overflow-wrap:break-word}
+main td,main th{overflow-wrap:normal;word-break:normal;min-width:5.5em}
+code{background:var(--code);padding:.15em .4em;border-radius:5px;overflow-wrap:anywhere;font:0.88em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 pre{position:relative;background:var(--pre);color:var(--pre-fg);padding:14px 16px;border-radius:10px;overflow:auto;line-height:1.5;margin:1.1em 0}
-pre code{background:none;padding:0;color:inherit;font-size:.86rem}
+pre code{background:none;padding:0;color:inherit;font-size:.86rem;overflow-wrap:normal}
+pre{-webkit-overflow-scrolling:touch;max-width:100%}
 .copy{position:absolute;top:8px;right:8px;opacity:.0;transition:.15s;font-size:12px;padding:3px 8px;background:#243142;color:#dfe6ee;border:0;border-radius:6px;cursor:pointer}
 pre:hover .copy,.copy:focus{opacity:1}
 @media(hover:none){.copy{opacity:.85}}
@@ -318,10 +323,24 @@ border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,
 footer{padding:24px;text-align:center;color:var(--muted);font-size:13px;border-top:1px solid var(--line)}
 @media(max-width:1100px){.wrap{grid-template-columns:240px minmax(0,1fr)}aside.toc{display:none}}
 @media(max-width:780px){
-#menu{display:inline-block}.wrap{display:block}
-nav.side{position:fixed;left:0;top:56px;bottom:0;width:min(300px,86vw);z-index:15;transform:translateX(-102%);transition:transform .18s;height:auto}
+#menu{display:inline-block;min-width:42px;min-height:40px}.wrap{display:block}
+nav.side{position:fixed;left:0;top:56px;bottom:auto;width:min(310px,88vw);z-index:25;transform:translateX(-102%);transition:transform .18s;height:calc(100vh - 56px);height:calc(100dvh - 56px);align-self:auto;
+-webkit-overflow-scrolling:touch;padding-bottom:calc(40px + env(safe-area-inset-bottom))}
+nav.side a{padding:11px 12px;font-size:16px}
 body.nav-open nav.side{transform:none;box-shadow:0 0 40px rgba(0,0,0,.35)}
-header.top .brand small{display:none}#q{width:46vw}main{padding:22px 16px 60px}main h1{font-size:1.65rem}}
+body.nav-open{overflow:hidden}
+#scrim{display:none;position:fixed;inset:56px 0 0 0;z-index:24;background:rgba(0,0,0,.45)}body.nav-open #scrim{display:block}
+header.top .brand small,header.top a.btn{display:none}
+header.top .brand span{font-size:15px}
+#q{font-size:16px;padding:9px 12px}#theme{min-width:42px;min-height:40px}
+main{padding:20px max(16px,env(safe-area-inset-left)) 60px}main h1{font-size:1.55rem}main h2{font-size:1.3rem}main h3{font-size:1.12rem}
+body{font-size:16px}pre{padding:12px;margin-left:-4px;margin-right:-4px;border-radius:8px}pre code{font-size:.8rem}
+.copy{opacity:.85}table{font-size:.86rem}th,td{padding:6px 8px}
+.pager{flex-direction:column}.pager a{min-width:0}.pager a[style]{text-align:left!important}
+#results{right:8px;left:8px;width:auto;top:52px;max-height:60vh}
+}
+@media(max-width:380px){header.top .brand span{display:none}main h1{font-size:1.4rem}}
+@media(min-width:781px){#scrim{display:none!important}}
 """
 
 JS = r"""
@@ -333,7 +352,12 @@ document.getElementById('theme').onclick=function(){
   var n=dark?'light':'dark';root.setAttribute('data-theme',n);try{localStorage.setItem('rc-theme',n);}catch(e){}
 };
 document.getElementById('menu').onclick=function(){document.body.classList.toggle('nav-open');};
-document.querySelector('main').addEventListener('click',function(){document.body.classList.remove('nav-open');});
+function closeNav(){document.body.classList.remove('nav-open');}
+document.querySelector('main').addEventListener('click',closeNav);
+document.getElementById('scrim').addEventListener('click',closeNav);
+document.querySelectorAll('nav.side a').forEach(function(a){a.addEventListener('click',closeNav);});
+addEventListener('keydown',function(e){if(e.key==='Escape')closeNav();});
+addEventListener('resize',function(){if(innerWidth>780)closeNav();});
 document.querySelectorAll('main table').forEach(function(tb){var w=document.createElement('div');w.className='tablewrap';tb.parentNode.insertBefore(w,tb);w.appendChild(tb);});
 document.querySelectorAll('main pre').forEach(function(pre){
   var b=document.createElement('button');b.className='copy';b.type='button';b.textContent='Copy';
@@ -376,10 +400,11 @@ TEMPLATE = """<!doctype html>
 <a class="brand" href="index.html"><img src="assets/logo.png" alt=""><span>Rconsole <small>docs · v{version}</small></span></a>
 <span class="spacer"></span>
 <input id="q" type="search" placeholder="Search docs  ( / )" autocomplete="off" aria-label="Search the documentation">
-<button class="btn" id="theme" aria-label="Toggle theme">◐</button>
+<button class="btn" id="theme" aria-label="Toggle theme" title="Toggle light/dark"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v18a9 9 0 0 0 0-18z" fill="currentColor"/></svg></button>
 <a class="btn" href="{gh}">GitHub</a>
 <div id="results"></div>
 </header>
+<div id="scrim"></div>
 <div class="wrap">
 <nav class="side" aria-label="Documentation">{nav}</nav>
 <main>
@@ -406,7 +431,7 @@ def _flatten_toc(tokens, out=None):
 def build_site(outdir, strict=False):
     import shutil
     from datetime import date  # noqa: F401  (kept for future "last built" use)
-    version = (ROOT / "version.py").read_text(encoding="utf-8").split('"')[1]
+    version = re.search(r'__version__\s*=\s*"([^"]+)"', (ROOT / "version.py").read_text(encoding="utf-8")).group(1)
     pages = build_pages()
     broken = rewrite_links(pages)
     out = Path(outdir)
