@@ -3,6 +3,24 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.10 — 2026-11-05
+
+### Added
+- Tests for the `ln` shim, the `/proc` whitelist and the games `PATH` (`KaliLoginNoiseTests`).
+
+### Fixed
+- **Kali VM printed errors on start and after every command** (`ln: failed to create symbolic link '/dev/fd': Permission
+  denied`, same for `/dev/stdin`, `/dev/stdout`, `/dev/stderr`, and `bash: /proc/sys/kernel/random/uuid: No such file
+  or directory`, same for `boot_id`). Kali's login scripts try to re-create the standard `/dev` links (the host's
+  `/dev` is read-only here and already has them) and read two kernel files that the restricted `/proc` did not expose.
+  VMs now get a small `ln` shim in `/usr/local/bin` that skips those four links when they already exist, and the
+  restricted `/proc` now includes `sys/kernel/random/uuid` and `boot_id` (harmless, random values). Existing VMs get
+  the shim on their next launch.
+- **Programs in `/usr/games` were "command not found" on Debian, Ubuntu and Kali** (`apt install sl` then `sl`).
+  Debian's `/etc/profile` resets root's `PATH` without `/usr/games` and `/usr/local/games`; Alpine installs to
+  `/usr/bin`, which is why it was unaffected. Both directories are now always on `PATH` (line mode, login shells and
+  scripts).
+
 ## 1.3.9 — 2026-11-05
 
 ### Fixed

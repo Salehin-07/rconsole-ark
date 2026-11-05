@@ -151,3 +151,33 @@ class TargetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class KaliLoginNoiseTests(unittest.TestCase):
+    """1.3.10: Kali's login scripts must not spam errors; /usr/games must be on PATH."""
+
+    def test_proc_whitelist_has_the_random_files(self):
+        self.assertIn("sys/kernel/random/uuid", sandbox.SAFE_PROC_FILES)
+        self.assertIn("sys/kernel/random/boot_id", sandbox.SAFE_PROC_FILES)
+
+    def test_games_dirs_are_on_the_path(self):
+        self.assertIn("/usr/games", sandbox.SYSTEM_PATH.split(":"))
+        self.assertIn("/usr/local/games", sandbox.SYSTEM_PATH.split(":"))
+        self.assertIn("/usr/games", sandbox.PROMPT_FILE_TEXT)
+        self.assertIn("/usr/games", sandbox.ENV_FILE_TEXT)
+
+    def test_ln_shim_skips_existing_dev_links_only(self):
+        import subprocess, tempfile, os
+        with tempfile.TemporaryDirectory() as d:
+            shim = os.path.join(d, "ln")
+            with open(shim, "w") as f:
+                f.write(sandbox.LN_SHIM_TEXT)
+            os.chmod(shim, 0o755)
+            # /dev/fd exists on the test host: silently succeed
+            r = subprocess.run([shim, "-s", "/proc/self/fd", "/dev/fd"], capture_output=True, text=True)
+            self.assertEqual((r.returncode, r.stderr), (0, ""))
+            # anything else goes to the real ln
+            target = os.path.join(d, "a"); open(target, "w").close()
+            r = subprocess.run([shim, "-s", target, os.path.join(d, "b")], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0)
+            self.assertTrue(os.path.islink(os.path.join(d, "b")))

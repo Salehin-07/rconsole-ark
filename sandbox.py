@@ -84,8 +84,22 @@ DISTRO_FILE = "distro.json"
 # directories are simply always on PATH.
 USER_BIN_DIRS = ("/root/.local/bin", "/root/.cargo/bin", "/root/.bun/bin", "/root/go/bin",
                  "/root/.npm-global/bin", "/root/.deno/bin")
-SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games"
+# Debian-family /etc/profile resets root's PATH without the games dirs (`sl`, `cowsay`, `fortune`
+# install there), so login shells append them again.
+GAMES_PATH_SNIPPET = ('case ":$PATH:" in *:/usr/games:*) ;; *) PATH="$PATH:/usr/games:/usr/local/games"; export PATH ;; esac\n')
 ENV_FILE = ".rconsole_env"
+# /dev is the host's (read-only for us) inside a VM, and it already has fd/stdin/stdout/stderr. Login
+# scripts (Kali's) that try to re-create those links would print "Permission denied" on every command.
+LN_SHIM_TEXT = """#!/bin/sh
+# Managed by rconsole: skip re-creating the standard /dev links that already exist.
+for _last; do :; done
+case "$_last" in
+  /dev/fd|/dev/stdin|/dev/stdout|/dev/stderr)
+    if [ -e "$_last" ] || [ -L "$_last" ]; then exit 0; fi ;;
+esac
+exec /bin/ln "$@"
+"""
 # Read by every non-interactive bash (BASH_ENV): makes `vm run`, plain commands and
 # scripts see what a login shell would — e.g. PATH lines installers append to
 # ~/.profile — once per process tree.
@@ -98,8 +112,9 @@ if [ -z "$RCONSOLE_PROFILE_LOADED" ]; then
   done
   unset _rc_f
 fi
-"""
-SAFE_PROC_FILES = ("uptime", "meminfo", "cpuinfo", "loadavg", "version")
+""" + GAMES_PATH_SNIPPET
+SAFE_PROC_FILES = ("uptime", "meminfo", "cpuinfo", "loadavg", "version",
+                   "sys/kernel/random/uuid", "sys/kernel/random/boot_id")   # Kali's login scripts read these
 CACHE_KEEP = 4                      # downloaded rootfs tarballs kept for reuse
 TOOLS_SRC = config.HERE / "vmtools" / "rfetch.sh"
 _VM_ID_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,31}\Z")
@@ -807,7 +822,7 @@ PROMPT_SOURCE = f'[ -r "$HOME/{PROMPT_FILE}" ] && . "$HOME/{PROMPT_FILE}"   # rc
 # The interactive prompt says which system you are in (<name>@root:<dir>), not the machine's long host id.
 # bash gets colours; busybox ash / dash only understand the plain form.
 PROMPT_FILE_TEXT = r"""# Managed by rconsole: the prompt shows which system you are in, e.g. ubuntu@root:~#
-case $- in
+""" + GAMES_PATH_SNIPPET + r"""case $- in
   *i*)
     if [ -n "$BASH_VERSION" ]; then
       PS1='\[\e[1;32m\]${RCONSOLE_VM:-vm}@root\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ '
@@ -906,6 +921,10 @@ def sync_guest_tools(sid, vm=None):
         if not dest.exists() or dest.stat().st_size != TOOLS_SRC.stat().st_size:
             shutil.copyfile(TOOLS_SRC, dest)
             dest.chmod(0o755)
+        lnshim = dest_dir / "ln"
+        if not lnshim.exists() or lnshim.read_text() != LN_SHIM_TEXT:
+            lnshim.write_text(LN_SHIM_TEXT)
+            lnshim.chmod(0o755)
         for alias in ("neofetch", "fetch"):
             link = dest_dir / alias
             if not link.exists() and not link.is_symlink():

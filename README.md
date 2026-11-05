@@ -11,7 +11,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.3.9** · MIT licensed
+**Version 1.3.10** · MIT licensed
 
 ## Why this exists
 
