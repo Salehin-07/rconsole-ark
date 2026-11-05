@@ -90,6 +90,20 @@ SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr
 # install there), so login shells append them again.
 GAMES_PATH_SNIPPET = ('case ":$PATH:" in *:/usr/games:*) ;; *) PATH="$PATH:/usr/games:/usr/local/games"; export PATH ;; esac\n')
 ENV_FILE = ".rconsole_env"
+# systemd's postinst runs `journalctl --update-catalog`. Inside a VM there is no real /proc mount and
+# the catalog files are not usable, so it prints "/proc/ is not mounted ... Failed to update catalog".
+# There is no journal in a VM anyway, so that one call is skipped; everything else runs the real binary.
+JOURNALCTL_SHIM_TEXT = """#!/bin/sh
+# Managed by rconsole: no journal exists in a VM, so rebuilding its message catalog is a no-op.
+for _a; do
+  [ "$_a" = "--update-catalog" ] && exit 0
+done
+for _j in /usr/bin/journalctl /bin/journalctl; do
+  [ -x "$_j" ] && exec "$_j" "$@"
+done
+echo "journalctl: command not found" >&2
+exit 127
+"""
 # /dev is the host's (read-only for us) inside a VM, and it already has fd/stdin/stdout/stderr. Login
 # scripts (Kali's) that try to re-create those links would print "Permission denied" on every command.
 LN_SHIM_TEXT = """#!/bin/sh
@@ -926,6 +940,11 @@ def sync_guest_tools(sid, vm=None):
         if not lnshim.exists() or lnshim.read_text() != LN_SHIM_TEXT:
             lnshim.write_text(LN_SHIM_TEXT)
             lnshim.chmod(0o755)
+        if (rootfs_path(sid, vm) / "etc/debian_version").exists():   # Debian, Ubuntu, Kali
+            jshim = dest_dir / "journalctl"
+            if not jshim.exists() or jshim.read_text() != JOURNALCTL_SHIM_TEXT:
+                jshim.write_text(JOURNALCTL_SHIM_TEXT)
+                jshim.chmod(0o755)
         for alias in ("neofetch", "fetch"):
             link = dest_dir / alias
             if not link.exists() and not link.is_symlink():

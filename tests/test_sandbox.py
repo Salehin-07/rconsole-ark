@@ -181,3 +181,17 @@ class KaliLoginNoiseTests(unittest.TestCase):
             r = subprocess.run([shim, "-s", target, os.path.join(d, "b")], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0)
             self.assertTrue(os.path.islink(os.path.join(d, "b")))
+
+
+class JournalctlShimTests(unittest.TestCase):
+    """1.3.11: systemd's postinst must not print /proc and catalog errors in a VM."""
+
+    def test_update_catalog_is_a_silent_noop(self):
+        import subprocess, tempfile, os
+        with tempfile.TemporaryDirectory() as d:
+            shim = os.path.join(d, "journalctl")
+            with open(shim, "w") as f:
+                f.write(sandbox.JOURNALCTL_SHIM_TEXT)
+            os.chmod(shim, 0o755)
+            r = subprocess.run([shim, "--update-catalog"], capture_output=True, text=True)
+            self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
