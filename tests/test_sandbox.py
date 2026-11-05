@@ -195,3 +195,26 @@ class JournalctlShimTests(unittest.TestCase):
             os.chmod(shim, 0o755)
             r = subprocess.run([shim, "--update-catalog"], capture_output=True, text=True)
             self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
+
+
+class HwdbShimTests(unittest.TestCase):
+    """1.3.11: udev's postinst must not print "Failed to write database" in a VM."""
+
+    def _run(self, text, *args):
+        import subprocess, tempfile, os
+        with tempfile.TemporaryDirectory() as d:
+            shim = os.path.join(d, "shim")
+            with open(shim, "w") as f:
+                f.write(text)
+            os.chmod(shim, 0o755)
+            return subprocess.run([shim, *args], capture_output=True, text=True)
+
+    def test_hwdb_update_is_a_silent_noop(self):
+        for args in (("update",), ("--usr", "update")):
+            r = self._run(sandbox.HWDB_SHIM_TEXT, *args)
+            self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
+
+    def test_udevadm_hwdb_update_is_a_silent_noop(self):
+        for args in (("hwdb", "--update"), ("hwdb", "-u")):
+            r = self._run(sandbox.UDEVADM_SHIM_TEXT, *args)
+            self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))

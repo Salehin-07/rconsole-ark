@@ -106,6 +106,32 @@ exit 127
 """
 # /dev is the host's (read-only for us) inside a VM, and it already has fd/stdin/stdout/stderr. Login
 # scripts (Kali's) that try to re-create those links would print "Permission denied" on every command.
+# udev's install script rebuilds the hardware database (`systemd-hwdb update`); writing it fails with
+# "Function not implemented" under proot, and a VM has no hardware to describe, so that call is skipped.
+HWDB_SHIM_TEXT = """#!/bin/sh
+# Managed by rconsole: no hardware database is needed (or writable) in a VM, so `update` is a no-op.
+for _a; do
+  case "$_a" in update|--update|-u) exit 0 ;; esac
+done
+for _j in /usr/bin/systemd-hwdb /bin/systemd-hwdb /usr/lib/systemd/systemd-hwdb; do
+  [ -x "$_j" ] && exec "$_j" "$@"
+done
+echo "systemd-hwdb: command not found" >&2
+exit 127
+"""
+UDEVADM_SHIM_TEXT = """#!/bin/sh
+# Managed by rconsole: `udevadm hwdb --update` is a no-op in a VM; everything else is the real udevadm.
+if [ "$1" = "hwdb" ]; then
+  for _a; do
+    case "$_a" in --update|-u) exit 0 ;; esac
+  done
+fi
+for _j in /usr/bin/udevadm /bin/udevadm; do
+  [ -x "$_j" ] && exec "$_j" "$@"
+done
+echo "udevadm: command not found" >&2
+exit 127
+"""
 LN_SHIM_TEXT = """#!/bin/sh
 # Managed by rconsole: skip re-creating the standard /dev links that already exist.
 for _last; do :; done
@@ -941,10 +967,12 @@ def sync_guest_tools(sid, vm=None):
             lnshim.write_text(LN_SHIM_TEXT)
             lnshim.chmod(0o755)
         if (rootfs_path(sid, vm) / "etc/debian_version").exists():   # Debian, Ubuntu, Kali
-            jshim = dest_dir / "journalctl"
-            if not jshim.exists() or jshim.read_text() != JOURNALCTL_SHIM_TEXT:
-                jshim.write_text(JOURNALCTL_SHIM_TEXT)
-                jshim.chmod(0o755)
+            for name, text in (("journalctl", JOURNALCTL_SHIM_TEXT),
+                               ("systemd-hwdb", HWDB_SHIM_TEXT), ("udevadm", UDEVADM_SHIM_TEXT)):
+                shim = dest_dir / name
+                if not shim.exists() or shim.read_text() != text:
+                    shim.write_text(text)
+                    shim.chmod(0o755)
         for alias in ("neofetch", "fetch"):
             link = dest_dir / alias
             if not link.exists() and not link.is_symlink():

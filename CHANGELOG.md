@@ -6,13 +6,16 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
 ## 1.3.11 — 2026-11-05
 
 ### Added
-- Test for the `journalctl` shim (`JournalctlShimTests`).
+- Tests for the `journalctl`, `systemd-hwdb` and `udevadm` shims (`JournalctlShimTests`, `HwdbShimTests`).
 
 ### Fixed
 - **`Setting up systemd` printed `/proc/ is not mounted` and `Failed to update catalog` in Debian, Ubuntu and Kali
   VMs.** systemd's install script runs `journalctl --update-catalog`, which has nothing to do in a VM (no journal, no
   real `/proc` mount). Debian-family VMs now get a `journalctl` shim in `/usr/local/bin` that skips just that call;
   every other `journalctl` command runs the real binary. Existing VMs get it on their next launch.
+- **`Setting up udev` printed `Failed to write database /usr/lib/udev/hwdb.bin: Function not implemented`.** The
+  hardware database cannot be written under proot and a VM has no hardware to describe. Debian-family VMs now get
+  `systemd-hwdb` and `udevadm` shims that skip only `update` / `hwdb --update`; every other call runs the real tool.
 
 ## 1.3.10 — 2026-11-05
 
