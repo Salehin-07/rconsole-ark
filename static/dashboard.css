@@ -1,0 +1,75 @@
+/* Admin dashboard. Colours come from the console theme variables (style.css). */
+body.dash { height: auto; min-height: 100%; overflow-y: auto; }
+#dh { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--panel);
+      border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; }
+.dh-back { color: var(--blue); text-decoration: none; white-space: nowrap; }
+.dh-title { font-weight: 700; letter-spacing: .04em; }
+.dh-spacer { flex: 1; }
+.dh-user { color: var(--dim); font-size: 12px; white-space: nowrap; }
+.dh-live { font-size: 11px; color: var(--green); border: 1px solid var(--green); border-radius: 10px; padding: 1px 8px; }
+.dh-live.off { color: var(--red); border-color: var(--red); }
+#dtabs { display: flex; gap: 2px; overflow-x: auto; padding: 0 10px; background: var(--panel);
+         border-bottom: 1px solid var(--border); position: sticky; top: 43px; z-index: 4; scrollbar-width: none; }
+#dtabs::-webkit-scrollbar { display: none; }
+#dtabs button { background: none; border: none; border-bottom: 2px solid transparent; color: var(--dim);
+                font: inherit; padding: 10px 12px; cursor: pointer; white-space: nowrap; }
+#dtabs button:hover { color: var(--fg); }
+#dtabs button.on { color: var(--green); border-bottom-color: var(--green); }
+#dmain { max-width: 1200px; margin: 0 auto; padding: 14px 12px 60px; }
+.dgrid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-bottom: 14px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.card h3 { margin: 0 0 8px; font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em;
+           display: flex; align-items: center; gap: 8px; }
+.card h3 .sp { flex: 1; }
+.big { font-size: 26px; font-weight: 700; line-height: 1.1; }
+.sub { color: var(--dim); font-size: 12px; margin-top: 2px; }
+.bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; margin-top: 8px; }
+.bar > i { display: block; height: 100%; background: var(--green); }
+.bar.warn > i { background: var(--amber); } .bar.bad > i { background: var(--red); }
+svg.chart { width: 100%; height: 110px; display: block; }
+svg.chart .grid { stroke: var(--border); stroke-width: 1; }
+svg.chart text { fill: var(--dim); font-size: 10px; }
+.legend { display: flex; gap: 12px; font-size: 11px; color: var(--dim); margin-top: 4px; flex-wrap: wrap; }
+.legend b { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+.alerts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.alert { border-left: 3px solid var(--amber); background: var(--panel); padding: 8px 12px; border-radius: 4px; font-size: 13px; }
+.alert.info { border-left-color: var(--blue); } .alert.ok { border-left-color: var(--green); }
+.tools { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; flex-wrap: wrap; }
+.tools .sp { flex: 1; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 14px; background: var(--panel); }
+table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.t th { text-align: left; color: var(--dim); font-weight: 600; font-size: 11px; text-transform: uppercase;
+             letter-spacing: .05em; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+table.t td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.t tr:last-child td { border-bottom: none; }
+td.cmd { max-width: 420px; word-break: break-all; color: var(--dim); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+h2.sec { font-size: 14px; margin: 18px 0 8px; display: flex; align-items: center; gap: 8px; }
+h2.sec small { color: var(--dim); font-weight: 400; }
+.pill { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--border); color: var(--dim); }
+.pill.ok { color: var(--green); border-color: var(--green); } .pill.warn { color: var(--amber); border-color: var(--amber); }
+.pill.bad { color: var(--red); border-color: var(--red); } .pill.admin { color: var(--blue); border-color: var(--blue); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); margin-right: 6px; }
+.dot.on { background: var(--green); }
+button.b { background: transparent; border: 1px solid var(--border); color: var(--fg); font: inherit; font-size: 12px;
+           padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+button.b:hover { border-color: var(--green); color: var(--green); }
+button.b.danger:hover { border-color: var(--red); color: var(--red); }
+button.b:disabled { opacity: .4; cursor: default; }
+button.b.solid { background: var(--green); color: var(--bg); border-color: var(--green); font-weight: 700; }
+.acts { display: flex; gap: 6px; flex-wrap: wrap; }
+form.inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+form.inline input[type=text], form.inline input[type=password] { background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 8px; font: inherit; min-width: 130px; }
+form.inline label { font-size: 12px; color: var(--dim); display: flex; gap: 4px; align-items: center; }
+pre.log { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; max-height: 50vh; overflow: auto;
+          font-size: 12px; white-space: pre-wrap; word-break: break-all; margin: 0; }
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: grid; place-items: center; z-index: 50; padding: 12px; }
+.modal-box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; width: min(720px, 100%); }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 13px; }
+.kv dt { color: var(--dim); } .kv dd { margin: 0; word-break: break-word; }
+.muted { color: var(--dim); }
+#dtoast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--border);
+          padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90vw; z-index: 60; }
+#dtoast.show { opacity: 1; } #dtoast.bad { border-color: var(--red); color: var(--red); }
+@media (max-width: 640px) { .big { font-size: 22px; } #dh { padding: 8px 10px; } #dtabs { top: 39px; } .dh-user { display: none; } }

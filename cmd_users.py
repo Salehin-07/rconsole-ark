@@ -5,6 +5,7 @@ import shutil
 import auth
 import commands
 import config
+import dashboard
 import exposure
 import jobs
 import services
@@ -42,6 +43,7 @@ def cmd_auser(ctx, args):
     ok, err = auth.set_admin(args[0], True)
     if not ok:
         return f"auser: {err}"
+    dashboard.audit(ctx["username"], "user.promote", args[0], "via sudo auser")
     return f"User '{args[0]}' is now an admin."
 
 
@@ -53,7 +55,22 @@ def cmd_nauser(ctx, args):
     ok, err = auth.set_admin(args[0], False)
     if not ok:
         return f"nauser: {err}"
+    dashboard.audit(ctx["username"], "user.demote", args[0], "via sudo nauser")
     return f"Admin rights removed from '{args[0]}'."
+
+
+def remove_user(name):
+    """Delete an account *and* everything it owns. Returns ``(ok, error)``.
+
+    Shared by ``sudo ruser`` and the admin dashboard so both do exactly the same thing.
+    """
+    ok, err = auth.delete_user(name)
+    if not ok:
+        return False, err
+    # Don't leave the deleted user's processes, VM or saved state behind (a
+    # later account re-using the name would otherwise inherit them).
+    _migrate_cleanup(name)
+    return True, None
 
 
 @commands.command("ruser")
@@ -63,12 +80,10 @@ def cmd_ruser(ctx, args):
         return "Usage: sudo ruser <username>"
     if sandbox.updating(args[0]):
         return f"ruser: {args[0]}'s system is being updated; try again when it has finished."
-    ok, err = auth.delete_user(args[0])
+    ok, err = remove_user(args[0])
     if not ok:
         return f"ruser: {err}"
-    # Don't leave the deleted user's processes, VM or saved state behind (a
-    # later account re-using the name would otherwise inherit them).
-    _migrate_cleanup(args[0])
+    dashboard.audit(ctx["username"], "user.delete", args[0], "via sudo ruser")
     return f"User '{args[0]}' deleted."
 
 
@@ -180,6 +195,7 @@ def cmd_muser(ctx, args):
         ok, err = auth.create_user(username, password)
         if not ok:
             return f"muser: {err}"
+        dashboard.audit(ctx["username"], "user.create", username, "via sudo muser")
         return f"User '{username}' created."
     return routine()
 
@@ -197,6 +213,7 @@ def cmd_cpass(ctx, args):
         ok, err = auth.set_password(target, new)
         if not ok:
             return f"cpass: {err}"
+        dashboard.audit(ctx["username"], "user.password", target, "via sudo cpass")
         out = {"output": f"Password updated for '{target}'."}
         if target == ctx["username"]:
             # Lifts the "default password" lockout for this session.

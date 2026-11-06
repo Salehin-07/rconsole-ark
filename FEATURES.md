@@ -1,6 +1,6 @@
 # Rconsole features
 
-Every feature of Rconsole 1.3.11, by area. This is the **map**; the details live in
+Every feature of Rconsole 1.4.0, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.
@@ -54,6 +54,8 @@ root; everyone). One worker process with threads; all state in one data director
 | **`alias` / `unalias`** | Persistent per-user aliases that replace the first word of a command. |
 | **`theme`** | 17 colour themes (`default light amber solarized dracula github ubuntu retro nord gruvbox matrix tokyonight catppuccin monokai everforest ayu papercolor`), saved per account, switchable live from the command or the theme button. |
 | **`logout`** | Signs you out; everything is kept. |
+| **Logout button** | Sits next to the theme and system buttons (inside the ⚙ menu on phones) and does exactly what `logout` does. |
+| **⚙ menu** | On phones it holds theme, system and logout. For admins it also holds a **Dashboard** link (shown on every screen size; never sent to non-admins). |
 | **Mobile first** | Installable as a home-screen app (web manifest + icon); on narrow screens the tab bar shrinks to tabs, **+**, **📁**, **⚙**; a footer key bar provides Tab / Esc / Ctrl / arrows for touch keyboards; `neofetch`, `vm list` and friends reformat to your width. |
 | **Update screen** | While `rconsole update` runs, every open tab shows a locked progress screen and reloads by itself ([section 7](#7-updating-rconsole-update)). |
 
@@ -192,6 +194,8 @@ Output is a rolling buffer; kills take the whole process tree.
 | **Authorization choke point** | `sandbox.py` decides host vs VM for the line console, jobs, hosted apps, the terminal WebSocket and the file APIs; host access is admin-only. |
 | **Secrets** | Generated secrets are stored `0600`, shared by all processes, and stripped from every user process and hosted app. |
 | **Users file** | Atomic `0600` writes; a corrupt file is quarantined, never silently reset. |
+| **Admin dashboard** | `/dashboard`, admins only (others get a 404 and no link). Live overview (CPU, memory, disk, network, load, one hour of graphs, alerts), processes (services, jobs, terminals, busiest host processes with owners; restart / stop / kill / logs), users (online status, create, promote, demote, reset password, stop everything, delete), systems (per-system process list, disk usage by area), exposed ports and hosted apps, and health (backups with *Back up now*, keep-alive, updates). Resource numbers come from `/proc` and the container's cgroup, so no extra dependency; `RCONSOLE_METRICS_INTERVAL` sets the sampling rate. |
+| **Audit trail** | Logins (also failed and locked-out ones), logouts, and every account or process change made from the dashboard or with `suser`, `auser`, `nauser`, `muser`, `cpass`, `ruser`; shown in the dashboard's *Activity* tab and kept in `logs/audit.jsonl` (rotated at 1 MB). |
 | **`rboot`** | 🔒 Factory reset: stops everything, wipes every user's state, VMs, logs and exposures, resets users to the default admin. No undo. |
 
 ---
@@ -251,7 +255,7 @@ All through environment variables (`config.py`); the full table with defaults is
 | Area | Variables |
 |---|---|
 | Server | `PORT`, `RCONSOLE_DATA_DIR`, `RCONSOLE_THREADS`, `RCONSOLE_LOG_LEVEL`, `RCONSOLE_SERVER`, `RCONSOLE_HOST`, `RCONSOLE_TRUST_PROXY`, `RCONSOLE_COOKIE_SECURE`, `RCONSOLE_ALLOWED_ORIGINS`, `RCONSOLE_PUBLIC_URL`, `RCONSOLE_RUN_AS_ROOT` |
-| Accounts and login | `RCONSOLE_SECRET`, `RCONSOLE_PEPPER`, `RCONSOLE_ADMIN_PASSWORD`, `RCONSOLE_MIN_PASSWORD`, `RCONSOLE_MAX_USERS`, `RCONSOLE_LOGIN_ATTEMPTS`, `RCONSOLE_LOGIN_LOCKOUT` |
+| Accounts and login | `RCONSOLE_SECRET`, `RCONSOLE_PEPPER`, `RCONSOLE_ADMIN_PASSWORD`, `RCONSOLE_MIN_PASSWORD`, `RCONSOLE_MAX_USERS`, `RCONSOLE_METRICS_INTERVAL`, `RCONSOLE_LOGIN_ATTEMPTS`, `RCONSOLE_LOGIN_LOCKOUT` |
 | Linux systems (VMs) | `RCONSOLE_VM`, `RCONSOLE_DEFAULT_MODE`, `RCONSOLE_DEFAULT_SYSTEM`, `RCONSOLE_ALLOW_USER_HOST`, `RCONSOLE_USER_VM_PROC`, `RCONSOLE_VM_PIDNS`, `RCONSOLE_HOST_HOME`, `RCONSOLE_VM_ROOTFS_URL`, `RCONSOLE_VM_ROOTFS_SHA256`, `RCONSOLE_VM_PROOT` |
 | Services and hosted apps | `RCONSOLE_SUPERVISOR` |
 | Files | `RCONSOLE_MAX_UPLOAD_MB`, `RCONSOLE_MAX_EXTRACT_MB` |

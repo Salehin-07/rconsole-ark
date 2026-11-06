@@ -3,6 +3,39 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.4.0 — 2026-11-06
+
+### Added
+- **Admin dashboard** at `/dashboard` (admins only). One page to watch the whole instance, live (refreshes every 5 s):
+  - *Overview*: CPU, memory, disk and network (container-aware: cgroup limits, so it shows what your plan allows),
+    load, process count, users online, running terminals / jobs / services, uptime, **alerts** (CPU or memory
+    pegged, disk nearly full, a service stuck in crash backoff, a failed system, backups unconfigured or failing, the
+    factory `ark` password still in use) and one hour of history as graphs (5 / 15 / 60 min).
+  - *Processes*: every service (restart, stop, start, remove, logs), every job (output, kill), every open terminal
+    (close) and the busiest host processes with CPU %, memory and which user / job / terminal they belong to.
+  - *Users*: who is online and when they were last seen, per-user terminals, jobs, services, apps and systems;
+    **create users, promote and demote admins, reset passwords, stop everything a user runs, delete users** — the web
+    counterpart of `sudo muser`, `auser`, `nauser`, `cpass` and `ruser` (they share the same code).
+  - *Systems*: every user's Linux systems with state and per-system process list (stop a process), and disk usage by
+    area (each system, backups, logs ...), measured in the background.
+  - *Apps*: exposed ports with a live "is anything listening?" check, and hosted apps.
+  - *Activity*: an **audit trail** of logins (also failed and locked-out ones), logouts, and every account or process
+    change made from the dashboard or with `sudo` commands. Kept in memory and in `logs/audit.jsonl` (rotated at 1 MB).
+  - *Health*: server facts, backups (with a "Back up now" button), keep-alive and update status.
+- **Logout button** next to the theme and system buttons (in the ⚙ menu on phones). It does exactly what the
+  `logout` command does (`POST /api/logout`): ends the login, keeps your terminals and data.
+- **Dashboard link in the ⚙ menu**, rendered only for admins. The ⚙ button now also shows on wide screens for admins.
+- `RCONSOLE_METRICS_INTERVAL` (default 5): seconds between dashboard samples.
+- `tests/test_dashboard.py` (access control, every section, every action, audit trail, logout) and jsdom checks
+  `tests/js/dashboard_check.js` plus new menu / logout checks in `tests/js/ui_check.js`.
+
+### Changed
+- `sudo auser`, `nauser`, `muser`, `cpass` and `ruser` now also write to the audit trail. `ruser` shares its
+  implementation with the dashboard (`cmd_users.remove_user`).
+- Non-admins get a plain 404 for `/dashboard` and 403 for its API; the page link is never sent to them.
+- The dashboard refuses to demote, delete or stop *yourself* (use `sudo nauser` / `ruser`); the last admin was
+  already protected.
+
 ## 1.3.11 — 2026-11-05
 
 ### Added

@@ -11,7 +11,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.3.11** · MIT licensed
+**Version 1.4.0** · MIT licensed
 
 ## Why this exists
 
@@ -93,6 +93,9 @@ Commands run on one of two **targets**:
   the `service` supervisor run them (autostart, crash restart, logs).
 - Visual file browser (📁) with **download** (files, or whole folders as a `.zip`) and
   **upload** (files or entire folders).
+- **Admin dashboard** (`/dashboard`, admins only): live CPU / memory / disk / network graphs, every process, service,
+  job and terminal with kill / restart / logs, user management (create, promote, demote, reset, delete), per-system
+  views, disk usage, an audit trail and alerts. Plus a **logout button** next to the theme and system buttons.
 - Accounts with admin/non-admin roles, brute-force protection, forced
   replacement of the factory password, session timeout, and factory reset.
 - Native **AI agent** (`sudo agent`) with file and shell tools.
@@ -169,6 +172,7 @@ Everything is configured through environment variables. The reference below is *
 | `RCONSOLE_ADMIN_PASSWORD` | `ark` (a password change is forced) | Initial password of the `ark` admin. Set it before the first start. Never passed to user commands. |
 | `RCONSOLE_MIN_PASSWORD` | `8` | Minimum password length (never below 4). |
 | `RCONSOLE_MAX_USERS` | `10` | Account cap. Rconsole is for one person or a small team. |
+| `RCONSOLE_METRICS_INTERVAL` | `5` | Seconds between the admin dashboard's CPU, memory, disk and network samples (2-300). One hour of history is kept. |
 | `RCONSOLE_LOGIN_ATTEMPTS` | `5` | Failed logins before a lockout starts. |
 | `RCONSOLE_LOGIN_LOCKOUT` | `30` | Base lockout in seconds; it doubles on each repeat, up to 15 minutes. |
 

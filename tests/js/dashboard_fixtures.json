@@ -1,0 +1,629 @@
+{
+ "overview": {
+  "alerts": [
+   {
+    "level": "info",
+    "text": "Backups are not configured; data is lost when the instance is rebuilt."
+   },
+   {
+    "level": "warn",
+    "text": "Backup: no destination: set RCONSOLE_BACKUP_URL (a private git repo) or RCONSOLE_BACKUP_DIR"
+   },
+   {
+    "level": "warn",
+    "text": "Backup: RCONSOLE_BACKUP_PASSPHRASE is not set (backups hold password hashes and API keys, so they are encrypted; choose a long passphrase and keep a copy elsewhere)"
+   }
+  ],
+  "counts": {
+   "exposures": 1,
+   "jobs_running": 1,
+   "services_running": 1,
+   "services_total": 1,
+   "terminals": 0,
+   "users": 2
+  },
+  "current": {
+   "cpu": null,
+   "disk": 8781615104,
+   "disk_pct": 3.2,
+   "disk_total": 270553174016,
+   "jobs": 1,
+   "load": 0.29,
+   "mem": 337629184,
+   "mem_pct": 8.1,
+   "mem_total": 4184506368,
+   "procs": 57,
+   "rx": 0,
+   "self_rss": 52674560,
+   "svc": 1,
+   "t": 1793929005,
+   "terms": 0,
+   "tx": 0
+  },
+  "server": {
+   "cpus": 1,
+   "host": "self-hosted",
+   "uptime": 1,
+   "version": "1.3.11"
+  },
+  "users_online": 1
+ },
+ "processes": {
+  "host": {
+   "rows": [
+    {
+     "cmd": "python3",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "python3",
+     "owner": "rconsole server",
+     "pid": 1626,
+     "ppid": 1620,
+     "rss": 52629504,
+     "state": "R"
+    },
+    {
+     "cmd": "rclone-filestor",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "rclone-filestor",
+     "owner": "",
+     "pid": 58,
+     "ppid": 1,
+     "rss": 34918400,
+     "state": "S"
+    },
+    {
+     "cmd": "uv",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "uv",
+     "owner": "",
+     "pid": 1620,
+     "ppid": 1619,
+     "rss": 34373632,
+     "state": "S"
+    },
+    {
+     "cmd": "process_api",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "process_api",
+     "owner": "",
+     "pid": 1,
+     "ppid": 0,
+     "rss": 6844416,
+     "state": "S"
+    },
+    {
+     "cmd": "4",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "4",
+     "owner": "",
+     "pid": 57,
+     "ppid": 1,
+     "rss": 2883584,
+     "state": "S"
+    },
+    {
+     "cmd": "sh",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "sh",
+     "owner": "",
+     "pid": 1619,
+     "ppid": 1,
+     "rss": 1888256,
+     "state": "S"
+    },
+    {
+     "cmd": "sh",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "sh",
+     "owner": "job ark%1",
+     "pid": 1628,
+     "ppid": 1626,
+     "rss": 1880064,
+     "state": "S"
+    },
+    {
+     "cmd": "sleep",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "sleep",
+     "owner": "job ark%1",
+     "pid": 1629,
+     "ppid": 1628,
+     "rss": 1863680,
+     "state": "S"
+    },
+    {
+     "cmd": "tail",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "tail",
+     "owner": "",
+     "pid": 1621,
+     "ppid": 1619,
+     "rss": 1572864,
+     "state": "S"
+    },
+    {
+     "cmd": "kthreadd",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "kthreadd",
+     "owner": "",
+     "pid": 2,
+     "ppid": 0,
+     "rss": 0,
+     "state": "S"
+    },
+    {
+     "cmd": "pool_workqueue_release",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "pool_workqueue_release",
+     "owner": "",
+     "pid": 3,
+     "ppid": 2,
+     "rss": 0,
+     "state": "S"
+    },
+    {
+     "cmd": "kworker/R-rcu_gp",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "kworker/R-rcu_gp",
+     "owner": "",
+     "pid": 4,
+     "ppid": 2,
+     "rss": 0,
+     "state": "I"
+    },
+    {
+     "cmd": "kworker/R-sync_wq",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "kworker/R-sync_wq",
+     "owner": "",
+     "pid": 5,
+     "ppid": 2,
+     "rss": 0,
+     "state": "I"
+    },
+    {
+     "cmd": "kworker/R-kvfree_rcu_reclaim",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "kworker/R-kvfree_rcu_reclaim",
+     "owner": "",
+     "pid": 6,
+     "ppid": 2,
+     "rss": 0,
+     "state": "I"
+    },
+    {
+     "cmd": "kworker/R-slub_flushwq",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "kworker/R-slub_flushwq",
+     "owner": "",
+     "pid": 7,
+     "ppid": 2,
+     "rss": 0,
+     "state": "I"
+    },
+    {
+     "cmd": "kworker/R-netns",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "kworker/R-netns",
+     "owner": "",
+     "pid": 8,
+     "ppid": 2,
+     "rss": 0,
+     "state": "I"
+    },
+    {
+     "cmd": "kworker/0:0-events",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "kworker/0:0-events",
+     "owner": "",
+     "pid": 9,
+     "ppid": 2,
+     "rss": 0,
+     "state": "I"
+    },
+    {
+     "cmd": "kworker/0:0H-kblockd",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "kworker/0:0H-kblockd",
+     "owner": "",
+     "pid": 10,
+     "ppid": 2,
+     "rss": 0,
+     "state": "I"
+    },
+    {
+     "cmd": "kworker/0:1-events",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "kworker/0:1-events",
+     "owner": "",
+     "pid": 11,
+     "ppid": 2,
+     "rss": 0,
+     "state": "I"
+    },
+    {
+     "cmd": "kworker/u4:0-events_unbound",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "kworker/u4:0-events_unbound",
+     "owner": "",
+     "pid": 12,
+     "ppid": 2,
+     "rss": 0,
+     "state": "I"
+    },
+    {
+     "cmd": "kworker/R-mm_percpu_wq",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "kworker/R-mm_percpu_wq",
+     "owner": "",
+     "pid": 13,
+     "ppid": 2,
+     "rss": 0,
+     "state": "I"
+    },
+    {
+     "cmd": "ksoftirqd/0",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "ksoftirqd/0",
+     "owner": "",
+     "pid": 14,
+     "ppid": 2,
+     "rss": 0,
+     "state": "S"
+    },
+    {
+     "cmd": "rcu_preempt",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "rcu_preempt",
+     "owner": "",
+     "pid": 15,
+     "ppid": 2,
+     "rss": 0,
+     "state": "I"
+    },
+    {
+     "cmd": "rcu_exp_par_gp_kthread_worker/0",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "rcu_exp_par_gp_kthread_worker/0",
+     "owner": "",
+     "pid": 16,
+     "ppid": 2,
+     "rss": 0,
+     "state": "S"
+    },
+    {
+     "cmd": "rcu_exp_gp_kthread_worker",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "rcu_exp_gp_kthread_worker",
+     "owner": "",
+     "pid": 17,
+     "ppid": 2,
+     "rss": 0,
+     "state": "S"
+    },
+    {
+     "cmd": "migration/0",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "migration/0",
+     "owner": "",
+     "pid": 18,
+     "ppid": 2,
+     "rss": 0,
+     "state": "S"
+    },
+    {
+     "cmd": "cpuhp/0",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "cpuhp/0",
+     "owner": "",
+     "pid": 19,
+     "ppid": 2,
+     "rss": 0,
+     "state": "S"
+    },
+    {
+     "cmd": "kdevtmpfs",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "kdevtmpfs",
+     "owner": "",
+     "pid": 20,
+     "ppid": 2,
+     "rss": 0,
+     "state": "S"
+    },
+    {
+     "cmd": "kworker/R-inet_frag_wq",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "kworker/R-inet_frag_wq",
+     "owner": "",
+     "pid": 21,
+     "ppid": 2,
+     "rss": 0,
+     "state": "I"
+    },
+    {
+     "cmd": "rcu_tasks_kthread",
+     "cpu": null,
+     "cpu_s": 0,
+     "name": "rcu_tasks_kthread",
+     "owner": "",
+     "pid": 22,
+     "ppid": 2,
+     "rss": 0,
+     "state": "I"
+    }
+   ],
+   "supported": true,
+   "total": 57
+  },
+  "jobs": [
+   {
+    "alive": true,
+    "cmd": "<img src=x onerror=window.__pwned=1>",
+    "jid": 1,
+    "owner": "ark",
+    "pid": 1628,
+    "runtime": 1,
+    "started": 1793929004,
+    "vm": ""
+   }
+  ],
+  "services": [
+   {
+    "cmd": "sleep 60",
+    "enabled": true,
+    "expose": null,
+    "last_error": "",
+    "last_exit": null,
+    "name": "bot",
+    "owner": "ark",
+    "restarts": 0,
+    "retry_in": 0,
+    "state": "running",
+    "target": "host",
+    "uptime": 1793928006
+   }
+  ],
+  "terminals": []
+ },
+ "users": {
+  "max_users": 10,
+  "min_password": 8,
+  "users": [
+   {
+    "admin": false,
+    "exposures": 0,
+    "host_access": false,
+    "ip": "",
+    "jobs": 0,
+    "last_seen": null,
+    "name": "alice",
+    "online": false,
+    "services": 0,
+    "services_running": 0,
+    "systems": 0,
+    "terminals": 0,
+    "you": false
+   },
+   {
+    "admin": true,
+    "exposures": 1,
+    "host_access": true,
+    "ip": "127.0.0.1",
+    "jobs": 1,
+    "last_seen": 1793929006,
+    "name": "ark",
+    "online": true,
+    "services": 1,
+    "services_running": 1,
+    "systems": 0,
+    "terminals": 0,
+    "you": true
+   }
+  ]
+ },
+ "systems": {
+  "pid_namespaces": {
+   "active": true,
+   "reason": "",
+   "vms": 0
+  },
+  "storage": {
+   "age": null,
+   "busy": true,
+   "items": [],
+   "partial": false
+  },
+  "systems": []
+ },
+ "apps": {
+  "exposures": [
+   {
+    "listening": false,
+    "name": "site",
+    "owner": "ark",
+    "port": 8123,
+    "public": false
+   }
+  ],
+  "hosted": []
+ },
+ "activity": {
+  "events": [
+   {
+    "action": "login",
+    "actor": "ark",
+    "detail": "",
+    "ip": "127.0.0.1",
+    "ok": true,
+    "t": 1793929004,
+    "target": ""
+   }
+  ]
+ },
+ "health": {
+  "backup": {
+   "configured": false,
+   "encrypted": true,
+   "interval": 900,
+   "last_error": "",
+   "last_ok": null,
+   "last_size": 0,
+   "last_time": null,
+   "problems": [
+    "no destination: set RCONSOLE_BACKUP_URL (a private git repo) or RCONSOLE_BACKUP_DIR",
+    "RCONSOLE_BACKUP_PASSPHRASE is not set (backups hold password hashes and API keys, so they are encrypted; choose a long passphrase and keep a copy elsewhere)"
+   ],
+   "running": false,
+   "target": "not configured"
+  },
+  "keepalive": {
+   "enabled": false,
+   "interval": 600,
+   "last": {
+    "failures": 0,
+    "last_error": "",
+    "last_ms": null,
+    "last_ok": null,
+    "last_time": null,
+    "pings": 0
+   },
+   "platform": null,
+   "running": false,
+   "targets": []
+  },
+  "pid_namespaces": {
+   "active": true,
+   "reason": "",
+   "vms": 0
+  },
+  "server": {
+   "cpus": 1,
+   "data_dir": "/data",
+   "host": "self-hosted",
+   "max_users": 10,
+   "metrics_interval": 5,
+   "pid": 1626,
+   "platform": "Linux",
+   "python": "3.14.6",
+   "threads": 3,
+   "uptime": 1,
+   "version": "1.3.11"
+  },
+  "update": {
+   "error": "",
+   "stage": "",
+   "updating": false,
+   "version": "1.3.11"
+  }
+ },
+ "history": {
+  "interval": 5,
+  "samples": [
+   {
+    "cpu": null,
+    "disk": 8781590528,
+    "disk_pct": 3.2,
+    "disk_total": 270553174016,
+    "jobs": 0,
+    "load": 0.29,
+    "mem": 337391616,
+    "mem_pct": 8.1,
+    "mem_total": 4184506368,
+    "procs": 55,
+    "rx": null,
+    "self_rss": 51339264,
+    "svc": 0,
+    "t": 1793929004,
+    "terms": 0,
+    "tx": null
+   },
+   {
+    "cpu": 100.0,
+    "disk": 8781615104,
+    "disk_pct": 3.2,
+    "disk_total": 270553174016,
+    "jobs": 1,
+    "load": 0.29,
+    "mem": 337649664,
+    "mem_pct": 8.1,
+    "mem_total": 4184506368,
+    "procs": 57,
+    "rx": 0,
+    "self_rss": 52670464,
+    "svc": 1,
+    "t": 1793929004,
+    "terms": 0,
+    "tx": 0
+   },
+   {
+    "cpu": 0.0,
+    "disk": 8781615104,
+    "disk_pct": 3.2,
+    "disk_total": 270553174016,
+    "jobs": 1,
+    "load": 0.29,
+    "mem": 337629184,
+    "mem_pct": 8.1,
+    "mem_total": 4184506368,
+    "procs": 57,
+    "rx": 0,
+    "self_rss": 52674560,
+    "svc": 1,
+    "t": 1793929005,
+    "terms": 0,
+    "tx": 0
+   },
+   {
+    "cpu": null,
+    "disk": 8781615104,
+    "disk_pct": 3.2,
+    "disk_total": 270553174016,
+    "jobs": 1,
+    "load": 0.29,
+    "mem": 337629184,
+    "mem_pct": 8.1,
+    "mem_total": 4184506368,
+    "procs": 57,
+    "rx": 0,
+    "self_rss": 52674560,
+    "svc": 1,
+    "t": 1793929005,
+    "terms": 0,
+    "tx": 0
+   }
+  ]
+ },
+ "log": {
+  "text": "hello\n<img src=x onerror=alert(1)>"
+ }
+}

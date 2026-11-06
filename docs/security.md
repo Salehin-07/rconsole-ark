@@ -47,6 +47,10 @@ are the user's own files. That is a convenience, not a statement that PRoot isol
   `SameSite=Lax` and `Secure` on HTTPS; `X-Frame-Options`, `nosniff` and HSTS are set.
 * The session cookie is named `rconsole_session` and is never forwarded to hosted apps, so a Flask app's own `session`
   cookie cannot collide with it.
+* The admin dashboard (`/dashboard`) and its API are admin-only and re-check the role on every request, so a demoted
+  admin loses access at once; others get a 404 / 403 and never receive the link. Its pages build every value with
+  `textContent` (no HTML injection from commands or names), and its changes pass the same Origin check as every POST.
+  Logins, logouts and account or process changes are recorded in an audit trail (`logs/audit.jsonl`).
 * There is no TLS in the process: terminate HTTPS at the platform or a proxy.
 * Every launch and file access passes through one authorization point (`sandbox.py`): the line console, jobs, hosted
   apps, the terminal WebSocket, the file APIs and the AI agent.

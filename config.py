@@ -144,6 +144,9 @@ MIN_PASSWORD_LEN = max(4, env_int("RCONSOLE_MIN_PASSWORD", 8))
 # rconsole is built for one person or a small team on a small (often free)
 # instance, not for the public: cap the number of accounts.
 MAX_USERS = max(1, env_int("RCONSOLE_MAX_USERS", 10))
+# Seconds between the admin dashboard's resource samples (CPU, memory, disk, network); one hour of
+# history is kept. Larger values cost less on a tiny free instance.
+METRICS_INTERVAL = max(2, min(300, env_int("RCONSOLE_METRICS_INTERVAL", 5)))
 # Largest single file the file browser's upload button accepts (one request per file).
 MAX_UPLOAD_MB = max(1, env_int("RCONSOLE_MAX_UPLOAD_MB", 64))
 # Most an archive may expand to when extracted from the file browser (zip-bomb guard).

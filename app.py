@@ -34,6 +34,7 @@ import bootstrap  # noqa: F401  (must be first: restores a backup before secrets
 import auth
 import backup
 import config
+import dashboard
 import exposure
 import fileops
 import keepalive
@@ -85,7 +86,7 @@ IP_THROTTLE = auth.LoginThrottle(max_attempts=config.LOGIN_MAX_ATTEMPTS * 4)
 
 _SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 # Endpoints a user may reach while they still have to change the default password.
-_MUST_CHANGE_OK = {"run", "console_page", "static", "login", "api_tabs", "healthz"}
+_MUST_CHANGE_OK = {"run", "console_page", "static", "login", "api_tabs", "healthz", "api_logout"}
 _MUST_CHANGE_CMDS = {"cpass", "logout", "help", "clear", "cls", "rwhoami", "history"}
 
 
@@ -321,6 +322,7 @@ def guard():
         session.clear()
         return redirect(url_for("login"))
     session["last_activity"] = time.time()
+    dashboard.touch(session["username"], request.remote_addr or "")
 
     # If the account no longer exists (e.g. after a global rboot), force login.
     if auth.get_user(session["username"]) is None:
@@ -359,6 +361,7 @@ def login():
         if wait:
             error = f"Too many failed attempts. Try again in {wait}s."
             status = 429
+            dashboard.audit(username[:32], "login.locked", detail=f"retry in {wait}s", ip=ip, ok=False)
         elif auth.verify(username, password):
             USER_THROTTLE.success(user_key)
             IP_THROTTLE.success(ip_key)
@@ -369,6 +372,7 @@ def login():
             session["must_change"] = auth.is_default_credential(username, password)
             session.permanent = True
             app.logger.info("login ok user=%s ip=%s", username, ip)
+            dashboard.audit(username, "login", ip=ip)
             # Keyed by username: a returning user is restored to their old state.
             state.new_session(username)
             restore_terminal_sessions(username)
@@ -377,6 +381,7 @@ def login():
             USER_THROTTLE.failure(user_key)
             IP_THROTTLE.failure(ip_key)
             app.logger.warning("login failed user=%r ip=%s", username[:32], ip)
+            dashboard.audit(username[:32], "login.failed", ip=ip, ok=False)
             error = "Invalid username or password."
             status = 401
     resp = Response(render_template("login.html", error=error, default_user="ark"), status=status)
@@ -398,9 +403,31 @@ def console_page():
         cache_v = int(os.path.getmtime(js_path))
     except OSError:
         cache_v = 1
+    # The Dashboard link is only rendered for admins: everyone else never even receives it.
     return render_template(
-        "console.html", username=session["username"], theme=theme, cache_v=cache_v
+        "console.html", username=session["username"], theme=theme, cache_v=cache_v,
+        is_admin=auth.is_admin(session["username"]),
     )
+
+
+# ---------------------------------------------------------------------------
+# Logout button (same effect as the `logout` command)
+# ---------------------------------------------------------------------------
+def _do_logout(via):
+    """Clear the login cookie. Terminal sessions are keyed by username and deliberately kept alive
+    so the user can log back in and resume — exactly what the ``logout`` command does."""
+    who = session.get("username")
+    if who:
+        dashboard.audit(who, "logout", detail=via, ip=request.remote_addr or "")
+    session.clear()
+
+
+@app.post("/api/logout")
+def api_logout():
+    if "username" not in session:
+        return {"error": "unauthorized"}, 401
+    _do_logout("button")
+    return {"redirect": url_for("login")}
 
 
 def _first_word(raw):
@@ -465,10 +492,87 @@ def run():
     if result.get("action") == "logout":
         # Logout only clears the cookie. Terminal sessions are keyed by username
         # and deliberately kept alive so the user can log back in and resume.
-        session.clear()
+        _do_logout("command")
         result["redirect"] = url_for("login")
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Admin dashboard (admins only; everyone else gets a plain 404 / 403)
+# ---------------------------------------------------------------------------
+def _dash_admin():
+    """The logged-in admin's name, or ``None`` (the caller then answers 404 / 403)."""
+    who = session.get("username")
+    return who if who and auth.is_admin(who) else None
+
+
+@app.get("/dashboard")
+def dashboard_page():
+    who = _dash_admin()
+    if not who:
+        abort(404)                       # do not reveal that the page exists
+    try:
+        cache_v = int(os.path.getmtime(os.path.join(os.path.dirname(__file__), "static", "dashboard.js")))
+    except OSError:
+        cache_v = 1
+    sess = state.get_session(who)
+    theme = sess.get("theme", state.DEFAULT_THEME) if sess else state.DEFAULT_THEME
+    resp = Response(render_template("dashboard.html", username=who, theme=theme, cache_v=cache_v,
+                                    version=__version__))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.get("/api/dashboard/data")
+def api_dashboard_data():
+    who = _dash_admin()
+    if not who:
+        return _json_error("admins only", 403)
+    section = request.args.get("section", "overview")
+    try:
+        data = dashboard.view(section, who)
+    except ValueError as e:
+        return _json_error(str(e), 400)
+    resp = jsonify(data)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.get("/api/dashboard/history")
+def api_dashboard_history():
+    if not _dash_admin():
+        return _json_error("admins only", 403)
+    try:
+        minutes = max(1, min(int(request.args.get("minutes", 60)), 120))
+    except ValueError:
+        minutes = 60
+    resp = jsonify({"interval": config.METRICS_INTERVAL, "samples": dashboard.history(minutes)})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.get("/api/dashboard/log")
+def api_dashboard_log():
+    if not _dash_admin():
+        return _json_error("admins only", 403)
+    text = dashboard.log_tail(request.args.get("kind", ""), request.args.get("owner", ""),
+                              request.args.get("id", ""), request.args.get("lines", 200))
+    if text is None:
+        return _json_error("nothing to show", 404)
+    return {"text": text}
+
+
+@app.post("/api/dashboard/action")
+def api_dashboard_action():
+    who = _dash_admin()
+    if not who:
+        return _json_error("admins only", 403)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not isinstance(data.get("action"), str):
+        return _json_error("bad request", 400)
+    ok, msg = dashboard.perform(who, data["action"], data, request.remote_addr or "")
+    return {"ok": ok, "message": msg}, (200 if ok else 400)
 
 
 # ---------------------------------------------------------------------------
@@ -1377,6 +1481,8 @@ def start_background_tasks():
             started.append("vm-rebuild")
         if services.start_background():
             started.append("supervisor")
+        if dashboard.start_background():
+            started.append("dashboard-sampler")
     except Exception as e:                       # never stop the site from starting
         app.logger.warning("background tasks: %s: %s", type(e).__name__, e)
     if started:

@@ -77,6 +77,7 @@ Other secrets are different: values you save with `sudo env` or `service add --e
 | `RCONSOLE_ADMIN_PASSWORD` | `ark` (a password change is forced) | Initial password of the `ark` admin. Set it before the first start. Never passed to user commands. |
 | `RCONSOLE_MIN_PASSWORD` | `8` | Minimum password length (never below 4). |
 | `RCONSOLE_MAX_USERS` | `10` | Account cap. Rconsole is for one person or a small team. |
+| `RCONSOLE_METRICS_INTERVAL` | `5` | Seconds between the admin dashboard's CPU, memory, disk and network samples (2-300). One hour of history is kept. |
 | `RCONSOLE_LOGIN_ATTEMPTS` | `5` | Failed logins before a lockout starts. |
 | `RCONSOLE_LOGIN_LOCKOUT` | `30` | Base lockout in seconds; it doubles on each repeat, up to 15 minutes. |
 

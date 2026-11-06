@@ -57,6 +57,7 @@ async function load(phone) {
       if (opts && opts.method === "POST") { saved.push(JSON.parse(opts.body)); return ok({ ok: true }); }
       return ok({ content: fileContent.value, exists: true });
     }
+    if (url === "/api/logout") { calls.push({ url, method: opts && opts.method }); return ok({ redirect: "/login" }); }
     if (url.startsWith("/api/tabs")) return ok({ tabs: [{ id: "main", name: "main", cwd: "/root", is_terminal: false, alive: false, cmd: "" }] });
     if (url.startsWith("/api/targets")) return ok(targets);
     if (url.startsWith("/api/target")) return ok({ ok: true, ...targets, current: "vm:debian", label: "debian", cwds: { main: "/root" } });
@@ -196,12 +197,24 @@ async function load(phone) {
   }
   // ---- phone vs desktop layout + ✕ ---------------------------------------------------------
   for (const phone of [true, false]) {
-    const { w, d, errors } = await load(phone);
+    const { w, d, errors, calls } = await load(phone);
     const bar = d.getElementById("tabbar"), menu = d.getElementById("settingsmenu");
     const where = (id) => (bar.contains(d.getElementById(id)) ? "bar" : menu.contains(d.getElementById(id)) ? "menu" : "?");
     const label = phone ? "phone" : "desktop";
     check(`${label}: theme button is in the ${phone ? "menu" : "bar"}`, where("themebtn") === (phone ? "menu" : "bar"));
     check(`${label}: system dropdown is in the ${phone ? "menu" : "bar"}`, where("targetsel") === (phone ? "menu" : "bar"));
+    check(`${label}: logout button is in the ${phone ? "menu" : "bar"}`, where("logoutbtn") === (phone ? "menu" : "bar"));
+    check(`${label}: admin Dashboard link is in the menu`, (() => { const a = d.getElementById("dashlink");
+      return !!a && menu.contains(a) && a.getAttribute("href") === "/dashboard"; })());
+    check(`${label}: menu rows already in the bar are hidden on desktop`,
+      d.getElementById("sm-theme-row").hidden === !phone && d.getElementById("sm-logout-row").hidden === !phone);
+    {
+      const before = calls.length;
+      d.getElementById("logoutbtn").click();
+      await sleep(40);
+      const hit = calls.slice(before).find((c) => c.url === "/api/logout");
+      check(`${label}: logout button POSTs /api/logout`, !!hit && hit.method === "POST");
+    }
     if (phone) {
       d.getElementById("settingsbtn").click();
       check("phone: ⚙ opens the menu", menu.hidden === false);

@@ -3832,13 +3832,14 @@ elTarget.addEventListener("change", async () => {
 // settings menu on small screens and back into the bar on larger ones — so no
 // feature differs between layouts.
 // ---------------------------------------------------------------------------
+const elLogout = document.getElementById("logoutbtn");
 const elSettingsBtn = document.getElementById("settingsbtn");
 const elSettingsMenu = document.getElementById("settingsmenu");
 const elTargetRow = document.getElementById("sm-target-row");
 const mqPhone = window.matchMedia("(max-width: 640px)");
 
 function updateTargetRow() {
-  if (elTargetRow) elTargetRow.hidden = elTarget.hidden;
+  if (elTargetRow) elTargetRow.hidden = elTarget.hidden || !mqPhone.matches;
 }
 
 function closeSettings() {
@@ -3856,16 +3857,37 @@ function toggleSettings() {
 
 function placeControls() {
   const bar = document.getElementById("tabbar");
-  if (mqPhone.matches) {
+  const phone = mqPhone.matches;
+  if (phone) {
     document.getElementById("sm-theme-slot").appendChild(elTheme);
     document.getElementById("sm-target-slot").appendChild(elTarget);
+    document.getElementById("sm-logout-slot").appendChild(elLogout);
   } else {
     bar.insertBefore(elTarget, document.getElementById("filesbtn"));
     bar.insertBefore(elTheme, elSettingsBtn);
+    bar.insertBefore(elLogout, elSettingsBtn);
     closeSettings();
+  }
+  // On wide screens the menu only holds what is not already in the bar (the admin Dashboard link).
+  for (const id of ["sm-theme-row", "sm-logout-row"]) {
+    const row = document.getElementById(id);
+    if (row) row.hidden = !phone;
   }
   updateTargetRow();
 }
+
+// The logout button does exactly what the `logout` command does (ends the login, keeps your
+// terminals and data so you can come back to them).
+elLogout.addEventListener("click", async () => {
+  elLogout.disabled = true;
+  try {
+    const r = await fetch("/api/logout", { method: "POST" });
+    const d = await r.json().catch(() => ({}));
+    window.location = d.redirect || "/login";
+  } catch (e) {
+    elLogout.disabled = false;
+  }
+});
 
 elSettingsBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleSettings(); });
 document.addEventListener("click", (e) => {

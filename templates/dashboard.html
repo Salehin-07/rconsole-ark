@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Dashboard — Rconsole</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=cache_v) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css', v=cache_v) }}">
+  <link rel="icon" href="/static/favicon.ico" sizes="any">
+  <meta name="theme-color" content="#0d1117">
+  <meta name="robots" content="noindex">
+</head>
+<body class="dash">
+  <header id="dh">
+    <a class="dh-back" href="/console" title="Back to the console">&larr; Console</a>
+    <span class="dh-title">Dashboard</span>
+    <span class="dh-spacer"></span>
+    <span id="dh-live" class="dh-live" title="Refreshes automatically">live</span>
+    <span class="dh-user">{{ username }} · v{{ version }}</span>
+  </header>
+  <nav id="dtabs" role="tablist"></nav>
+  <main id="dmain" aria-live="polite"></main>
+  <div id="dtoast" role="status"></div>
+  <script>window.RCONSOLE_USER = "{{ username }}";</script>
+  <script src="{{ url_for('static', filename='dashboard.js', v=cache_v) }}" defer></script>
+</body>
+</html>

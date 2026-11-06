@@ -69,6 +69,8 @@ VARS = [
     ("login", "RCONSOLE_MIN_PASSWORD", "`8`", "Minimum password length (never below 4).", "all"),
     ("login", "RCONSOLE_MAX_USERS", "`10`",
      "Account cap. Rconsole is for one person or a small team.", "all"),
+    ("login", "RCONSOLE_METRICS_INTERVAL", "`5`",
+     "Seconds between the admin dashboard's CPU, memory, disk and network samples (2-300). One hour of history is kept.", "all"),
     ("login", "RCONSOLE_LOGIN_ATTEMPTS", "`5`", "Failed logins before a lockout starts.", "all"),
     ("login", "RCONSOLE_LOGIN_LOCKOUT", "`30`",
      "Base lockout in seconds; it doubles on each repeat, up to 15 minutes.", "all"),

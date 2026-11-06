@@ -186,6 +186,22 @@ def set_enabled(name, requester, is_admin, on):
         return True, "started" if on else "stopped"
 
 
+def restart(name, requester, is_admin=False):
+    """Stop a service's process and start it again on the next supervisor tick."""
+    name = (name or "").lower()
+    with _lock:
+        s = _read().get(name)
+        if not s:
+            return False, f"no service called '{name}'"
+        if s["owner"] != requester and not is_admin:
+            return False, f"'{name}' belongs to {s['owner']}"
+        if not s.get("enabled", True):
+            return False, f"'{name}' is stopped; start it instead"
+        _kill(name, s["owner"])
+        _rt.setdefault(name, _new_rt())["next"] = 0
+        return True, "restarting"
+
+
 def remove_owner(owner):
     """Drop every service of a user (account deleted); stops their processes."""
     with _lock:
