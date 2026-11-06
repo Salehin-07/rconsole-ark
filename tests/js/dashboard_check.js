@@ -34,7 +34,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check("overview shows meters and charts", /CPU/.test(text()) && /Memory/.test(text()) && d.querySelectorAll("svg.chart").length >= 6);
   check("overview charts draw lines", d.querySelectorAll("svg.chart path").length > 0);
 
+  check("overview: meter cards carry a trend line", d.querySelectorAll(".card.meter svg.spark path").length >= 3);
+  const chartSvg = d.querySelector(".chartbox svg.chart");
+  chartSvg.dispatchEvent(new w.MouseEvent("pointermove", { clientX: 10, bubbles: true }));
+  check("overview: hovering a chart shows a readout", d.querySelector(".chartbox .ctip") && !d.querySelector(".chartbox .ctip").hidden);
+  check("tabs have icons and labels", d.querySelectorAll("#dtabs .ti").length === 7 && d.querySelectorAll("#dtabs .tl").length === 7);
+
   await go("processes");
+  check("tables label every cell (used by the phone layout)", d.querySelectorAll("#dmain table td[data-label]").length > 5);
   check("processes: service listed", /bot/.test(text()) && /running/.test(text()));
   check("processes: hostile command stays text", !w.__pwned && !d.querySelector("#dmain img") && /<img/.test(text()));
   d.querySelector("#dmain table button").click();       // first action button in the services table

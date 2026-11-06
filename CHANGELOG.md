@@ -29,6 +29,16 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
 - `tests/test_dashboard.py` (access control, every section, every action, audit trail, logout) and jsdom checks
   `tests/js/dashboard_check.js` plus new menu / logout checks in `tests/js/ui_check.js`.
 
+### Design
+- Dashboard: cards with a status-coloured top edge and a **trend line** under each meter, graphs with dashed
+  gridlines and a **hover / touch readout** of the nearest sample, status pills, alert banners with icons, a pulsing
+  live indicator, a pill-style tab bar, focus rings and reduced-motion support. Colours come from the console theme
+  variables, so all 17 themes work.
+- Dashboard on phones: a **bottom tab bar** with icons, two-column meter cards, every table turns into one labelled
+  card per row, dialogs open as bottom sheets, and tap targets are at least 36 px.
+- Logout button with a power icon that turns red on hover; in the ⚙ menu it is a full-width outlined button. The
+  Dashboard link in the menu is now a highlighted row with an icon, a one-line description and an arrow.
+
 ### Changed
 - `sudo auser`, `nauser`, `muser`, `cpass` and `ruser` now also write to the audit trail. `ruser` shares its
   implementation with the dashboard (`cmd_users.remove_user`).

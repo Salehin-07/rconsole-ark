@@ -3,8 +3,8 @@
 // so usernames, commands and log output can never inject markup.
 (() => {
   const ME = window.RCONSOLE_USER;
-  const TABS = [["overview", "Overview"], ["processes", "Processes"], ["users", "Users"], ["systems", "Systems"],
-                ["apps", "Apps"], ["activity", "Activity"], ["health", "Health"]];
+  const TABS = [["overview", "Overview", "◔"], ["processes", "Processes", "☰"], ["users", "Users", "☺"], ["systems", "Systems", "▣"],
+                ["apps", "Apps", "⇄"], ["activity", "Activity", "↻"], ["health", "Health", "♥"]];
   const main = document.getElementById("dmain");
   const tabsEl = document.getElementById("dtabs");
   const liveEl = document.getElementById("dh-live");
@@ -77,12 +77,14 @@
   }
   // series: [{key, color}], rows: samples; max: fixed top of the scale (e.g. 100) or null for auto
   function chart(rows, series, { max = null, fmt = (v) => String(v) } = {}) {
-    const W = 600, H = 110, L = 34, B = 14;
+    const W = 600, H = 120, L = 36, B = 16;
+    const box = h("div", { class: "chartbox" });
     const s = svg("svg", { class: "chart", viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", role: "img" });
+    box.append(s);
     const vals = rows.flatMap((r) => series.map((x) => r[x.key]).filter((v) => v != null));
     if (rows.length < 2 || !vals.length) {
       const t = svg("text", { x: W / 2, y: H / 2, "text-anchor": "middle" }); t.textContent = "collecting data…";
-      s.append(t); return s;
+      s.append(t); return box;
     }
     let top = max != null ? max : Math.max(...vals, 1) * 1.15;
     const t0 = rows[0].t, t1 = rows[rows.length - 1].t || t0 + 1;
@@ -102,20 +104,56 @@
                              fill: x.color, "fill-opacity": ".16" }));
       s.append(svg("path", { d: line, fill: "none", stroke: x.color, "stroke-width": "1.6", "vector-effect": "non-scaling-stroke" }));
     }
+    // hover / touch: a cursor line and a small readout of the nearest sample
+    const cur = svg("line", { class: "cursor", y1: 6, y2: H - B, x1: 0, x2: 0, visibility: "hidden" });
+    s.append(cur);
+    const tip = h("div", { class: "ctip", hidden: true });
+    box.append(tip);
+    const hide = () => { tip.hidden = true; cur.setAttribute("visibility", "hidden"); };
+    s.addEventListener("pointermove", (e) => {
+      const r = s.getBoundingClientRect();
+      const t = t0 + ((e.clientX - r.left) / r.width * W - L) / (W - L - 4) * (t1 - t0);
+      let best = rows[0];
+      for (const row of rows) if (Math.abs(row.t - t) < Math.abs(best.t - t)) best = row;
+      const x = X(best.t);
+      cur.setAttribute("x1", x); cur.setAttribute("x2", x); cur.setAttribute("visibility", "visible");
+      tip.replaceChildren(h("b", {}, new Date(best.t * 1000).toLocaleTimeString()),
+        ...series.map((q) => h("div", {}, h("i", { style: `background:${q.color}` }), `${q.name || q.key} `, best[q.key] == null ? NA : fmt(best[q.key]))));
+      tip.hidden = false;
+      const frac = x / W;
+      tip.style.left = frac > 0.6 ? "auto" : `${(frac * 100).toFixed(1)}%`;
+      tip.style.right = frac > 0.6 ? `${((1 - frac) * 100).toFixed(1)}%` : "auto";
+    });
+    s.addEventListener("pointerleave", hide);
+    return box;
+  }
+  // a tiny trend line for the meter cards
+  function spark(rows, key, color) {
+    const pts = rows.filter((r) => r[key] != null);
+    const s = svg("svg", { class: "spark", viewBox: "0 0 100 28", preserveAspectRatio: "none", "aria-hidden": "true" });
+    if (pts.length < 2) return s;
+    const hi = Math.max(...pts.map((r) => r[key]), 1), t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+    const P = pts.map((r) => [(r.t - t0) / Math.max(1, t1 - t0) * 100, 26 - r[key] / hi * 24]);
+    const line = P.map((q, i) => (i ? "L" : "M") + q[0].toFixed(1) + " " + q[1].toFixed(1)).join(" ");
+    s.append(svg("path", { d: line + " L100 28 L0 28 Z", fill: color, "fill-opacity": ".15" }));
+    s.append(svg("path", { d: line, fill: "none", stroke: color, "stroke-width": "1.4", "vector-effect": "non-scaling-stroke" }));
     return s;
   }
   const legend = (items) => h("div", { class: "legend" }, items.map(([c, n]) => h("span", {}, h("b", { style: `background:${c}` }), n)));
 
   const C = { green: "#5ee08a", blue: "#6db3ff", amber: "#ffcb6b", red: "#ff6b6b" };
 
-  function meter(label, value, sub, p) {
-    return h("div", { class: "card" }, h("h3", {}, label), h("div", { class: "big" }, value),
+  function meter(label, value, sub, p, trend) {
+    return h("div", { class: "card meter " + (p != null ? level(p) : "") }, h("h3", {}, label), h("div", { class: "big" }, value),
              sub ? h("div", { class: "sub" }, sub) : null,
-             p != null ? h("div", { class: "bar " + level(p) }, h("i", { style: `width:${Math.min(100, p)}%` })) : null);
+             p != null ? h("div", { class: "bar " + level(p) }, h("i", { style: `width:${Math.min(100, p)}%` })) : null,
+             trend || null);
   }
 
   function table(head, rows, empty) {
-    if (!rows.length) return h("div", { class: "card muted" }, empty || "Nothing here.");
+    if (!rows.length) return h("div", { class: "card empty" }, empty || "Nothing here.");
+    const labels = head.map((x) => x.replace(/^#/, ""));
+    for (const tr of rows) [...tr.children].forEach((cell, i) => { if (labels[i]) cell.setAttribute("data-label", labels[i]); });
     return h("div", { class: "tablewrap" }, h("table", { class: "t" },
       h("thead", {}, h("tr", {}, head.map((x) => h("th", { class: x.startsWith("#") ? "num" : "" }, x.replace(/^#/, ""))))),
       h("tbody", {}, rows)));
@@ -147,13 +185,13 @@
       const rows = hist.samples, c = d.current, k = d.counts;
       const out = [];
       const alerts = d.alerts.length ? d.alerts : [{ level: "ok", text: "Everything looks healthy." }];
-      out.push(h("div", { class: "alerts" }, alerts.map((a) => h("div", { class: "alert " + a.level }, a.text))));
+      out.push(h("div", { class: "alerts" }, alerts.map((a) => h("div", { class: "alert " + a.level }, h("span", { class: "ai", "aria-hidden": "true" }, { ok: "✓", info: "ℹ" }[a.level] || "⚠"), h("span", {}, a.text)))));
       out.push(h("div", { class: "dgrid" },
-        meter("CPU", pct(c.cpu), c.load != null ? `load ${c.load}` : "of what this instance may use", c.cpu),
-        meter("Memory", pct(c.mem_pct), c.mem != null ? `${bytes(c.mem)} of ${bytes(c.mem_total)}` : "", c.mem_pct),
-        meter("Disk", pct(c.disk_pct), c.disk != null ? `${bytes(c.disk)} of ${bytes(c.disk_total)}` : "", c.disk_pct),
-        meter("Network", c.rx != null ? "↓ " + bytes(c.rx) + "/s" : NA, c.tx != null ? "↑ " + bytes(c.tx) + "/s" : "", null)));
-      out.push(h("div", { class: "dgrid" },
+        meter("CPU", pct(c.cpu), c.load != null ? `load ${c.load}` : "of what this instance may use", c.cpu, spark(rows, "cpu", C.green)),
+        meter("Memory", pct(c.mem_pct), c.mem != null ? `${bytes(c.mem)} of ${bytes(c.mem_total)}` : "", c.mem_pct, spark(rows, "mem_pct", C.blue)),
+        meter("Disk", pct(c.disk_pct), c.disk != null ? `${bytes(c.disk)} of ${bytes(c.disk_total)}` : "", c.disk_pct, spark(rows, "disk_pct", C.amber)),
+        meter("Network", c.rx != null ? "↓ " + bytes(c.rx) + "/s" : NA, c.tx != null ? "↑ " + bytes(c.tx) + "/s" : "", null, spark(rows, "rx", C.green))));
+      out.push(h("div", { class: "dgrid small" },
         meter("Users", `${k.users}`, `${d.users_online} online now`, null),
         meter("Terminals", `${k.terminals}`, "open shells", null),
         meter("Jobs", `${k.jobs_running}`, "running", null),
@@ -163,14 +201,14 @@
       const range = h("span", {}, [5, 15, 60].map((m) => btn(m + " min", () => { minutes = m; load(); }, m === minutes ? "solid" : "")));
       out.push(h("div", { class: "tools" }, h("b", {}, "History"), h("span", { class: "sp" }), range));
       out.push(h("div", { class: "dgrid" },
-        h("div", { class: "card" }, h("h3", {}, "CPU %"), chart(rows, [{ key: "cpu", color: C.green }], { max: 100, fmt: (v) => Math.round(v) + "%" })),
-        h("div", { class: "card" }, h("h3", {}, "Memory %"), chart(rows, [{ key: "mem_pct", color: C.blue }], { max: 100, fmt: (v) => Math.round(v) + "%" })),
-        h("div", { class: "card" }, h("h3", {}, "Network"), chart(rows, [{ key: "rx", color: C.green }, { key: "tx", color: C.amber }], { fmt: (v) => bytes(v) }),
+        h("div", { class: "card" }, h("h3", {}, "CPU %"), chart(rows, [{ key: "cpu", color: C.green, name: "CPU" }], { max: 100, fmt: (v) => Math.round(v) + "%" })),
+        h("div", { class: "card" }, h("h3", {}, "Memory %"), chart(rows, [{ key: "mem_pct", color: C.blue, name: "Memory" }], { max: 100, fmt: (v) => Math.round(v) + "%" })),
+        h("div", { class: "card" }, h("h3", {}, "Network"), chart(rows, [{ key: "rx", color: C.green, name: "down" }, { key: "tx", color: C.amber, name: "up" }], { fmt: (v) => bytes(v) }),
           legend([[C.green, "download"], [C.amber, "upload"]])),
-        h("div", { class: "card" }, h("h3", {}, "Activity"), chart(rows, [{ key: "terms", color: C.blue }, { key: "jobs", color: C.amber }, { key: "svc", color: C.green }], { fmt: (v) => String(Math.round(v)) }),
+        h("div", { class: "card" }, h("h3", {}, "Activity"), chart(rows, [{ key: "terms", color: C.blue, name: "terminals" }, { key: "jobs", color: C.amber, name: "jobs" }, { key: "svc", color: C.green, name: "services" }], { fmt: (v) => String(Math.round(v)) }),
           legend([[C.blue, "terminals"], [C.amber, "jobs"], [C.green, "services"]])),
-        h("div", { class: "card" }, h("h3", {}, "Load average"), chart(rows, [{ key: "load", color: C.red }], { fmt: (v) => v.toFixed(1) })),
-        h("div", { class: "card" }, h("h3", {}, "Processes"), chart(rows, [{ key: "procs", color: C.blue }], { fmt: (v) => String(Math.round(v)) }))));
+        h("div", { class: "card" }, h("h3", {}, "Load average"), chart(rows, [{ key: "load", color: C.red, name: "load" }], { fmt: (v) => v.toFixed(1) })),
+        h("div", { class: "card" }, h("h3", {}, "Processes"), chart(rows, [{ key: "procs", color: C.blue, name: "processes" }], { fmt: (v) => String(Math.round(v)) }))));
       return out;
     },
 
@@ -332,7 +370,8 @@
     main.replaceChildren(h("div", { class: "muted" }, "loading…"));
     load();
   }
-  for (const [id, label] of TABS) tabsEl.append(h("button", { type: "button", role: "tab", "data-tab": id, onclick: () => select(id) }, label));
+  for (const [id, label, icon] of TABS) tabsEl.append(h("button", { type: "button", role: "tab", "data-tab": id, onclick: () => select(id) },
+    h("span", { class: "ti", "aria-hidden": "true" }, icon), h("span", { class: "tl" }, label)));
   window.addEventListener("hashchange", () => select(location.hash.slice(1)));
   document.addEventListener("visibilitychange", () => { paused = document.hidden; if (!paused) load(); });
   timer = setInterval(load, 5000);
