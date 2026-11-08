@@ -28,7 +28,7 @@ Older Python versions are not supported.
 |---|---|---|
 | Docker image | Yes (multi-arch image on GHCR) | Yes |
 | Linux systems | Yes: Rconsole downloads a checksum-verified **PRoot 5.5.0** itself | Yes, **if you provide PRoot 5.5.0 or newer** (see below) |
-| Alpine, Debian, Ubuntu, Kali images | amd64 / x86_64 | arm64 / aarch64 |
+| Alpine, Debian, Ubuntu, Kali, Arch images | amd64 / x86_64 | arm64 / aarch64 |
 
 ### PRoot
 

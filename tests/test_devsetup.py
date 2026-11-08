@@ -13,9 +13,9 @@ import sandbox
 
 class ProfileTests(unittest.TestCase):
     def test_every_profile_every_family_is_valid_sh(self):
-        for family in ("debian", "alpine"):
+        for family in ("debian", "alpine", "arch"):
             for profile in devsetup.PROFILES:
-                if profile == "kali" and family == "alpine":
+                if profile == "kali" and family != "debian":
                     continue                      # Kali is Debian-family only (tested below)
                 text = devsetup.script(profile, family)
                 with tempfile.NamedTemporaryFile("w", suffix=".sh") as f:

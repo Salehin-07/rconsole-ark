@@ -5,6 +5,8 @@ What "update" means
 * **Alpine** moves to the **latest release** (3.12 -> 3.24.3), one release at a time as Alpine
   recommends (each release ships the keys for the next), then has every newer package.
   ``--stay`` only updates packages inside the current release.
+* **Arch** is a rolling release: it gets every newer package (a full ``pacman -Syu``) and there is
+  no release to move to.
 * **Debian, Ubuntu, Kali** get every newer package of their release (security fixes, point
   releases) and keep the release. A newer release is installed next to the old one
   (``vm install debian:<codename>``); upgrading those in place is not supported yet.
@@ -18,7 +20,7 @@ The steps (every one is checked; nothing is guessed)
 2. **Health check** of the package database. A VM that is already broken is not touched.
 3. **Refresh** the package lists and **count** what would change. Nothing to do? Done.
 4. **Snapshot** the system files. Big files are hard links (free, instant, no extra disk);
-   the small databases that packages edit in place (``/etc`` and the dpkg/apk databases)
+   the small databases that packages edit in place (``/etc`` and the dpkg/apk/pacman databases)
    are real copies, so the snapshot cannot change underneath us.
 5. **Upgrade**, with no questions asked and existing config files kept.
 6. **Verify**: the system still starts programs and the package database is consistent.
@@ -57,7 +59,7 @@ SNAP = "rootfs.snapshot"
 FAILED = "rootfs.failed"
 # Real copies in the snapshot (small, and edited in place by package scripts);
 # everything else is a hard link.
-COPY_DIRS = ("etc", "var/lib/dpkg", "var/lib/apk", "lib/apk")
+COPY_DIRS = ("etc", "var/lib/dpkg", "var/lib/apk", "lib/apk", "var/lib/pacman")
 MIN_FREE = 200 * 1024 * 1024          # bytes that must stay free on the data disk
 MAX_PARALLEL = 2                      # updates running at once on one server
 TIMEOUTS = {"health": 120, "refresh": 600, "count": 180, "upgrade": 3600, "verify": 120}
@@ -84,6 +86,14 @@ def commands_for(family, vm_id=""):
         check = "apk info >/dev/null 2>&1 || { apk info; exit 1; }"
         return {"health": check, "refresh": "apk update", "count": "apk upgrade --simulate",
                 "upgrade": "apk upgrade", "verify": check}
+    if family == "arch":                       # rolling: lists are refreshed and upgraded together
+        check = ('command -v pacman >/dev/null || { echo "pacman is missing"; exit 1; }; '
+                 '[ ! -e /var/lib/pacman/db.lck ] || { echo "the package database is locked '
+                 '(/var/lib/pacman/db.lck)"; exit 1; }; '
+                 'out=$(pacman -Dk 2>&1) || { echo "$out"; exit 1; }')
+        return {"health": check, "refresh": "pacman -Sy --noconfirm",
+                "count": 'pacman -Qu; rc=$?; [ "$rc" -le 1 ] || exit "$rc"',
+                "upgrade": "pacman -Su --noconfirm --noprogressbar", "verify": check}
     verb = "full-upgrade" if vm_id == "kali" else "upgrade"     # Kali is rolling
     audit = ('command -v apt-get >/dev/null || { echo "apt-get is missing"; exit 1; }; '
              'out=$(dpkg --audit 2>&1); if [ -n "$out" ]; then echo "$out"; exit 1; fi')
@@ -95,7 +105,8 @@ def commands_for(family, vm_id=""):
 
 def parse_count(family, text):
     """How many packages the simulated upgrade would change."""
-    pat = r"^(\(\d+/\d+\)\s+)?Upgrading\s" if family == "alpine" else r"^Inst\s"
+    pat = {"alpine": r"^(\(\d+/\d+\)\s+)?Upgrading\s",
+           "arch": r"^\S+\s+\S+\s+->\s+\S+"}.get(family, r"^Inst\s")       # arch: `pacman -Qu` lines
     return sum(1 for line in (text or "").splitlines() if re.match(pat, line.strip()))
 
 

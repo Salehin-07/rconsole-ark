@@ -3,6 +3,34 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.4.1 — 2026-11-08
+
+### Added
+- **Arch Linux as a system** (`vm install arch`, alias `archlinux`; also in `vm install all` and `vm list`). It is a
+  rolling release, so there is exactly one release (`arch`). The root filesystem comes from the linuxcontainers mirrors
+  (amd64 and arm64) and is verified against the published SHA-256, like Debian.
+- Everything the other systems have works on Arch: `vm shell/run/use/status/doctor/reset/remove`, per-user `/root`,
+  `neofetch`/`fetch` (with an Arch logo and the `pacman` package count), `vm setup <profile>` for `tools`, `build`,
+  `python`, `node`, `rust`, `db`, `all`, `docker` and `udocker` (Arch package names; the real Docker client comes
+  from Docker's static build because Arch has no client-only package), `vm update` (a full `pacman -Syu` with the
+  usual lock, snapshot, verify and rollback) and the dependency backup/restore (`pacman -Qqen` is recorded and
+  reinstalled after a restore).
+- pacman works under proot out of the box: the space check, the download user and the sandbox are switched off (a
+  fake root has no real mounts or users), signature checking stays **on**, systemd/udev hooks that cannot run in a VM
+  are turned into no-ops, a mirror is written if none is active, and the first `pacman -S` creates the signing keys
+  by itself (`/usr/local/bin/pacman` wrapper, the real one stays at `/usr/bin/pacman`).
+- `tests/test_arch.py`.
+
+### Changed
+- `vm list` wraps its heading lines to the screen width (the longer Arch line overflowed a 34-column phone).
+
+### Removed
+- A Bengali-script alias for Kali (code, docs, tests and wiki). `kali`, `kali-linux` and `kalilinux` still work.
+
+### Notes
+- Arch is not tested in a real VM yet: the rootfs download is not reachable from the build sandbox. Everything else is
+  covered by tests with faked mirrors.
+
 ## 1.4.0 — 2026-11-06
 
 ### Added

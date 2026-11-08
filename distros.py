@@ -9,6 +9,7 @@ itself (never a value baked in here, so releases keep working as they roll).
     vm install debian:bookworm -> a specific Debian release
     vm install ubuntu:24.04    -> a specific Ubuntu release
     vm install kali            -> Kali Linux (minimal)
+    vm install arch            -> Arch Linux (rolling release)
 
 Sources
 -------
@@ -16,6 +17,7 @@ alpine  dl-cdn.alpinelinux.org  latest-releases.yaml (sha256 included)
 ubuntu  cdimage.ubuntu.com      ubuntu-base ``SHA256SUMS``
 debian  images.linuxcontainers.org (mirror: uk.lxd.images.canonical.com)
 kali    kali.download nethunter rootfs ``SHA256SUMS`` (LXC image as fallback)
+arch    images.linuxcontainers.org (same LXC mirrors as Debian; rolling, so one release: ``current``)
 
 The resolvers only talk HTTP through :func:`_get`, so tests can swap it out.
 """
@@ -44,7 +46,7 @@ class Source:
 class Distro:
     id: str
     name: str
-    family: str           # "alpine" | "debian" — drives package-manager hints
+    family: str           # "alpine" | "debian" | "arch" — drives package-manager hints
     summary: str
     size: str             # approximate download
     default_release: str
@@ -250,12 +252,23 @@ def _resolve_kali(variant):
     return _lxc_latest("kali", "current", arch, "Kali Linux")
 
 
+# ------------------------------------------------------------------------ arch
+def _resolve_arch(release):
+    """Arch is a rolling release: there is only ``current`` (also spelled ``latest``/``rolling``)."""
+    if release not in ("current", "latest", "rolling"):
+        raise DistroError(f"Arch Linux is a rolling release and has no '{release}': "
+                          "use `arch` (or `arch:current`)")
+    arch = _arch(_AMD64_ARM64, "Arch Linux")
+    return _lxc_latest("archlinux", "current", arch, "Arch Linux")
+
+
 # --------------------------------------------------------------------- catalog
 _RESOLVERS = {
     "alpine": _resolve_alpine,
     "debian": _resolve_debian,
     "ubuntu": _resolve_ubuntu,
     "kali": _resolve_kali,
+    "arch": _resolve_arch,
 }
 
 CATALOG = {
@@ -271,7 +284,11 @@ CATALOG = {
         "kali", "Kali Linux", "debian",
         "security-testing distro (authorized use only)", "~140 MB", "minimal",
         "minimal (default), nano, full (1.7 GB, too big)", "apt",
-        ("kali-linux", "kalilinux", "কালী")),
+        ("kali-linux", "kalilinux")),
+    "arch": Distro(
+        "arch", "Arch Linux", "arch",
+        "rolling release: always the newest packages, pacman + the Arch wiki way", "~150 MB",
+        "current", "current (rolling; the only release)", "pacman", ("archlinux", "arch-linux")),
     "alpine": Distro(
         "alpine", "Alpine Linux", "alpine",
         "tiny and the fastest to set up", "~3 MB", "latest",
@@ -342,14 +359,16 @@ def resolve(distro, release):
 
 
 # ---------------------------------------------------------------- user guidance
-def install_hint(family, packages_alpine, packages_debian=None):
+def install_hint(family, packages_alpine, packages_debian=None, packages_arch=None):
     """Shell line that installs packages on this family (for error messages)."""
     if family == "alpine":
         return f"apk add {packages_alpine}"
+    if family == "arch":
+        return f"pacman -Syu --noconfirm {packages_arch or packages_debian or packages_alpine}"
     return f"apt update && apt install -y {packages_debian or packages_alpine}"
 
 
 def python_setup_hint(family):
     """Command that prepares a VM to host a WSGI app with gunicorn."""
-    return install_hint(family, "python3 py3-pip", "python3 python3-pip") + \
+    return install_hint(family, "python3 py3-pip", "python3 python3-pip", "python python-pip") + \
         " && pip install --break-system-packages gunicorn"

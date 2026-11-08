@@ -11,7 +11,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.4.0** · MIT licensed
+**Version 1.4.1** · MIT licensed
 
 ## Why this exists
 
@@ -284,14 +284,15 @@ vm setup <profile>    install Python / build tools / Node / … in a VM (see bel
 ### Pick your systems
 
 `vm list` shows everything available; `vm install <name>[:<release>]` installs it.
-Install several in one go: `vm install debian ubuntu kali`, or `vm install all`.
+Install several in one go: `vm install debian ubuntu kali arch`, or `vm install all`.
 
 | Name | System | Packages | Download | Notes |
 |------|--------|----------|----------|-------|
 | `debian` (**default**) | Debian 13 "trixie" | `apt install` | ~90 MB | The universal choice. `debian:bookworm`, `debian:sid`, … |
 | `ubuntu` | Ubuntu (newest LTS, 26.04) | `apt install` | ~35 MB | `ubuntu:24.04`, `ubuntu:22.04`, … |
-| `kali` (also `কালী`) | Kali Linux (minimal) | `apt install` | ~140 MB | Security-testing distro — authorized use only. Add tools with `apt install kali-linux-headless` etc. |
+| `kali` | Kali Linux (minimal) | `apt install` | ~140 MB | Security-testing distro — authorized use only. Add tools with `apt install kali-linux-headless` etc. |
 | `alpine` | Alpine Linux | `apk add` | ~3 MB | Tiny and the fastest to set up. |
+| `arch` (also `archlinux`) | Arch Linux (rolling) | `pacman -S` | ~150 MB | Always the newest packages; rolling, so there is only one release (`arch`). The first `pacman -S` creates the signing keys by itself. |
 
 Plain `vm install` (no name) installs **Debian**.
 

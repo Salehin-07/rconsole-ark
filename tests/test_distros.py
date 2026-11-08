@@ -35,15 +35,17 @@ class ChoiceTests(unittest.TestCase):
         self.assertEqual(distros.parse_choice("ubuntu")[1], "lts")
         self.assertEqual(distros.parse_choice("ubuntu:24.04")[1], "24.04")
 
-    def test_aliases_including_bengali(self):
-        for alias in ("kali", "Kali-Linux", "kalilinux", "কালী"):
+    def test_aliases(self):
+        for alias in ("kali", "Kali-Linux", "kalilinux"):
             self.assertEqual(distros.parse_choice(alias)[0].id, "kali", alias)
+        for alias in ("arch", "ArchLinux", "arch-linux"):
+            self.assertEqual(distros.parse_choice(alias)[0].id, "arch", alias)
         self.assertEqual(distros.parse_choice("deb")[0].id, "debian")
 
     def test_unknown_lists_available(self):
         with self.assertRaises(distros.DistroError) as cm:
             distros.parse_choice("windows")
-        for name in ("alpine", "debian", "ubuntu", "kali"):
+        for name in ("alpine", "debian", "ubuntu", "kali", "arch"):
             self.assertIn(name, str(cm.exception))
 
     def test_rejects_weird_release(self):
@@ -52,9 +54,9 @@ class ChoiceTests(unittest.TestCase):
                 distros.parse_choice(bad)
 
     def test_catalog_is_complete(self):
-        self.assertEqual(set(distros.CATALOG), {"alpine", "debian", "ubuntu", "kali"})
+        self.assertEqual(set(distros.CATALOG), {"alpine", "debian", "ubuntu", "kali", "arch"})
         for d in distros.CATALOG.values():
-            self.assertIn(d.family, ("alpine", "debian"))
+            self.assertIn(d.family, ("alpine", "debian", "arch"))
             self.assertTrue(d.summary and d.size and d.release_help)
 
 

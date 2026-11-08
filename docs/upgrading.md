@@ -5,7 +5,7 @@ There are four different things you can update. They are independent and use dif
 | What | Tool | Touches | Your data |
 |---|---|---|---|
 | **Rconsole itself** (program files) | `rconsole update` | The installed program files, Python dependencies the release needs | Never touched |
-| **A Linux system** (Alpine, Debian, Ubuntu, Kali) | `vm update [name]` | That system's root filesystem | Its `/root` is never touched |
+| **A Linux system** (Alpine, Debian, Ubuntu, Kali, Arch) | `vm update [name]` | That system's root filesystem | Its `/root` is never touched |
 | **The container image** (Dockerfile, system packages, Python base image) | Redeploy / rebuild | The whole image | Kept if `/data` is a volume or backed up |
 | **Your own apps** | Whatever they use (`git pull`, `pip install -U`, ...) | Their folders under `/root` or the workspace | Yours |
 
@@ -62,7 +62,7 @@ Open terminal tabs come back as fresh terminals in the same folder; the programs
 ## `vm update`
 
 `vm update [name]` brings a Linux system to the newest version of its release line safely: an **Alpine** system moves to
-the newest Alpine release one step at a time, **Debian, Ubuntu and Kali** get all newer packages of their release.
+the newest Alpine release one step at a time, **Arch** (rolling) gets a full `pacman -Syu`, and **Debian, Ubuntu and Kali** get all newer packages of their release.
 It locks the system, health-checks the package database, takes a hard-linked snapshot, upgrades without prompts, and
 verifies the result. On any failure, timeout, server restart or crash the snapshot is put back. Details, options and
 who may run it: [the VM guide](../README.md#the-vm-vm) and [COMMANDS.md](../COMMANDS.md).

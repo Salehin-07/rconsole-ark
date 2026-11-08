@@ -6,7 +6,8 @@ before a deploy would come back to an empty Debian that has no ``requests``.
 So each backup first records, per VM, a small **manifest** (``deps.json``, a few
 KB, part of the backup):
 
-* system packages — the manually installed ones (``apk`` world / ``apt-mark showmanual``);
+* system packages — the manually installed ones (``apk`` world / ``apt-mark showmanual`` /
+  ``pacman -Qqen``);
 * ``pip`` packages installed into the system Python;
 * global ``npm`` packages;
 * every Python virtualenv under ``/root`` and its packages;
@@ -63,6 +64,8 @@ if command -v apk >/dev/null 2>&1; then
   sect apk; cat /etc/apk/world 2>/dev/null
 elif command -v apt-mark >/dev/null 2>&1; then
   sect apt; apt-mark showmanual 2>/dev/null
+elif command -v pacman >/dev/null 2>&1; then
+  sect pacman; pacman -Qqen 2>/dev/null
 fi
 if [ -n "$PY" ]; then
   sect pyversion; "$PY" -c 'import sys;print("%d.%d.%d" % sys.version_info[:3])' 2>/dev/null
@@ -115,7 +118,7 @@ def fingerprint(sid, vm):
     """Cheap "did anything get installed or removed?" value (directory mtimes only)."""
     root = sandbox.rootfs_path(sid, vm)
     home = sandbox.home_path(sid, vm)
-    parts = [root / p for p in ("var/lib/dpkg/status", "lib/apk/db/installed", "etc/apk/world",
+    parts = [root / p for p in ("var/lib/dpkg/status", "lib/apk/db/installed", "etc/apk/world", "var/lib/pacman/local",
                                 "usr/local/lib/node_modules", "usr/lib/node_modules", "usr/lib/python3/dist-packages")]
     for base in ("usr/lib", "usr/local/lib"):
         try:
@@ -166,9 +169,11 @@ def parse(text):
         elif cur is not None and line.strip():
             sections[cur].append(line.rstrip())
     man = {"version": 1, "captured_at": int(time.time())}
-    fam = "alpine" if "apk" in sections else "debian"
-    man["system"] = {"manager": "apk" if "apk" in sections else "apt",
-                     "packages": sorted(set(sections.get("apk") or sections.get("apt") or []))}
+    manager = "apk" if "apk" in sections else "pacman" if "pacman" in sections else "apt"
+    fam = {"apk": "alpine", "pacman": "arch"}.get(manager, "debian")
+    man["system"] = {"manager": manager,
+                     "packages": sorted(set(sections.get("apk") or sections.get("pacman")
+                                            or sections.get("apt") or []))}
     man["pip"] = {"python": (sections.get("pyversion") or [""])[0], "packages": sections.get("pip", [])}
     npm = []
     if sections.get("npmglobal"):
@@ -285,6 +290,9 @@ def restore_script(man):
         if man["system"]["manager"] == "apk":
             L.append("apk update >/dev/null 2>&1; apk add " + q + " || { for p in " + q +
                      '; do apk add "$p" >/dev/null 2>&1 || bad "apk $p"; done; }')
+        elif man["system"]["manager"] == "pacman":
+            L.append("pacman -Syu --noconfirm --needed " + q + " >/dev/null 2>&1 || { for p in " + q +
+                     '; do pacman -S --noconfirm --needed "$p" >/dev/null 2>&1 || bad "pacman $p"; done; }')
         else:
             L.append("apt-get update >/dev/null 2>&1; apt-get install -y --no-install-recommends " + q +
                      " >/dev/null 2>&1 || { for p in " + q +

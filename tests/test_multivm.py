@@ -466,8 +466,8 @@ class MultiVm(unittest.TestCase):
         self.assertEqual(sandbox.missing_vms(), [])
 
     def test_catalog_alias_install_choice(self):
-        self.assertEqual(distros.parse_choice("কালী")[0].id, "kali")
-        self.install("কালী")
+        self.assertEqual(distros.parse_choice("kalilinux")[0].id, "kali")
+        self.install("kalilinux")
         self.assertEqual(sandbox.installed_vms("alice"), ["kali"])
         meta = json.loads((sandbox.vm_dir("alice", "kali") / "distro.json").read_text())
         self.assertEqual(meta["id"], "kali")

@@ -83,6 +83,10 @@ elif [ -r /lib/apk/db/installed ]; then
   pkgs="$(grep -c '^P:' /lib/apk/db/installed) (apk)"
 elif command -v apk >/dev/null 2>&1; then
   pkgs="$(apk info 2>/dev/null | wc -l | tr -d ' ') (apk)"
+elif [ -d /var/lib/pacman/local ]; then
+  np=0
+  for d in /var/lib/pacman/local/*/; do [ -d "$d" ] && np=$((np + 1)); done
+  pkgs="$np (pacman)"
 fi
 
 disk=
@@ -113,6 +117,12 @@ case $os_id in
 | . /   / _ \  | |    | |
 | . \  / ___ \ | |___ | |
 |_|\_\/_/   \_\|_____|___|' ;;
+  arch)   LC="${ESC}[36m"; LOGO='      /\
+     /  \
+    /    \
+   /  ,,  \
+  /  |  |  -\
+ /_-""  ""-_\' ;;
   *)      LC="${ESC}[36m"; LOGO='    .--.
    |o_o |
    |:_/ |

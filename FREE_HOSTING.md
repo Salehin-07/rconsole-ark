@@ -7,7 +7,7 @@ your instance at any time.
 Free hosting tiers will happily serve a small website. What they never give away is the part you actually need
 for a **bot**, a **scraper**, a **queue worker** or an **API with a background job**: a machine where you can run
 *any process, all the time, with a shell*. rconsole turns **one free web service** (Render's free tier is the
-reference) into exactly that — a small Linux box with a terminal, private Debian/Ubuntu/Kali/Alpine systems,
+reference) into exactly that — a small Linux box with a terminal, private Debian/Ubuntu/Kali/Arch/Alpine systems,
 a process supervisor, and a way to put anything you run on the web — and then works around the free tier's
 three catches:
 
@@ -26,7 +26,7 @@ three catches:
 ## What you get, honestly
 
 * A Linux **terminal in the browser** with a real shell, editor and file manager.
-* **Your own Linux systems** (`vm install debian ubuntu kali alpine`) where you are root and can `apt install`
+* **Your own Linux systems** (`vm install debian ubuntu kali arch alpine`) where you are root and can `apt install`
   anything — no host privileges needed.
 * **Hosting for websites** — static (`python3 -m http.server` under `service`) or dynamic (anything you can start: Flask, Django, Node, PHP…)
   published at `https://your-site/<name>/` with `expose`.

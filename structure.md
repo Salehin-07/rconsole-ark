@@ -142,9 +142,9 @@ random secrets once and stores them `0600` so restarts/workers agree.
   `family`, `rename_user`. Non-admin guests get only safe `/proc/*` info files.
 
 **`distros.py`** — The system catalog. `parse_choice("debian:bookworm")`, aliases
-(`কালী` → kali), and one resolver per system that finds the newest image and its
+(`deb` → debian, `archlinux` → arch), and one resolver per system that finds the newest image and its
 published SHA-256 (Alpine release index, Ubuntu `SHA256SUMS`, linuxcontainers
-mirrors for Debian, kali.download for Kali).
+mirrors for Debian and Arch, kali.download for Kali).
 
 **`updater.py`** — Self-update (`rconsole update`); stdlib only at import so the entrypoint can run it first.
 - `check()` reads the latest GitHub release; `start()` / `start_rollback()` lock the console and run `_run_update()` in a

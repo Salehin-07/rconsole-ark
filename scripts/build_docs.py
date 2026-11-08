@@ -83,7 +83,7 @@ PAGES = [
     ("free-hosting", "Free hosting (Render)", "Start here", "FREE_HOSTING.md",
      "Bots, sites and workers on a free tier."),
     ("deploy", "Deploy anywhere", "Guides", "DEPLOY.md", "Render, Railway, Fly.io, VPS, Kubernetes and more."),
-    ("vm", "Linux systems (VM)", "Guides", ("README.md", "## The VM"), "Debian, Ubuntu, Kali and Alpine per user."),
+    ("vm", "Linux systems (VM)", "Guides", ("README.md", "## The VM"), "Debian, Ubuntu, Kali, Arch and Alpine per user."),
     ("hosting-apps", "Hosting apps", "Guides", ("README.md", "## Hosting web apps"), "expose and service."),
     ("console", "Using the console", "Guides", ("README.md", "## Using the console"), "Line mode and real programs."),
     ("ai-agent", "AI agent", "Guides", ("README.md", "## AI agent"), "sudo agent."),

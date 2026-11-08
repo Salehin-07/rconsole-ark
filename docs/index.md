@@ -19,7 +19,7 @@ to publish what you run, all usable from a phone.
 
 * **A real terminal** (line-mode commands plus full-screen programs such as `nano`, `vim` and `top`), a file manager
   and a code editor, all in the browser and laid out for small screens.
-* **Your own Linux environments** (Debian, Ubuntu, Kali, Alpine): per-user, root inside, no host privileges needed.
+* **Your own Linux environments** (Debian, Ubuntu, Kali, Arch, Alpine): per-user, root inside, no host privileges needed.
   They are PRoot-based environments, not virtual machines (see [the security model](security.md)).
 * **`service`**: named commands that Rconsole starts when it starts and restarts when they crash, with logs.
 * **`expose`**: publish a web server you run (static or dynamic) at `https://<your-domain>/<name>/`.

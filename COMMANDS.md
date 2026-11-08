@@ -122,7 +122,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.4.0` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.4.1` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -314,7 +314,7 @@ vm use debian                   # plain commands now run in Debian
 vm run --vm ubuntu apt update
 @vm:kali nmap -V                # one-off command in Kali
 ```
-* Releases: `debian:bookworm`, `ubuntu:24.04`, `alpine:3.21`. Names also accept `deb`, `ubu`, `alp`, `কালী`.
+* Releases: `debian:bookworm`, `ubuntu:24.04`, `alpine:3.21`. Names also accept `deb`, `ubu`, `alp`, `archlinux`. Arch is rolling: just `arch`.
 * Installs run in the background; `vm status` shows progress. You can't install the same system twice (use
   `vm remove` first).
 * `vm mode host` is admins only. `vm mode vm` with several systems asks which one.

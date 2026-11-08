@@ -61,7 +61,7 @@ class VmListTests(unittest.TestCase):
 
     def test_lists_every_system(self):
         out = cmd_vm._list("ark", 80)
-        for name in ("alpine", "debian", "ubuntu", "kali"):
+        for name in ("alpine", "debian", "ubuntu", "kali", "arch"):
             self.assertIn(name, out)
         self.assertIn("vm install debian", out)
         self.assertIn("Install one", out)

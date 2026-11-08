@@ -104,6 +104,45 @@ done
 echo "journalctl: command not found" >&2
 exit 127
 """
+# Arch's pacman refuses to install anything until its signing keyring exists, and a fresh image has
+# none. This wrapper (first in PATH, the real one stays at /usr/bin/pacman) sets the keys up once,
+# the first time a command that downloads or installs packages is run.
+PACMAN_SHIM_TEXT = """#!/bin/sh
+# Managed by rconsole: sets up pacman's signing keys on first use, then runs the real pacman.
+case "$1" in
+  -S*|-U*|--sync|--upgrade)
+    if [ ! -d /etc/pacman.d/gnupg/private-keys-v1.d ] || [ ! -s /etc/pacman.d/gnupg/trustdb.gpg ]; then
+      echo "==> First use: creating pacman's signing keys (one time, up to a minute)" >&2
+      /usr/bin/pacman-key --init >&2 || exit 1
+      _k=$(ls /usr/share/pacman/keyrings/*.gpg 2>/dev/null | sed 's#.*/##; s#[.]gpg$##')
+      /usr/bin/pacman-key --populate $_k >&2 || exit 1
+    fi ;;
+esac
+exec /usr/bin/pacman "$@"
+"""
+# Hooks that talk to systemd/udev (message catalog, hardware database, daemon reload) cannot work in
+# a VM (no PID 1, no real /proc, no udev). Same-named files in /etc/pacman.d/hooks replace the
+# system ones, so each is turned into a no-op.
+PACMAN_NOOP_HOOKS = {
+    "30-systemd-catalog.hook": "usr/lib/systemd/catalog/*",
+    "30-systemd-hwdb.hook": "usr/lib/udev/hwdb.d/*",
+    "30-systemd-udev-reload.hook": "usr/lib/udev/rules.d/*",
+    "30-systemd-daemon-reload-system.hook": "usr/lib/systemd/system/*",
+    "30-systemd-daemon-reload-user.hook": "usr/lib/systemd/user/*",
+}
+PACMAN_NOOP_HOOK_TEXT = """# Managed by rconsole: this hook cannot work inside a VM, so it does nothing.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Path
+Target = {target}
+
+[Action]
+Description = Skipped inside an rconsole VM
+When = PostTransaction
+Exec = /usr/bin/true
+"""
 # /dev is the host's (read-only for us) inside a VM, and it already has fd/stdin/stdout/stderr. Login
 # scripts (Kali's) that try to re-create those links would print "Permission denied" on every command.
 # udev's install script rebuilds the hardware database (`systemd-hwdb update`); writing it fails with
@@ -752,7 +791,7 @@ def distro_info(sid, vm=None):
 
 
 def family(sid, vm=None):
-    """Package-manager family of a VM: ``alpine`` or ``debian``."""
+    """Package-manager family of a VM: ``alpine``, ``debian`` or ``arch``."""
     return (distro_info(sid, vm) or {}).get("family", "debian")
 
 
@@ -947,6 +986,50 @@ def _post_setup(rootfs, distro):
         policy.parent.mkdir(parents=True, exist_ok=True)
         policy.write_text("#!/bin/sh\nexit 101\n")
         policy.chmod(0o755)
+    elif distro.family == "arch":
+        _arch_post_setup(rootfs)
+
+
+def _arch_post_setup(rootfs):
+    """Make pacman work under proot (idempotent: also re-run by every ``vm update``)."""
+    conf = rootfs / "etc/pacman.conf"
+    try:
+        text = conf.read_text()
+    except OSError:
+        text = ""
+    if text:
+        new = []
+        for line in text.splitlines():
+            bare = line.strip()
+            if re.match(r"CheckSpace\b", bare):                 # needs real mount points
+                line = "#" + line
+            elif re.match(r"DownloadUser\b", bare):             # downloads as an unprivileged user
+                line = "#" + line                               # (a fake root cannot become one)
+            elif re.match(r"#\s*DisableSandbox\w*\s*$", bare):  # landlock/seccomp sandbox
+                line = bare.lstrip("#").strip()
+            new.append(line)
+        out = "\n".join(new) + "\n"
+        if out != text:
+            conf.write_text(out)
+    mirrors = rootfs / "etc/pacman.d/mirrorlist"
+    try:
+        have = any(ln.strip().startswith("Server") for ln in mirrors.read_text().splitlines())
+    except OSError:
+        have = False
+    if not have:
+        mirrors.parent.mkdir(parents=True, exist_ok=True)
+        if distros.machine() in ("aarch64", "arm64"):
+            server = "http://mirror.archlinuxarm.org/$arch/$repo"
+        else:
+            server = "https://geo.mirror.pkgbuild.com/$repo/os/$arch"
+        mirrors.write_text(f"Server = {server}\n")
+    hooks = rootfs / "etc/pacman.d/hooks"
+    hooks.mkdir(parents=True, exist_ok=True)
+    for name, target in PACMAN_NOOP_HOOKS.items():
+        text = PACMAN_NOOP_HOOK_TEXT.format(target=target)
+        path = hooks / name
+        if not path.exists() or path.read_text() != text:
+            path.write_text(text)
 
 
 def sync_guest_tools(sid, vm=None):
@@ -973,6 +1056,11 @@ def sync_guest_tools(sid, vm=None):
                 if not shim.exists() or shim.read_text() != text:
                     shim.write_text(text)
                     shim.chmod(0o755)
+        if (rootfs_path(sid, vm) / "etc/pacman.conf").exists():       # Arch
+            pm = dest_dir / "pacman"
+            if not pm.exists() or pm.read_text() != PACMAN_SHIM_TEXT:
+                pm.write_text(PACMAN_SHIM_TEXT)
+                pm.chmod(0o755)
         for alias in ("neofetch", "fetch"):
             link = dest_dir / alias
             if not link.exists() and not link.is_symlink():

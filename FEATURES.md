@@ -1,6 +1,6 @@
 # Rconsole features
 
-Every feature of Rconsole 1.4.0, by area. This is the **map**; the details live in
+Every feature of Rconsole 1.4.1, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.
@@ -95,7 +95,7 @@ persistent `/root`. You are `root` inside and can install anything; no host priv
 | Feature | What you get |
 |---|---|
 | **`vm` / `vm status [name]`** | Your systems, which is active, disk used, install progress. |
-| **`vm list`** | Every installable system (`debian:bookworm`, `ubuntu:24.04`, `alpine:3.21`, `kali`, aliases `deb ubu alp কালী`). |
+| **`vm list`** | Every installable system (`debian:bookworm`, `ubuntu:24.04`, `alpine:3.21`, `kali`, `arch`, aliases `deb ubu alp archlinux`). |
 | **`vm install [name…]`** | Installs one or more (`all` too) in the background; root filesystems come from the distribution's own mirrors and are verified against the **published SHA-256**; safe extraction; the same system can't be installed twice. |
 | **`vm shell [name]`** | Interactive root shell in a VM. |
 | **`vm run [--vm name] <cmd>`** | One command, printed output (90 s limit). `@vm:<name> cmd` does the same inline. |

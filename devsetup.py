@@ -2,7 +2,7 @@
 
 Getting ``pip install psycopg2`` (or Pillow, lxml, mysqlclient, cryptography, …)
 to build needs a compiler *and* each library's development headers, and the
-package names differ between Alpine and the Debian family. Profiles bundle the
+package names differ between Alpine, the Debian family and Arch. Profiles bundle the
 right set for each:
 
     tools   everyday utilities (nano, vim, wget, ps, htop, zip, jq, ssh, …)
@@ -16,6 +16,10 @@ right set for each:
     udocker the same without the real Docker client
     kali    the command-line Kali toolset (``kali-linux-headless``) — Kali VMs only
     all     tools, build, python, node, rust and db (not docker, not kali)
+
+On Arch (``pacman``) the install is always preceded by a full ``pacman -Syu``: Arch does not support
+installing against a stale package list. Its ``docker`` profile fetches Docker's static client (Arch
+ships no client-only package; the ``docker`` package would pull in the daemon).
 
 ``docker`` / ``udocker``: a VM runs under proot, which has no namespaces, cgroups or netfilter, so
 a real ``dockerd`` cannot start inside it. These profiles install udocker and a ``docker`` command
@@ -87,6 +91,22 @@ _ALPINE = {
     "docker": "docker-cli docker-cli-compose docker-cli-buildx python3 py3-pip tar findutils curl",
     "udocker": "python3 py3-pip tar findutils curl",
 }
+_ARCH = {
+    "base":   "ca-certificates curl git pkgconf",
+    "tools":  "nano vim less wget curl git procps-ng htop unzip zip xz bzip2 file tree jq "
+              "rsync openssh iputils bind net-tools",
+    "build":  "base-devel cmake gdb",
+    "python": "python python-pip python-setuptools python-wheel postgresql-libs mariadb-libs "
+              "sqlite libffi openssl libxml2 libxslt zlib libjpeg-turbo libpng freetype2 "
+              "libwebp libyaml libldap libsasl curl bzip2 xz readline",
+    "node":   "nodejs npm",
+    "rust":   "rust",
+    "db":     "postgresql mariadb-clients redis sqlite",
+    # No client-only Docker package exists on Arch (`docker` includes dockerd, containerd, runc):
+    # only what udocker needs; the real client comes from Docker's static build (see below).
+    "docker": "python python-pip tar findutils curl",
+    "udocker": "python python-pip tar findutils curl",
+}
 UDOCKER_VERSION = "1.3.17"            # keep in step with the Dockerfile
 VMTOOLS = Path(__file__).resolve().parent / "vmtools"
 KALI_METAPACKAGE = "kali-linux-headless"
@@ -118,10 +138,10 @@ def check_target(profile, distro_id):
 
 def packages(profile, family):
     """The package names for ``profile`` on ``family`` (deduplicated, ordered)."""
-    table = _ALPINE if family == "alpine" else _DEBIAN
+    table = {"alpine": _ALPINE, "arch": _ARCH}.get(family, _DEBIAN)
     if profile not in table and profile not in PROFILES:
         raise ValueError(f"unknown profile '{profile}'")
-    if profile == "kali" and family == "alpine":
+    if profile == "kali" and family != "debian":
         raise ValueError("the 'kali' profile needs a Debian-family (Kali) system")
     seen, names = set(), []
     for part in ["base"] + expand(profile):
@@ -144,6 +164,14 @@ def script(profile, family):
         install = ('inst() {\n'
                    '  apk add --no-cache "$@" || {\n'
                    '    for p in "$@"; do apk add --no-cache "$p" || echo "!! skipped $p (not available)"; done\n'
+                   '  }\n}')
+    elif family == "arch":
+        # Arch has no "install against a stale list": always a full upgrade first.
+        refresh = "pacman -Syu --noconfirm"
+        install = ('inst() {\n'
+                   '  pacman -S --noconfirm --needed "$@" || {\n'
+                   '    for p in "$@"; do pacman -S --noconfirm --needed "$p" \\\n'
+                   '      || echo "!! skipped $p (not available)"; done\n'
                    '  }\n}')
     else:
         refresh = "apt-get update"
@@ -257,7 +285,7 @@ echo "      export DOCKER_HOST=ssh://user@your-server     # 'vm setup docker' in
 
 def _kali_script(family):
     """The Kali toolset: ``kali-linux-headless`` (all the command-line tools, no desktop)."""
-    if family == "alpine":
+    if family != "debian":
         raise ValueError("the 'kali' profile needs a Debian-family (Kali) system")
     base = " ".join(packages("kali", family))
     return f"""#!/bin/sh

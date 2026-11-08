@@ -28,7 +28,7 @@ satisfies these five rules works; the rest of this guide is just *how* on each o
 | 2 | **Persistent storage: a volume, or backups** | *Architecture A:* a persistent volume with `RCONSOLE_DATA_DIR` pointing at it; data survives redeploys. *Architecture B:* no volume (e.g. Render free), but [backups](docs/backup.md) to a private repo: the instance restores itself after every restart, with minutes of downtime and loss of anything since the last backup. With neither, each deploy resets everything. |
 | 3 | **Websockets + long idle timeouts** | The browser terminal is a websocket. Proxies that cut idle connections after 30–60 s will drop terminals. |
 | 4 | **HTTPS in front** | Login cookies are `Secure`; never expose the console over plain HTTP on the internet. |
-| 5 | **Outbound internet** | `vm install` downloads proot 5.5.0 (from GitHub, checksum-verified, once) and the system image (Alpine/Debian/Ubuntu/Kali mirrors), and `apk`/`apt` fetch packages. |
+| 5 | **Outbound internet** | `vm install` downloads proot 5.5.0 (from GitHub, checksum-verified, once) and the system image (Alpine/Debian/Ubuntu/Kali/Arch mirrors), and `apk`/`apt`/`pacman` fetch packages. |
 
 Rough starting sizes (estimates, not guaranteed minimums):
 

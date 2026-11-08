@@ -139,7 +139,8 @@ def _status(sid, cols, only=None):
             if last and (only or i["vm"] == active):
                 lines.append(_wrap(last, cols or 80, 11))
         if only and infos[0]["family"]:
-            pm = "apk add <pkg>" if infos[0]["family"] == "alpine" else "apt install -y <pkg>"
+            pm = {"alpine": "apk add <pkg>", "arch": "pacman -S <pkg>"}.get(
+                infos[0]["family"], "apt install -y <pkg>")
             lines.append(f"  packages : {pm}")
         lines.append("")
         lines.append("Tip: `vm setup python` installs Python + build tools (psycopg2, Pillow, …).")
@@ -165,11 +166,13 @@ def _list(sid, cols=80):
     lines = ["Systems you can install", "=======================", ""]
     for d in distros.CATALOG.values():
         mark = "  <- installed" if d.id in have else ""
-        lines.append(f"{d.id:<8}{d.name} · {d.pkg} · {d.size}{mark}")
+        lines.append(textwrap.fill(f"{d.id:<8}{d.name} · {d.pkg} · {d.size}{mark}",
+                                   width=max(cols, 24), subsequent_indent=" " * 8,
+                                   break_long_words=False))
         lines.append(_wrap(d.summary, cols))
         lines.append(_wrap("release: " + d.release_help, cols))
         lines.append("")
-    lines += ["Install one or several:", "  vm install debian", "  vm install ubuntu kali",
+    lines += ["Install one or several:", "  vm install debian", "  vm install ubuntu kali arch",
               "  vm install all", ""]
     lines.append(textwrap.fill(
         "You can keep as many as you like. Each has its own /root. "
@@ -234,7 +237,8 @@ def _doctor(ctx, vm):
                              "NOT isolated — " + (pidns.probe()[1] or "unavailable")
                              + " (VMs share the server's PID space; see FEATURES.md, RCONSOLE_VM_PIDNS)"),
              ""]
-    host = {"alpine": "dl-cdn.alpinelinux.org", "debian": "deb.debian.org"}.get(
+    host = {"alpine": "dl-cdn.alpinelinux.org", "debian": "deb.debian.org",
+            "arch": "geo.mirror.pkgbuild.com"}.get(
         vm, "archive.ubuntu.com" if vm == "ubuntu" else "http.kali.org" if vm == "kali"
         else "deb.debian.org")
     if fam == "alpine":
@@ -244,7 +248,7 @@ def _doctor(ctx, vm):
     else:
         dns = f"getent hosts {host} | grep -q . && echo ok"
         net = f"timeout 8 bash -c 'exec 3<>/dev/tcp/{host}/80' && echo ok"
-        pkg = "apt-get --version | head -1"
+        pkg = "pacman -V | grep -m1 -i pacman" if fam == "arch" else "apt-get --version | head -1"
     steps = [
         ("start a shell", "echo ok", lambda o: o.strip() == "ok"),
         ("run programs (ls)", "ls / >/dev/null && echo ok", lambda o: o.strip() == "ok"),
