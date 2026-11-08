@@ -201,7 +201,7 @@ class MultiVm(unittest.TestCase):
         self.assertEqual([o["cmds"] for o in runs],
                          [["vm use alpine", "ls -la"], ["vm use debian", "ls -la"]])
         installs = {o["cmds"][0] for o in pick["options"] if o.get("group") == "install"}
-        self.assertEqual(installs, {"vm install ubuntu", "vm install kali"})
+        self.assertEqual(installs, {"vm install ubuntu", "vm install kali", "vm install arch"})
         tpl = sandbox.choice("alice", template="vm shell {vm}", install=False)
         self.assertEqual([o["cmds"] for o in tpl["options"]], [["vm shell alpine"], ["vm shell debian"]])
 
@@ -273,7 +273,7 @@ class MultiVm(unittest.TestCase):
             if not sandbox.installing("alice"):
                 break
             time.sleep(0.2)
-        self.assertEqual(sorted(sandbox.installed_vms("alice")), ["alpine", "debian", "kali", "ubuntu"])
+        self.assertEqual(sorted(sandbox.installed_vms("alice")), ["alpine", "arch", "debian", "kali", "ubuntu"])
 
     def test_remove_one_keeps_the_others(self):
         self.install("alpine", "debian")
@@ -294,7 +294,7 @@ class MultiVm(unittest.TestCase):
         info = c.get("/api/targets").get_json()
         self.assertEqual([t["id"] for t in info["targets"]], ["vm:alpine", "vm:debian"])
         self.assertIsNone(info["current"])
-        self.assertEqual({d["id"] for d in info["installable"]}, {"ubuntu", "kali"})
+        self.assertEqual({d["id"] for d in info["installable"]}, {"ubuntu", "kali", "arch"})
         r = c.post("/api/target", json={"target": "vm:debian"}).get_json()
         self.assertTrue(r["ok"])
         self.assertEqual(r["current"], "vm:debian")

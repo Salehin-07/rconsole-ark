@@ -500,6 +500,10 @@ def _run_update(sid, vm, plan=None):
         distro = distros.CATALOG.get(info.get("id") or vm)
         if distro:
             sandbox._post_setup(root, distro)        # keep the proot-friendly apt settings
+            if distro.family == "arch":
+                err = sandbox.arch_keyring(sid, vm)  # pacman-key cannot run in a user's shell here
+                if err:
+                    raise _Refused(err)
         rc, out = step("health", "checking the package database")
         if rc != 0:
             raise _Refused("the package database already has problems, so it was not touched: "

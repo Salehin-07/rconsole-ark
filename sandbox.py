@@ -112,6 +112,11 @@ PACMAN_SHIM_TEXT = """#!/bin/sh
 case "$1" in
   -S*|-U*|--sync|--upgrade)
     if [ ! -d /etc/pacman.d/gnupg/private-keys-v1.d ] || [ ! -s /etc/pacman.d/gnupg/trustdb.gpg ]; then
+      if [ ! -e /dev/fd/0 ]; then
+        echo "pacman: the signing keys are not set up yet and this VM cannot create them itself." >&2
+        echo "Ask an admin to run:  vm update arch   (it creates them), then retry." >&2
+        exit 1
+      fi
       echo "==> First use: creating pacman's signing keys (one time, up to a minute)" >&2
       /usr/bin/pacman-key --init >&2 || exit 1
       _k=$(ls /usr/share/pacman/keyrings/*.gpg 2>/dev/null | sed 's#.*/##; s#[.]gpg$##')
@@ -1119,6 +1124,9 @@ def _install_one(sid, distro, release):
             shutil.rmtree(final, ignore_errors=True)
             raise SandboxError(
                 "proot cannot run on this host (ptrace may be blocked): " + err)
+        if distro.family == "arch":
+            _set_install(sid, vm, "installing", "creating the pacman signing keys")
+            arch_keyring(sid, vm)                     # not fatal: `vm update` retries it
         (base / DISTRO_FILE).write_text(json.dumps({
             "id": vm, "release": release, "family": distro.family,
             "label": label, "installed_at": int(time.time())}))
@@ -1128,6 +1136,43 @@ def _install_one(sid, distro, release):
     except Exception as e:  # surfaced through `vm status`
         shutil.rmtree(base / (ROOTFS_DIRNAME + ".new"), ignore_errors=True)
         _set_install(sid, vm, "failed", str(e))
+
+
+KEYRING_SCRIPT = ("/usr/bin/pacman-key --init && /usr/bin/pacman-key --populate "
+                  "$(ls /usr/share/pacman/keyrings/*.gpg | sed 's#.*/##; s#[.]gpg$##')")
+
+
+def _keyring_ok(rootfs):
+    gnupg = rootfs / "etc/pacman.d/gnupg"
+    ring = [gnupg / "pubring.gpg", gnupg / "pubring.kbx"]
+    return ((gnupg / "trustdb.gpg").exists()
+            and any(p.exists() and p.stat().st_size > 0 for p in ring))
+
+
+def arch_keyring(sid, vm, timeout=900):
+    """Create Arch's pacman signing keys. Returns an error string, or ``None`` when done.
+
+    ``pacman-key`` uses bash process substitution (``<(...)``), which needs ``/dev/fd`` ->
+    ``/proc/self/fd``. Where a VM has no PID namespace of its own (hosts that block ``unshare``)
+    the VM only sees a handful of /proc files, so it fails there. rconsole therefore runs this
+    one fixed command itself, with the real /proc, instead of leaving it to the user's shell.
+    """
+    import subprocess
+    root = rootfs_path(sid, vm)
+    if not (root / "etc/pacman.conf").exists() or _keyring_ok(root):
+        return None
+    shutil.rmtree(root / "etc/pacman.d/gnupg", ignore_errors=True)      # drop a half-made ring
+    argv = _proot_prefix(sid, vm, "/", admin=True, own_pidns=True) + [
+        "/usr/bin/bash", "-c", KEYRING_SCRIPT]
+    try:
+        p = subprocess.run(argv, env=_vm_env(sid, vm, probe=True), capture_output=True,
+                           text=True, timeout=timeout, cwd=str(config.VM_DIR))
+    except Exception as e:
+        return f"could not create the pacman keys: {e}"
+    if p.returncode != 0 or not _keyring_ok(root):
+        return "could not create the pacman keys: " + (p.stderr or p.stdout or
+                                                       f"exit {p.returncode}").strip()[-300:]
+    return None
 
 
 def _probe(sid, vm):

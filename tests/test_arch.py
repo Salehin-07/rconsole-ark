@@ -132,6 +132,64 @@ class ProotTweakTests(unittest.TestCase):
         self.assertTrue(text.rstrip().endswith('exec /usr/bin/pacman "$@"'))
 
 
+class KeyringTests(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        (self.root / "etc").mkdir()
+        (self.root / "etc/pacman.conf").write_text("[options]\n")
+        self.gnupg = self.root / "etc/pacman.d/gnupg"
+        p = mock.patch.object(sandbox, "rootfs_path", return_value=self.root)
+        p.start()
+        self.addCleanup(p.stop)
+        for name, val in (("_proot_prefix", ["proot"]), ("_vm_env", {})):
+            q = mock.patch.object(sandbox, name, return_value=val)
+            q.start()
+            self.addCleanup(q.stop)
+
+    def fake_run(self, make_keys=True, rc=0):
+        def run(argv, **kw):
+            self.assertIn("pacman-key --init", argv[-1])
+            if make_keys:
+                self.gnupg.mkdir(parents=True, exist_ok=True)
+                (self.gnupg / "trustdb.gpg").write_text("x")
+                (self.gnupg / "pubring.gpg").write_text("x")
+            return subprocess.CompletedProcess(argv, rc, "", "boom")
+        return run
+
+    def test_keys_are_made_by_the_host_with_the_real_proc(self):
+        with mock.patch("subprocess.run", side_effect=self.fake_run()):
+            self.assertIsNone(sandbox.arch_keyring("s", "arch"))
+        self.assertTrue(sandbox._keyring_ok(self.root))
+
+    def test_proc_is_bound_for_this_fixed_command_only(self):
+        calls = []
+        with mock.patch.object(sandbox, "_proot_prefix", side_effect=lambda *a, **k: calls.append(k) or ["p"]), \
+                mock.patch("subprocess.run", side_effect=self.fake_run()):
+            sandbox.arch_keyring("s", "arch")
+        self.assertTrue(calls[0]["own_pidns"])
+
+    def test_nothing_to_do_when_the_ring_exists_or_it_is_not_arch(self):
+        self.gnupg.mkdir(parents=True)
+        (self.gnupg / "trustdb.gpg").write_text("x")
+        (self.gnupg / "pubring.gpg").write_text("x")
+        with mock.patch("subprocess.run", side_effect=AssertionError("ran")):
+            self.assertIsNone(sandbox.arch_keyring("s", "arch"))
+        (self.root / "etc/pacman.conf").unlink()
+        with mock.patch("subprocess.run", side_effect=AssertionError("ran")):
+            self.assertIsNone(sandbox.arch_keyring("s", "arch"))
+
+    def test_a_half_made_ring_is_replaced_and_failure_is_reported(self):
+        self.gnupg.mkdir(parents=True)
+        (self.gnupg / "pubring.gpg").write_text("")
+        with mock.patch("subprocess.run", side_effect=self.fake_run(make_keys=False, rc=1)):
+            err = sandbox.arch_keyring("s", "arch")
+        self.assertIn("could not create the pacman keys", err)
+        self.assertFalse(self.gnupg.exists())
+
+    def test_shim_explains_itself_when_the_vm_has_no_dev_fd(self):
+        self.assertIn("vm update arch", sandbox.PACMAN_SHIM_TEXT)
+
+
 class SetupProfileTests(unittest.TestCase):
     def test_python_profile_has_the_headers_for_the_usual_suspects(self):
         pk = set(devsetup.packages("python", "arch"))

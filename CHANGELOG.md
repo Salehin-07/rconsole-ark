@@ -21,6 +21,12 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
   by itself (`/usr/local/bin/pacman` wrapper, the real one stays at `/usr/bin/pacman`).
 - `tests/test_arch.py`.
 
+### Fixed
+- Arch: `pacman-key` failed with `/dev/fd/63: No such file or directory` on hosts where a VM has no PID namespace of
+  its own (bash process substitution needs `/dev/fd` -> `/proc/self/fd`, which the restricted `/proc` lacks). The host
+  now creates the signing keys itself, with a fixed command, at `vm install arch` and on `vm update arch` (which also
+  repairs a half-made keyring). Inside the VM, `pacman` says to run `vm update arch` instead of printing errors.
+
 ### Changed
 - `vm list` wraps its heading lines to the screen width (the longer Arch line overflowed a 34-column phone).
 
