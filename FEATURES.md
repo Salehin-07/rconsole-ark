@@ -1,6 +1,6 @@
 # Rconsole features
 
-Every feature of Rconsole 1.4.1, by area. This is the **map**; the details live in
+Every feature of Rconsole 1.4.2, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.
@@ -71,7 +71,7 @@ root; everyone). One worker process with threads; all state in one data director
 | **Editor: font size & status bar** | **A− / A+** (9–32 px, remembered; 16 px minimum on iOS), line/column, selection size, line count, indentation style (tap to change). Warns before closing the page with unsaved changes. |
 | **Editor: touch symbol bar** | Tab, outdent, undo/redo, Find, comment toggle and the symbols that are awkward on a phone keyboard (brackets, quotes, `;` `:` `=` `/` `\` and more) above the keyboard. |
 | **`fm [path]`** | In-console file manager: `cd`, `up`, `open`, `cat`, `rm`, `mkdir`, `touch`, `mv`, `?`, `q`; the directory carries over when you quit. |
-| **📁 file browser** | Visual navigator: browse, open in the editor, create, rename, delete; download and upload (see COMMANDS.md). |
+| **📁 file browser** | Visual navigator: browse, open in the editor, create, rename, delete; download and upload; **photos are shown and videos play** in a built-in viewer (see COMMANDS.md). |
 | **File manager: selecting** | Click the blank space of a row to select it (the name still opens it); Ctrl/Cmd+click toggles, Shift+click selects a range, **drag a rectangle** to select many (Ctrl/Shift adds), double-click opens. On phones **long-press** a row, then drag to sweep over more rows; taps then toggle. **Select all** (a checkbox at the start of the selection bar, shown once something is selected; Ctrl/Cmd+A), Esc clears, Delete key deletes. |
 | **File manager: compress** | Selected items become one archive in the same folder: **zip, tar, tar.gz, tar.bz2, tar.xz**, tar.zst (Python 3.14+), **7z** (needs `bsdtar`; admins can also use 7-Zip), RAR (admins with the `rar` tool installed), and one-file **gz, bz2, xz, zst**. Symlinks are stored as links, never followed; an existing archive is never overwritten (`name (2).zip`). |
 | **File manager: extract** | zip (also jar/war/apk/whl), tar family, gz/bz2/xz/zst, and through `bsdtar` **7z, RAR, CAB, ISO, CPIO, DEB, RPM, LZH, XAR**. *Extract to a new folder* (uses the archive's own single top folder if it has one) or *Extract here* (never overwrites). |
@@ -98,6 +98,7 @@ persistent `/root`. You are `root` inside and can install anything; no host priv
 | **`vm list`** | Every installable system (`debian:bookworm`, `ubuntu:24.04`, `alpine:3.21`, `kali`, `arch`, aliases `deb ubu alp archlinux`). |
 | **`vm install [name…]`** | Installs one or more (`all` too) in the background; root filesystems come from the distribution's own mirrors and are verified against the **published SHA-256**; safe extraction; the same system can't be installed twice. |
 | **`vm shell [name]`** | Interactive root shell in a VM. |
+| **`shell`** | Admins only: the same kind of interactive window, on the **host** shell. |
 | **`vm run [--vm name] <cmd>`** | One command, printed output (90 s limit). `@vm:<name> cmd` does the same inline. |
 | **`vm use <n>` / `vm mode [host\|vm [name]]`** | Which VM plain commands use / where they run (`host` is admins only). Several VMs and no default pops up a picker. |
 | **`vm reset [name] --yes`** | Recreates a VM's system files and **keeps its `/root`**. |

@@ -11,7 +11,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.4.1** · MIT licensed
+**Version 1.4.2** · MIT licensed
 
 ## Why this exists
 
@@ -91,7 +91,7 @@ Commands run on one of two **targets**:
   find/replace, comment toggling, line shortcuts, an adjustable font size and a touch symbol bar.
 - Hosted web apps behind a path-based proxy: start them yourself and `expose` them, or let
   the `service` supervisor run them (autostart, crash restart, logs).
-- Visual file browser (📁) with **download** (files, or whole folders as a `.zip`) and
+- Visual file browser (📁) that **shows photos and plays videos** in a built-in viewer, with **download** (files, or whole folders as a `.zip`) and
   **upload** (files or entire folders).
 - **Admin dashboard** (`/dashboard`, admins only): live CPU / memory / disk / network graphs, every process, service,
   job and terminal with kill / restart / logs, user management (create, promote, demote, reset, delete), per-system

@@ -21,6 +21,7 @@ def cmd_help(ctx, args):
         ("edit <file>", "built-in code editor (great on phones)"),
         ("fm [path]", "in-console file manager + editor"),
         ("vm [install|shell|run|mode]", "your personal Linux VM (root, apk add anything)"),
+        ("shell", "interactive window on the host shell (admins only)"),
     ]
     sudo = [
         ("sudo cpass / cuser", "change password / rename user"),
@@ -208,3 +209,17 @@ def cmd_theme(ctx, args):
         return f"theme: unknown theme '{name}'. Try: theme  (to list)"
     state.set_theme(sid, name)
     return {"output": f"Theme set to '{name}'.", "theme": name}
+
+
+@commands.command("shell")
+def cmd_shell(ctx, args):
+    """Open an interactive window on the HOST shell (admins only).
+
+    Like ``vm shell`` but for the server itself. Always the host, whatever
+    target the tab is on. The PTY layer re-authorizes on spawn, so this check is
+    a friendly early refusal, not the only gate."""
+    if args:
+        return "usage: shell   (opens an interactive window on the host shell; admins only)"
+    if not ctx.get("is_admin") or not sandbox.is_admin(ctx["sid"]):
+        return "shell: permission denied: the host shell is for admins. Use `vm shell` for your own system."
+    return {"pty": True, "cmd": "@host"}

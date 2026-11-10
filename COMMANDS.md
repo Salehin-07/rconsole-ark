@@ -80,6 +80,7 @@ Legend: 🔒 = needs `sudo` (admin). `<x>` = required, `[x]` = optional.
 | [`edit`](#edit) | built-in code editor | |
 | [`fm`](#fm) | file manager | |
 | [`vm`](#vm) | your Linux systems | |
+| [`shell`](#shell) | interactive window on the host shell | admins only |
 | [`neofetch`](#neofetch--fetch--rfetch) / `fetch` / `rfetch` | system summary | |
 | [`expose`](#expose) / [`unexpose`](#unexpose) | publish a running server at `/name/` | |
 | [`kprocess`](#kprocess) | kill a process by PID | 🔒 |
@@ -122,7 +123,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.4.1` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.4.2` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -214,6 +215,18 @@ The 📁 button (tab bar) opens a visual file browser. Besides browsing, creatin
   varies, in which case upload a `.zip` and unzip it).
 * Everything goes through the same confinement as the rest of the console: in a VM you only see that VM.
 
+### The 📁 file browser: photos and videos
+Clicking a **photo** (`png jpg jpeg gif webp bmp ico avif svg`) or a **video** (`mp4 m4v webm ogv mov`) opens it in a
+viewer on top of the browser instead of the code editor: photos are shown fitted to the screen (click to switch to
+actual size), videos play with the browser's own player (play/pause, seeking, volume, full screen).
+* **‹ ›** (or the ←/→ keys, or a swipe on a photo) move through the photos and videos of the folder; **⬇** downloads
+  the current one; **Close** (or Esc) returns to the browser.
+* Videos are streamed with range requests, so seeking works without downloading the whole file. If your browser
+  cannot play a video's codec (some `.mov` files), the viewer says so and offers the download.
+* Everything goes through the same confinement as the rest of the console: in a VM you only see that VM's files.
+  SVG images are shown as pictures only; scripts inside them never run.
+* Other file types still open in the editor as before; `mkv`/`avi` and similar are not previewed (use ⬇).
+
 ### The 📁 file browser: select, compress, extract, properties
 **Selecting** (works like a desktop file manager):
 
@@ -279,6 +292,15 @@ Commands inside `fm`:
 | `?` · `q` | help · quit (your directory carries over) |
 
 ---
+
+### `shell`
+Admins only. Opens an interactive window on the **host** shell (the server itself), the same kind of window `vm shell`
+opens for a VM. It always opens the host, whatever system the tab currently uses, and `exit` (or the ✕) closes it and
+returns you to your tab and directory. It needs no `sudo`; a normal user gets a permission error and should use
+`vm shell` instead. It takes no arguments (`shell ls` is refused: run `ls` directly).
+```text
+shell          # an interactive host shell, admins only
+```
 
 ## Your Linux systems (`vm`)
 

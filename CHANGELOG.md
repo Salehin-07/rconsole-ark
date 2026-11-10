@@ -3,6 +3,26 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.4.2 — 2026-11-10
+
+### Added
+- **`shell`** (admins only): opens an interactive window on the **host** shell, like `vm shell` does for a VM. It always
+  targets the host, ignores the tab's current system, needs no `sudo`, and refuses normal users (also when
+  `RCONSOLE_ALLOW_USER_HOST` is on). The launch is authorized again when the terminal starts.
+- **Photos and videos in the 📁 file browser.** Clicking an image (`png jpg jpeg gif webp bmp ico avif svg`) shows it;
+  clicking a video (`mp4 m4v webm ogv mov`) plays it in a player. Previous / next (buttons, ←/→, swipe) move through the
+  folder's media, ⬇ downloads, Esc closes. New `/api/media` endpoint: login required, same path confinement as the rest
+  of the file browser, whitelisted types only (others get 415), Range requests so videos seek, and a sandboxing
+  `Content-Security-Policy` so an SVG can never run scripts. Unplayable codecs get a message and a download button.
+- `tests/test_media_shell.py`.
+
+### Changed
+- `help` lists `shell`; COMMANDS.md, FEATURES.md, README.md and structure.md describe the new command and the viewer.
+
+### Security
+- `/api/media` serves only a fixed list of image and video types with `Content-Security-Policy: sandbox` and no
+  script source, so even an SVG opened directly cannot run code with the console's session.
+
 ## 1.4.1 — 2026-11-08
 
 ### Added

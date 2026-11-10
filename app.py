@@ -1136,6 +1136,48 @@ def api_download():
         return {"error": str(e)}, 500
 
 
+# Types the file browser may show inline. Keep in sync with IMAGE_EXTS / VIDEO_EXTS in
+# static/console.js (tests/test_fileman_api.py checks it).
+MEDIA_TYPES = {
+    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif",
+    "webp": "image/webp", "bmp": "image/bmp", "ico": "image/x-icon", "avif": "image/avif",
+    "svg": "image/svg+xml",
+    "mp4": "video/mp4", "m4v": "video/mp4", "webm": "video/webm", "ogv": "video/ogg",
+    "mov": "video/quicktime",
+}
+
+
+@app.route("/api/media")
+def api_media():
+    """Serve an image or video inline for the file browser's viewer (Range requests work,
+    so videos seek). Only whitelisted types; everything else is a 415."""
+    if "username" not in session:
+        return {"error": "unauthorized"}, 401
+    path = request.args.get("path", "")
+    if not path:
+        return {"error": "missing path"}, 400
+    view, err = _fs_view()
+    if err:
+        return err
+    try:
+        p = _map(view, path)
+        ctype = MEDIA_TYPES.get(p.suffix.lower().lstrip("."))
+        if not ctype:
+            return {"error": "not an image or video the viewer can show"}, 415
+        if not p.is_file():
+            return {"error": "not a regular file" if p.exists() else f"no such file: {view.virt(p)}"}, 404
+        resp = send_file(p, mimetype=ctype, conditional=True, max_age=0)
+        resp.headers["Content-Disposition"] = "inline"
+        resp.headers["Cache-Control"] = "private, no-cache"
+        # An SVG opened directly must never run scripts with the console's cookies.
+        resp.headers["Content-Security-Policy"] = (
+            "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; "
+            "style-src 'unsafe-inline'")
+        return resp
+    except (OSError, sandbox.SandboxError) as e:
+        return {"error": str(e)}, 500
+
+
 def _upload_target(view, folder, rel):
     """Virtual path for ``rel`` (``a/b/c.txt``) under ``folder``; ``None`` if unsafe."""
     rel = rel or ""

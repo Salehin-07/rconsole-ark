@@ -23,7 +23,7 @@ rconsole/
 ├── distros.py              # VM system catalog (alpine/debian/ubuntu/kali) + checksum-verified resolvers
 ├── interp.py               # Command parsing/dispatch; interactive detection; host passthrough
 ├── commands.py             # Thin registry (COMMANDS/PROTECTED/@command) + module wiring
-├── cmd_basic.py            # help, clear, history, rwhoami, cd, alias, theme
+├── cmd_basic.py            # help, clear, history, rwhoami, cd, alias, theme, shell (admin host window)
 ├── cmd_hosting.py          # kprocess (kill a process by PID)
 ├── cmd_users.py            # logout, suser/auser/nauser/ruser, muser/cpass/cuser, rboot
 ├── cmd_vm.py               # vm: list / install <name> / shell / run / mode / reset / remove / status
@@ -169,7 +169,8 @@ the browser reports (`cols` in `/api/run`).
   30-day inactivity timeout, user-still-exists, forced default-password change.
 - `login` (throttled per ip+user and per ip), `console_page`, `/healthz`.
 - `/api/run`: dispatches a line of input to `interp.process`.
-- `/api/download` (a file, or a folder as a streamed zip built with `os.fwalk` + `O_NOFOLLOW`) and
+- `/api/media` (an image or video served inline for the viewer: whitelisted types, Range support, sandboxing CSP),
+  `/api/download` (a file, or a folder as a streamed zip built with `os.fwalk` + `O_NOFOLLOW`) and
   `/api/upload` (one file per request, `rel` keeps a folder upload's layout, temp file + `os.replace`).
 - `/api/file` (GET/POST), `/api/dir`, `/api/fs`: editor + navigator, all mapped
   through `sandbox.fs` (admins: whole host; others: their VM only).

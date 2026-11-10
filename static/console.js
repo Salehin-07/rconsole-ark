@@ -3148,8 +3148,119 @@ function applySelectionUI() {
 function openEntry(e) {
   if (!e) return;
   if (e.is_dir) loadDir(e.path);
+  else if (mediaKind(e.name)) openViewer(e.path);          // photo / video: show it, keep the browser behind
   else { openCodeEditor(e.path); hideFiles(); }
 }
+
+// ---- media viewer: photos are shown, videos play (served inline by /api/media, Range-aware) ----------------
+// Keep these lists in sync with MEDIA_TYPES in app.py (a test checks it).
+const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif", "svg"];
+const VIDEO_EXTS = ["mp4", "m4v", "webm", "ogv", "mov"];
+function mediaKind(name) {
+  const ext = ((name || "").split(".").pop() || "").toLowerCase();
+  if (IMAGE_EXTS.includes(ext)) return "image";
+  if (VIDEO_EXTS.includes(ext)) return "video";
+  return "";
+}
+const elViewer = document.getElementById("viewer");
+const elViewerStage = document.getElementById("viewer-stage");
+const elViewerName = document.getElementById("viewer-name");
+const elViewerCount = document.getElementById("viewer-count");
+const viewerState = { list: [], idx: -1 };
+function mediaUrl(path) { return "/api/media?path=" + encodeURIComponent(path); }
+function viewerClearStage() {
+  for (const v of elViewerStage.querySelectorAll("video")) { try { v.pause(); } catch (_) {} v.removeAttribute("src"); v.load(); }
+  elViewerStage.textContent = "";
+}
+function viewerMessage(text, entry) {
+  elViewerStage.textContent = "";
+  const box = document.createElement("div");
+  box.className = "viewer-msg";
+  box.textContent = text;
+  if (entry) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = "⬇ Download instead";
+    b.onclick = () => downloadEntry(entry);
+    box.appendChild(b);
+  }
+  elViewerStage.appendChild(box);
+}
+function viewerShow(i) {
+  const list = viewerState.list;
+  if (!list.length) return;
+  viewerState.idx = (i + list.length) % list.length;
+  const e = list[viewerState.idx];
+  viewerClearStage();
+  elViewerName.textContent = e.name;
+  elViewerName.title = e.path;
+  elViewerCount.textContent = list.length > 1 ? (viewerState.idx + 1) + " / " + list.length : "";
+  const multi = list.length > 1;
+  document.getElementById("viewer-prev").hidden = !multi;
+  document.getElementById("viewer-next").hidden = !multi;
+  if (mediaKind(e.name) === "image") {
+    const img = document.createElement("img");
+    img.alt = e.name;
+    img.className = "viewer-img";
+    img.onerror = () => viewerMessage("This image can't be displayed by your browser.", e);
+    img.onclick = () => img.classList.toggle("actual");            // fit-to-screen <-> actual size
+    img.src = mediaUrl(e.path);
+    elViewerStage.appendChild(img);
+  } else {
+    const v = document.createElement("video");
+    v.className = "viewer-video";
+    v.controls = true;
+    v.playsInline = true;
+    v.preload = "metadata";
+    v.setAttribute("playsinline", "");
+    v.onerror = () => viewerMessage("Your browser can't play this video (its codec isn't supported).", e);
+    v.src = mediaUrl(e.path);
+    elViewerStage.appendChild(v);
+  }
+}
+function openViewer(path) {
+  const list = filesState.entries.filter((e) => !e.is_dir && mediaKind(e.name));
+  const idx = list.findIndex((e) => e.path === path);
+  if (idx < 0) return;
+  viewerState.list = list;
+  elViewer.removeAttribute("hidden");
+  viewerShow(idx);
+  elViewer.focus({ preventScroll: true });
+}
+function closeViewer() {
+  viewerClearStage();
+  elViewer.setAttribute("hidden", "");
+  viewerState.list = [];
+  viewerState.idx = -1;
+}
+document.getElementById("viewer-close").onclick = closeViewer;
+document.getElementById("viewer-prev").onclick = () => viewerShow(viewerState.idx - 1);
+document.getElementById("viewer-next").onclick = () => viewerShow(viewerState.idx + 1);
+document.getElementById("viewer-dl").onclick = () => {
+  const e = viewerState.list[viewerState.idx];
+  if (e) downloadEntry(e);
+};
+elViewer.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); closeViewer(); return; }
+  if (ev.target && ev.target.tagName === "VIDEO") return;           // arrows seek inside a video
+  if (ev.key === "ArrowLeft") { ev.preventDefault(); viewerShow(viewerState.idx - 1); }
+  else if (ev.key === "ArrowRight") { ev.preventDefault(); viewerShow(viewerState.idx + 1); }
+});
+// Swipe left / right on a photo to move between the folder's photos and videos.
+(() => {
+  let x0 = null, y0 = 0;
+  elViewerStage.addEventListener("touchstart", (ev) => {
+    if (ev.touches.length !== 1 || ev.target.tagName === "VIDEO") { x0 = null; return; }
+    x0 = ev.touches[0].clientX; y0 = ev.touches[0].clientY;
+  }, { passive: true });
+  elViewerStage.addEventListener("touchend", (ev) => {
+    if (x0 === null) return;
+    const t = ev.changedTouches[0];
+    const dx = t.clientX - x0, dy = t.clientY - y0;
+    x0 = null;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) viewerShow(viewerState.idx + (dx < 0 ? 1 : -1));
+  }, { passive: true });
+})();
 
 function selectClick(path, o) {
   const r = FM.applyClick(filesOrder(), [...filesState.selected], filesState.anchor, path, o);

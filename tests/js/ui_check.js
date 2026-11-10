@@ -646,6 +646,39 @@ async function load(phone) {
     check("Esc clears the selection, a second Esc closes the drawer", selected().length === 0 && !$("files").hidden);
     key($("files"), "Escape");
     check("second Esc closes the drawer", $("files").hidden === true);
+
+    // -- photos and videos open in the viewer instead of the editor
+    dirState.entries = [
+      { name: "a.png", path: "/root/a.png", is_dir: false, size: 10, mtime: 0 },
+      { name: "notes.txt", path: "/root/notes.txt", is_dir: false, size: 10, mtime: 0 },
+      { name: "clip.mp4", path: "/root/clip.mp4", is_dir: false, size: 10, mtime: 0 },
+      { name: "b.JPG", path: "/root/b.JPG", is_dir: false, size: 10, mtime: 0 },
+    ];
+    $("filesbtn").click();
+    await waitFor(() => rows().length === 4);
+    check("the viewer starts hidden", $("viewer").hidden === true);
+    click(nameBtn(0));
+    check("clicking a photo opens the viewer with an <img> served by /api/media",
+      $("viewer").hidden === false && !!$("viewer-stage").querySelector("img[src='/api/media?path=%2Froot%2Fa.png']"));
+    check("the file browser stays open behind the viewer", $("files").hidden === false);
+    check("the viewer names the file and counts only the media (1 / 3)",
+      $("viewer-name").textContent === "a.png" && $("viewer-count").textContent === "1 / 3", $("viewer-count").textContent);
+    key($("viewer"), "ArrowRight");
+    const vid = $("viewer-stage").querySelector("video");
+    check("→ moves to the next media file, skipping the text file; a video gets a player",
+      $("viewer-name").textContent === "clip.mp4" && !!vid && vid.controls === true && /clip\.mp4/.test(decodeURIComponent(vid.getAttribute("src"))));
+    key($("viewer-stage").querySelector("video"), "ArrowRight");
+    check("arrow keys are left to the video player (they seek)", $("viewer-name").textContent === "clip.mp4");
+    click($("viewer-next"));
+    check("next wraps through the folder and the extension match ignores case", $("viewer-name").textContent === "b.JPG");
+    click($("viewer-next"));
+    check("... and wraps around to the first", $("viewer-name").textContent === "a.png");
+    key($("viewer"), "Escape");
+    check("Esc closes the viewer, empties the stage and keeps the browser open",
+      $("viewer").hidden === true && $("viewer-stage").children.length === 0 && $("files").hidden === false);
+    click(nameBtn(1));
+    await sleep(30);
+    check("a text file still opens in the editor, not the viewer", $("viewer").hidden === true);
     check("no JS errors (file manager)", errors.length === 0, errors.join("; "));
   }
   console.log(failures ? `\n${failures} check(s) FAILED` : "\nall UI checks passed");
