@@ -1347,3 +1347,10 @@ body.touch .files-row { padding-top: 3px; padding-bottom: 3px; }
   font: inherit;
   cursor: pointer;
 }
+.viewer-audio { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 24px; width: min(420px, 100%); }
+.viewer-audio-art {
+  width: 120px; height: 120px; border-radius: 16px; display: flex; align-items: center; justify-content: center;
+  font-size: 64px; color: var(--green); background: var(--panel); border: 1px solid var(--border);
+}
+.viewer-audio-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.viewer-audio audio { width: 100%; }

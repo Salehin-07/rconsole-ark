@@ -676,7 +676,37 @@ async function load(phone) {
     key($("viewer"), "Escape");
     check("Esc closes the viewer, empties the stage and keeps the browser open",
       $("viewer").hidden === true && $("viewer-stage").children.length === 0 && $("files").hidden === false);
-    click(nameBtn(1));
+    // audio plays in the same viewer
+    dirState.entries = [
+      { name: "song.mp3", path: "/root/song.mp3", is_dir: false, size: 10, mtime: 0 },
+      { name: "voice.M4A", path: "/root/voice.M4A", is_dir: false, size: 10, mtime: 0 },
+      { name: "a.png", path: "/root/a.png", is_dir: false, size: 10, mtime: 0 },
+    ];
+    key($("viewer"), "Escape");
+    $("filesbtn").click();                       // the drawer is open: this closes it ...
+    await sleep(30);
+    $("filesbtn").click();                       // ... and this reopens it with the new listing
+    await waitFor(() => rows().length === 3);
+    click(nameBtn(0));
+    const aud = $("viewer-stage").querySelector("audio");
+    check("clicking a song opens the viewer with an <audio> player served by /api/media",
+      $("viewer").hidden === false && !!aud && aud.controls === true && /song\.mp3/.test(decodeURIComponent(aud.getAttribute("src"))));
+    check("the song's name is shown (card and title bar)",
+      $("viewer-name").textContent === "song.mp3" && $("viewer-stage").textContent.includes("song.mp3"));
+    key($("viewer-stage").querySelector("audio"), "ArrowRight");
+    check("arrow keys are left to the audio player (they seek)", $("viewer-name").textContent === "song.mp3");
+    click($("viewer-next"));
+    check("next moves to the next media file (case-insensitive .M4A)", $("viewer-name").textContent === "voice.M4A" && !!$("viewer-stage").querySelector("audio"));
+    click($("viewer-next"));
+    check("audio, photos and videos share one viewer", !!$("viewer-stage").querySelector("img") && $("viewer-count").textContent === "3 / 3");
+    key($("viewer"), "Escape");
+    check("closing the viewer stops the audio and empties the stage", $("viewer-stage").children.length === 0);
+    dirState.entries = [{ name: "notes.txt", path: "/root/notes.txt", is_dir: false, size: 10, mtime: 0 }];
+    $("filesbtn").click();
+    await sleep(30);
+    $("filesbtn").click();
+    await waitFor(() => rows().length === 1);
+    click(nameBtn(0));
     await sleep(30);
     check("a text file still opens in the editor, not the viewer", $("viewer").hidden === true);
     check("no JS errors (file manager)", errors.length === 0, errors.join("; "));

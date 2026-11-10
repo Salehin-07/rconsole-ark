@@ -3,6 +3,21 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.4.3 — 2026-11-10
+
+### Added
+- **Music in the 📁 file browser.** Clicking an audio file (`mp3 wav ogg oga opus m4a aac flac weba`) opens it in the
+  same viewer as photos and videos, with the browser's audio player (play/pause, seeking, volume) under the song's
+  name. ‹ › (or ←/→, swipe) now move through the folder's photos, videos **and** songs; the arrow keys are left to the
+  player so they seek. Closing the viewer stops the sound. Nothing autoplays. A format the browser can't play shows a
+  message and a download button.
+- `/api/media` serves these audio types too: Range requests (so songs seek), `Content-Disposition: inline`, and the
+  same sandboxing `Content-Security-Policy`. Other types are still refused with 415.
+
+### Changed
+- Tests: the audio endpoint (types, Range, headers), the client/server extension lists staying in sync, and the viewer
+  playing and skipping songs (`tests/test_media_shell.py`, `tests/js/ui_check.js`).
+
 ## 1.4.2 — 2026-11-10
 
 ### Added

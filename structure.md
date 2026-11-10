@@ -169,7 +169,7 @@ the browser reports (`cols` in `/api/run`).
   30-day inactivity timeout, user-still-exists, forced default-password change.
 - `login` (throttled per ip+user and per ip), `console_page`, `/healthz`.
 - `/api/run`: dispatches a line of input to `interp.process`.
-- `/api/media` (an image or video served inline for the viewer: whitelisted types, Range support, sandboxing CSP),
+- `/api/media` (an image, video or audio file served inline for the viewer: whitelisted types, Range support, sandboxing CSP),
   `/api/download` (a file, or a folder as a streamed zip built with `os.fwalk` + `O_NOFOLLOW`) and
   `/api/upload` (one file per request, `rel` keeps a folder upload's layout, temp file + `os.replace`).
 - `/api/file` (GET/POST), `/api/dir`, `/api/fs`: editor + navigator, all mapped

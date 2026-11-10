@@ -1,6 +1,6 @@
 [project]
 name = "rconsole"
-version = "1.4.2"
+version = "1.4.3"
 description = "Simulated Linux console in the browser with hosted web apps"
 readme = "README.md"
 license = "MIT"

@@ -3152,14 +3152,16 @@ function openEntry(e) {
   else { openCodeEditor(e.path); hideFiles(); }
 }
 
-// ---- media viewer: photos are shown, videos play (served inline by /api/media, Range-aware) ----------------
+// ---- media viewer: photos are shown, videos and music play (served inline by /api/media, Range-aware) ----------------
 // Keep these lists in sync with MEDIA_TYPES in app.py (a test checks it).
 const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif", "svg"];
 const VIDEO_EXTS = ["mp4", "m4v", "webm", "ogv", "mov"];
+const AUDIO_EXTS = ["mp3", "wav", "ogg", "oga", "opus", "m4a", "aac", "flac", "weba"];
 function mediaKind(name) {
   const ext = ((name || "").split(".").pop() || "").toLowerCase();
   if (IMAGE_EXTS.includes(ext)) return "image";
   if (VIDEO_EXTS.includes(ext)) return "video";
+  if (AUDIO_EXTS.includes(ext)) return "audio";
   return "";
 }
 const elViewer = document.getElementById("viewer");
@@ -3169,7 +3171,7 @@ const elViewerCount = document.getElementById("viewer-count");
 const viewerState = { list: [], idx: -1 };
 function mediaUrl(path) { return "/api/media?path=" + encodeURIComponent(path); }
 function viewerClearStage() {
-  for (const v of elViewerStage.querySelectorAll("video")) { try { v.pause(); } catch (_) {} v.removeAttribute("src"); v.load(); }
+  for (const v of elViewerStage.querySelectorAll("video, audio")) { try { v.pause(); } catch (_) {} v.removeAttribute("src"); v.load(); }
   elViewerStage.textContent = "";
 }
 function viewerMessage(text, entry) {
@@ -3206,6 +3208,22 @@ function viewerShow(i) {
     img.onclick = () => img.classList.toggle("actual");            // fit-to-screen <-> actual size
     img.src = mediaUrl(e.path);
     elViewerStage.appendChild(img);
+  } else if (mediaKind(e.name) === "audio") {
+    const card = document.createElement("div");
+    card.className = "viewer-audio";
+    const art = document.createElement("div");
+    art.className = "viewer-audio-art";
+    art.textContent = "♪";
+    const title = document.createElement("div");
+    title.className = "viewer-audio-name";
+    title.textContent = e.name;
+    const a = document.createElement("audio");
+    a.controls = true;
+    a.preload = "metadata";
+    a.onerror = () => viewerMessage("Your browser can't play this audio file (its format isn't supported).", e);
+    a.src = mediaUrl(e.path);
+    card.append(art, title, a);
+    elViewerStage.appendChild(card);
   } else {
     const v = document.createElement("video");
     v.className = "viewer-video";
@@ -3242,15 +3260,15 @@ document.getElementById("viewer-dl").onclick = () => {
 };
 elViewer.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); closeViewer(); return; }
-  if (ev.target && ev.target.tagName === "VIDEO") return;           // arrows seek inside a video
+  if (ev.target && (ev.target.tagName === "VIDEO" || ev.target.tagName === "AUDIO")) return;  // arrows seek inside a player
   if (ev.key === "ArrowLeft") { ev.preventDefault(); viewerShow(viewerState.idx - 1); }
   else if (ev.key === "ArrowRight") { ev.preventDefault(); viewerShow(viewerState.idx + 1); }
 });
-// Swipe left / right on a photo to move between the folder's photos and videos.
+// Swipe left / right on a photo to move between the folder's photos, videos and songs.
 (() => {
   let x0 = null, y0 = 0;
   elViewerStage.addEventListener("touchstart", (ev) => {
-    if (ev.touches.length !== 1 || ev.target.tagName === "VIDEO") { x0 = null; return; }
+    if (ev.touches.length !== 1 || ev.target.tagName === "VIDEO" || ev.target.tagName === "AUDIO") { x0 = null; return; }
     x0 = ev.touches[0].clientX; y0 = ev.touches[0].clientY;
   }, { passive: true });
   elViewerStage.addEventListener("touchend", (ev) => {

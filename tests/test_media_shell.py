@@ -1,4 +1,4 @@
-"""v1.4.2: the admin-only host `shell` command and the file browser's photo / video viewer."""
+"""v1.4.2 / v1.4.3: the admin-only host `shell` command and the file browser's photo / video / audio viewer."""
 import os
 import re
 import unittest
@@ -89,7 +89,19 @@ class MediaEndpointTests(FileManagerBase):
         self.assertEqual(r.headers["Content-Range"], f"bytes 100-199/{len(data)}")
         self.assertEqual(self.get(f).headers.get("Accept-Ranges"), "bytes")
 
-    def test_only_images_and_videos(self):
+    def test_audio_is_served_inline_and_seekable(self):
+        data = bytes(range(256)) * 40
+        for name, ctype in (("song.mp3", "audio/mpeg"), ("a.WAV", "audio/wav"), ("b.m4a", "audio/mp4"),
+                            ("c.flac", "audio/flac"), ("d.ogg", "audio/ogg"), ("e.opus", "audio/ogg")):
+            f = self.write(name, data)
+            r = self.get(f, headers={"Range": "bytes=10-19"})
+            self.assertEqual(r.status_code, 206, name)
+            self.assertEqual(r.mimetype, ctype, name)
+            self.assertEqual(r.data, data[10:20], name)
+            self.assertEqual(r.headers["Content-Disposition"], "inline")
+            self.assertIn("media-src 'self'", r.headers["Content-Security-Policy"])
+
+    def test_only_images_videos_and_audio(self):
         for name in ("notes.txt", "page.html", "run.sh", "data.json", "noext"):
             f = self.write(name, "hello")
             self.assertEqual(self.get(f).status_code, 415, name)
@@ -119,9 +131,10 @@ class FrontEndTests(Base):
         def exts(name):
             m = re.search(rf"const {name} = \[(.*?)\];", js)
             return set(re.findall(r'"([a-z0-9]+)"', m.group(1)))
-        self.assertEqual(exts("IMAGE_EXTS") | exts("VIDEO_EXTS"), set(rapp.MEDIA_TYPES))
+        self.assertEqual(exts("IMAGE_EXTS") | exts("VIDEO_EXTS") | exts("AUDIO_EXTS"), set(rapp.MEDIA_TYPES))
         self.assertTrue(all(rapp.MEDIA_TYPES[e].startswith("image/") for e in exts("IMAGE_EXTS")))
         self.assertTrue(all(rapp.MEDIA_TYPES[e].startswith("video/") for e in exts("VIDEO_EXTS")))
+        self.assertTrue(all(rapp.MEDIA_TYPES[e].startswith("audio/") for e in exts("AUDIO_EXTS")))
 
 
 if __name__ == "__main__":

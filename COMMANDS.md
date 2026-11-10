@@ -123,7 +123,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.4.2` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.4.3` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -215,17 +215,19 @@ The 📁 button (tab bar) opens a visual file browser. Besides browsing, creatin
   varies, in which case upload a `.zip` and unzip it).
 * Everything goes through the same confinement as the rest of the console: in a VM you only see that VM.
 
-### The 📁 file browser: photos and videos
-Clicking a **photo** (`png jpg jpeg gif webp bmp ico avif svg`) or a **video** (`mp4 m4v webm ogv mov`) opens it in a
-viewer on top of the browser instead of the code editor: photos are shown fitted to the screen (click to switch to
-actual size), videos play with the browser's own player (play/pause, seeking, volume, full screen).
-* **‹ ›** (or the ←/→ keys, or a swipe on a photo) move through the photos and videos of the folder; **⬇** downloads
+### The 📁 file browser: photos, videos and music
+Clicking a **photo** (`png jpg jpeg gif webp bmp ico avif svg`), a **video** (`mp4 m4v webm ogv mov`) or a **song**
+(`mp3 wav ogg oga opus m4a aac flac weba`) opens it in a viewer on top of the browser instead of the code editor:
+photos are shown fitted to the screen (click to switch to actual size), videos and songs play with the browser's own
+player (play/pause, seeking, volume; videos also full screen). A song shows its name on a card above the player.
+* **‹ ›** (or the ←/→ keys, or a swipe on a photo) move through the photos, videos and songs of the folder; **⬇** downloads
   the current one; **Close** (or Esc) returns to the browser.
-* Videos are streamed with range requests, so seeking works without downloading the whole file. If your browser
-  cannot play a video's codec (some `.mov` files), the viewer says so and offers the download.
+* Videos and songs are streamed with range requests, so seeking works without downloading the whole file. Nothing
+  starts by itself: press play. If your browser cannot play a file's codec (some `.mov` or `.flac`/`.opus` files on
+  older browsers), the viewer says so and offers the download.
 * Everything goes through the same confinement as the rest of the console: in a VM you only see that VM's files.
   SVG images are shown as pictures only; scripts inside them never run.
-* Other file types still open in the editor as before; `mkv`/`avi` and similar are not previewed (use ⬇).
+* Other file types still open in the editor as before; `mkv`, `avi`, `wma` and similar are not previewed (use ⬇).
 
 ### The 📁 file browser: select, compress, extract, properties
 **Selecting** (works like a desktop file manager):

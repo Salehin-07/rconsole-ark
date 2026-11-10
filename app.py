@@ -1136,7 +1136,7 @@ def api_download():
         return {"error": str(e)}, 500
 
 
-# Types the file browser may show inline. Keep in sync with IMAGE_EXTS / VIDEO_EXTS in
+# Types the file browser may show or play inline. Keep in sync with IMAGE_EXTS / VIDEO_EXTS / AUDIO_EXTS in
 # static/console.js (tests/test_fileman_api.py checks it).
 MEDIA_TYPES = {
     "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif",
@@ -1144,13 +1144,15 @@ MEDIA_TYPES = {
     "svg": "image/svg+xml",
     "mp4": "video/mp4", "m4v": "video/mp4", "webm": "video/webm", "ogv": "video/ogg",
     "mov": "video/quicktime",
+    "mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg", "oga": "audio/ogg", "opus": "audio/ogg",
+    "m4a": "audio/mp4", "aac": "audio/aac", "flac": "audio/flac", "weba": "audio/webm",
 }
 
 
 @app.route("/api/media")
 def api_media():
-    """Serve an image or video inline for the file browser's viewer (Range requests work,
-    so videos seek). Only whitelisted types; everything else is a 415."""
+    """Serve an image, video or audio file inline for the file browser's viewer (Range requests
+    work, so videos and songs seek). Only whitelisted types; everything else is a 415."""
     if "username" not in session:
         return {"error": "unauthorized"}, 401
     path = request.args.get("path", "")
@@ -1163,7 +1165,7 @@ def api_media():
         p = _map(view, path)
         ctype = MEDIA_TYPES.get(p.suffix.lower().lstrip("."))
         if not ctype:
-            return {"error": "not an image or video the viewer can show"}, 415
+            return {"error": "not an image, video or audio file the viewer can show"}, 415
         if not p.is_file():
             return {"error": "not a regular file" if p.exists() else f"no such file: {view.virt(p)}"}, 404
         resp = send_file(p, mimetype=ctype, conditional=True, max_age=0)
