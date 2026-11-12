@@ -13,6 +13,7 @@ focused modules and register themselves here with :func:`command`:
 - ``cmd_reboot``    reboot (restart without redeploying)
 - ``cmd_update``    rconsole version / update (self-update from GitHub releases)
 - ``cmd_backup``    backup (encrypted backups to a git repo / folder)
+- ``cmd_storage`` storage (files kept in the GitHub repo)
 - ``cmd_keepalive`` keepalive (self-ping so free instances never sleep)
 - ``cmd_fetch``    neofetch / fetch (target aware, responsive) and rfetch
 - ``cmd_users``    logout, suser/auser/nauser/ruser, muser/cpass/cuser, rboot
@@ -62,6 +63,7 @@ import cmd_backup  # noqa: E402,F401
 import cmd_reboot  # noqa: E402,F401
 import cmd_update  # noqa: E402,F401
 import cmd_service  # noqa: E402,F401
+import cmd_storage  # noqa: E402,F401
 import editor  # noqa: E402,F401
 
 # Register the fun/novelty commands (cowsay, fortune, figlet, ...).

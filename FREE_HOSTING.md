@@ -15,6 +15,7 @@ three catches:
 |---|---|
 | **It sleeps after ~15 min without visitors** (and your bot goes with it) | A built-in **keep-alive** pings its own public URL every 10 minutes, which prevents *inactivity* suspension. It cannot stop provider restarts, maintenance or an exhausted monthly allowance. |
 | **No persistent disk — every deploy/restart starts blank** | Encrypted **backups** (every 15 min when something changed) to a free private git repo, **automatic restore** on boot, Linux systems and toolchains **rebuilt**, services **started again**. Changes since the last backup are lost. |
+| **A tiny disk for your files** | **Repo storage** keeps your files in the same private GitHub repo (split into pieces under GitHub's 100 MB limit, encrypted or plain) and uses the disk only as a cache; a restart brings everything back. See [docs/repo-storage.md](docs/repo-storage.md). |
 | **Redeploying to fix something wipes the disk anyway** | `sudo reboot` restarts rconsole **in place** (files and VMs stay), no redeploy. |
 | **You are on a phone** | A responsive UI you can **install as an app**; pickers and menus built for touch. |
 

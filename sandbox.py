@@ -1131,6 +1131,11 @@ def _install_one(sid, distro, release):
             "id": vm, "release": release, "family": distro.family,
             "label": label, "installed_at": int(time.time())}))
         (base / READY_MARKER).write_text(str(int(time.time())))
+        try:                                    # repo storage: the system's /home etc. come back from the repo
+            import gitstore
+            gitstore.materialize_vm(sid, vm)
+        except Exception:
+            pass
         _set_install(sid, vm, "ready", "")
         _clear_install(sid, vm)
     except Exception as e:  # surfaced through `vm status`
@@ -1553,6 +1558,33 @@ def _vm_cwd(sid, vm, cwd):
         return VM_START
 
 
+def _guest_resolver(sid, vm, guest_cwd):
+    """Map a word of a VM command to the host path of the file it may name (only the folders that repo
+    storage keeps are considered; anything else gives ``None``)."""
+    rootfs = config.VM_DIR / sid / vm / "rootfs"
+
+    def resolve_word(word):
+        w = "/root" + word[1:] if word.startswith("~") else word
+        g = posixpath.normpath(posixpath.join(guest_cwd or "/", w))
+        top = g.strip("/").split("/", 1)[0]
+        import gitstore
+        if top not in gitstore.VM_PREFIXES:
+            return None
+        return rootfs / g.lstrip("/")
+    return resolve_word
+
+
+def _fetch_stored(cmd, resolver):
+    """Repo storage: bring back any evicted file a command names, before it runs."""
+    import gitstore
+    if not cmd or not gitstore.STUBS or not gitstore.active():
+        return
+    try:
+        gitstore.before_command(cmd, "", lambda w: resolver(w))
+    except gitstore.StoreError as e:
+        raise SandboxError(f"could not fetch a file from the repository: {e}") from None
+
+
 def spec(sid, cmd, cwd, forced=None, tty=False):
     """Build the launch :class:`Spec` for a shell command (or login shell).
 
@@ -1568,9 +1600,11 @@ def spec(sid, cmd, cwd, forced=None, tty=False):
         exe, flag = shellutil.detect_shell()
         argv = [exe, flag, cmd] if cmd else [exe]
         host_cwd = cwd if cwd and os.path.isdir(cwd) else state.default_cwd()
+        _fetch_stored(cmd, lambda w: Path(os.path.normpath(os.path.join(host_cwd, os.path.expanduser(w)))))
         return Spec(argv, host_cwd, shellutil.build_env(sid), HOST)
     config.ensure_private_dir(config.VM_DIR)
     guest_cwd = _vm_cwd(sid, tgt.vm, cwd)
+    _fetch_stored(cmd, _guest_resolver(sid, tgt.vm, guest_cwd))
     sh = _guest_shell(sid, tgt.vm)
     inner = [sh, "-c", cmd] if cmd else [sh, "-l"]
     ns = pidns.ensure(sid, tgt.vm)

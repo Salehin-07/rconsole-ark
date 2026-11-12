@@ -21,3 +21,13 @@ try:
         updater.after_restore(log=_log)
 except Exception as e:  # a failed restore must never stop the server from booting
     print(f"[rconsole] restore skipped: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+
+try:
+    # A restore may have brought back settings.json (dashboard changes): apply it, then rebuild the files that
+    # live in the repo (workspace and VM folders) before anything starts that needs them.
+    import settings
+    import gitstore
+    settings.apply_saved()
+    gitstore.bootstrap(log=_log)
+except Exception as e:                      # never stop the server from booting
+    print(f"[rconsole] repo storage skipped: {type(e).__name__}: {e}", file=sys.stderr, flush=True)

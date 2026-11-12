@@ -687,6 +687,11 @@ def view(section, actor=""):
         return {"events": recent_audit(150)}
     if section == "health":
         return _health_view()
+    if section == "settings":
+        import settings
+        return settings.snapshot()
+    if section == "repo":
+        return _repo_view()
     raise ValueError(f"unknown section '{section}'")
 
 
@@ -713,6 +718,104 @@ def remove_user_everything(name):
     return cmd_users.remove_user(name)
 
 
+def _repo_view():
+    import gitstore
+    import settings
+    import backup
+    snap = {s["env"]: s for g in settings.snapshot()["groups"] for s in g["settings"]}
+    return {"status": gitstore.status(),
+            "repo": {"url": gitstore._scrub(config.BACKUP_URL), "token_set": bool(config.BACKUP_TOKEN),
+                     "passphrase_set": bool(config.BACKUP_PASSPHRASE), "branch": config.STORAGE_BRANCH,
+                     "backup_branch": config.BACKUP_BRANCH},
+            "backup": backup.status() if hasattr(backup, "status") else {},
+            "settings": {k: snap[k] for k in snap if k.startswith("RCONSOLE_STORAGE")},
+            "restart_needed": settings.pending_restart()}
+
+
+def _threaded(fn, name):
+    threading.Thread(target=fn, daemon=True, name=name).start()
+
+
+def _perform_settings(actor, action, data):
+    """Settings and repo-storage actions. Returns ``(ok, message, target)`` or ``None`` if not ours."""
+    import settings
+    import gitstore
+    if action == "settings.save":
+        changes = data.get("changes")
+        ok, msg, _r = settings.set_values(changes if isinstance(changes, dict) else {}, actor)
+        return ok, msg, "settings"
+    if action == "settings.reset":
+        names = data.get("names")
+        if not isinstance(names, list) or not names:
+            return False, "nothing selected", "settings"
+        ok, msg, _r = settings.set_values({str(n): None for n in names}, actor)
+        return ok, ("reset: " + msg.split(": ", 1)[-1]) if ok else msg, "settings"
+    if action == "server.restart":
+        import cmd_reboot
+        threading.Timer(cmd_reboot.DELAY, cmd_reboot.perform).start()
+        return True, "restarting: the page reconnects in a few seconds", ""
+    if action == "repo.configure":
+        ch = {}
+        url = (data.get("url") or "").strip()
+        if "url" in data:
+            ch["RCONSOLE_BACKUP_URL"] = url
+        for field, env in (("token", "RCONSOLE_BACKUP_TOKEN"), ("passphrase", "RCONSOLE_BACKUP_PASSPHRASE")):
+            val = data.get(field)
+            if isinstance(val, str) and val != "":
+                ch[env] = val
+            if data.get("clear_" + field):
+                ch[env] = None
+        if data.get("branch"):
+            ch["RCONSOLE_STORAGE_BRANCH"] = str(data["branch"]).strip()
+        if not ch:
+            return False, "nothing to change", "repo"
+        ok, msg, _r = settings.set_values(ch, actor)
+        return ok, msg, "repo"
+    if action == "repo.mode":
+        mode = str(data.get("mode") or "")
+        if mode not in ("host", "github"):
+            return False, "mode must be host or github", "repo"
+        ok, msg, _r = settings.set_values({"RCONSOLE_STORAGE": mode}, actor)
+        if not ok:
+            return False, msg, "repo"
+        probs = gitstore.problems()
+        if mode == "github" and probs:
+            return True, "saved, but files stay on the host for now: " + "; ".join(probs), "repo"
+        if mode == "github":
+            return True, "files now live in the repo (the first upload runs in the background)", "repo"
+        return True, "files live on the host again; bringing any placeholders back to this disk", "repo"
+    if action == "repo.encrypt":
+        on = bool(data.get("on"))
+        ok, msg, _r = settings.set_values({"RCONSOLE_STORAGE_ENCRYPT": "1" if on else "0"}, actor)
+        if not ok:
+            return False, msg, "repo"
+        if data.get("rewrite") and gitstore.active():
+            _threaded(lambda: gitstore.reencode(), "dashboard-reencode")
+            return True, f"encryption {'on' if on else 'off'}; rewriting stored files in the background", "repo"
+        return True, f"encryption {'on' if on else 'off'} for new files (use 'rewrite everything' to convert old ones)", "repo"
+    if action == "repo.sync":
+        if not gitstore.active():
+            return False, "repo storage is off or not set up: " + ("; ".join(gitstore.problems()) or "mode is host"), "repo"
+        _threaded(lambda: gitstore.sync_once("dashboard", force=True), "dashboard-sync")
+        return True, "sync started", "repo"
+    if action == "repo.hydrate":
+        _threaded(lambda: gitstore.hydrate_all(), "dashboard-hydrate")
+        return True, "bringing every file back to this disk", "repo"
+    if action == "repo.test":
+        probs = gitstore.problems()
+        if probs:
+            return False, "; ".join(probs), "repo"
+        try:
+            with gitstore.Reader() as rd:
+                if not rd.tip:
+                    return True, "repository reachable; nothing is stored there yet", "repo"
+                gitstore._load_remote(rd)
+                return True, "repository reachable and readable", "repo"
+        except gitstore.StoreError as e:
+            return False, gitstore._scrub(str(e)), "repo"
+    return None
+
+
 def perform(actor, action, data, ip=""):
     """Run one admin action. Returns ``(ok, message)``; every attempt is audited."""
     ok, msg, target = _perform(actor, action, data)
@@ -721,6 +824,10 @@ def perform(actor, action, data, ip=""):
 
 
 def _perform(actor, action, data):          # noqa: C901 - a flat dispatch table reads best
+    if action.startswith(("settings.", "repo.")) or action == "server.restart":
+        res = _perform_settings(actor, action, data)
+        if res is not None:
+            return res
     user = _need(data, "username") or ""
     # ---- accounts
     if action == "user.create":

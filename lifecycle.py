@@ -60,6 +60,11 @@ def begin_shutdown():
     try:
         stop_everything()
         vmupdate.abort_all()            # roll an update in progress back before the final backup
+        try:
+            import gitstore
+            gitstore.final(timeout=FINAL_BACKUP_TIMEOUT)
+        except Exception:
+            pass
         backup.final(timeout=FINAL_BACKUP_TIMEOUT)
     finally:
         pidns.stop_all()                # take any leftover VM process down with its namespace

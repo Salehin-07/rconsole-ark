@@ -37,8 +37,10 @@ import config
 import dashboard
 import exposure
 import fileops
+import gitstore
 import keepalive
 import services
+import settings
 import interp
 import jobs
 import ptyhost
@@ -835,6 +837,38 @@ def _fs_view():
         return None, ({"ok": False, "error": str(e)}, 409)
 
 
+def _need(p, recursive=False):
+    """Repo storage: make sure the real data of ``p`` is on disk (a no-op unless storage is on and ``p`` was
+    evicted). A failure surfaces as an ordinary OSError so every endpoint reports it the usual way."""
+    try:
+        gitstore.ensure_local(p, recursive)
+    except gitstore.StoreError as e:
+        raise OSError(f"could not fetch it from the repository: {e}") from None
+
+
+def _register_setting_hooks():
+    """Make a dashboard change of these options take effect at once."""
+    settings.register_hook("RCONSOLE_KEEPALIVE", keepalive.set_enabled)
+    settings.register_hook("RCONSOLE_COOKIE_SECURE", lambda v: app.config.update(SESSION_COOKIE_SECURE=bool(v)))
+    for env in ("RCONSOLE_BACKUP_URL", "RCONSOLE_BACKUP_TOKEN", "RCONSOLE_BACKUP_DIR", "RCONSOLE_BACKUP_INTERVAL"):
+        settings.register_hook(env, lambda v: backup.start_background())
+    for env in ("RCONSOLE_STORAGE", "RCONSOLE_STORAGE_ENCRYPT", "RCONSOLE_STORAGE_BRANCH",
+                "RCONSOLE_BACKUP_URL", "RCONSOLE_BACKUP_TOKEN", "RCONSOLE_BACKUP_PASSPHRASE"):
+        settings.register_hook(env, gitstore.settings_changed)
+
+
+_register_setting_hooks()
+
+
+@app.after_request
+def _storage_kick(resp):
+    """A request that may have changed files: ask the storage thread to sync soon (cheap, a no-op when off)."""
+    if request.method == "POST" and resp.status_code < 400 and request.path in (
+            "/api/file", "/api/fs", "/api/upload", "/api/run", "/api/archive"):
+        gitstore.kick()
+    return resp
+
+
 def _map(view, path, follow_last=True):
     """Map a client path to a host path (relative paths use the view's home)."""
     return view.host(path or view.default_cwd(), view.default_cwd(), follow_last)
@@ -857,6 +891,7 @@ def api_file():
         exists = p.exists()
         content = ""
         if exists:
+            _need(p)
             if p.stat().st_size > MAX_EDIT_BYTES:
                 return {"error": "file too large for the editor "
                                  f"(limit {MAX_EDIT_BYTES // (1024 * 1024)} MB)"}, 413
@@ -907,6 +942,7 @@ def api_dir():
         return {"error": f"not a directory: {vpath}"}, 400
     entries = []
     truncated = False
+    stubs = gitstore.dir_stub_sizes(p)
     try:
         # scandir hands back cached type/stat info: one syscall per entry
         # instead of listdir + isdir + stat (3x), noticeable on big folders.
@@ -924,8 +960,9 @@ def api_dir():
                     "name": e.name,
                     "path": view.child_virt(vpath, e.name),
                     "is_dir": is_dir,
-                    "size": 0 if is_dir else st.st_size,
+                    "size": 0 if is_dir else stubs.get(e.name, st.st_size),
                     "mtime": int(st.st_mtime),
+                    **({"remote": True} if e.name in stubs else {}),
                 })
     except OSError as e:
         return {"error": str(e)}, 500
@@ -1120,6 +1157,7 @@ def api_download():
         if p.is_dir():
             if p.parent == p or (view.root is not None and p == view.host("/")):
                 return {"error": "download a folder inside the root, not the root itself"}, 400
+            _need(p, recursive=True)
             name = (p.name or "folder") + ".zip"
             resp = Response(_zip_stream(str(p), p.name or "folder"), mimetype="application/zip")
             resp.headers["Content-Disposition"] = _content_disposition(name)
@@ -1127,6 +1165,7 @@ def api_download():
             return resp
         if not p.is_file():
             return {"error": "not a regular file" if p.exists() else f"no such file: {view.virt(p)}"}, 404
+        _need(p)
         # octet-stream on purpose: the response compressor must never buffer a big download.
         resp = send_file(p, mimetype="application/octet-stream", conditional=True, max_age=0)
         resp.headers["Content-Disposition"] = _content_disposition(p.name)
@@ -1329,6 +1368,12 @@ def api_archive_start():
             return {"ok": False, "error": "invalid archive name"}, 400
         sources = [str(p) for p in items]
 
+        try:
+            for src_p in items:
+                _need(src_p, recursive=True)
+        except OSError as e:
+            return {"ok": False, "error": str(e)}, 502
+
         def work(job):
             res = fileops.compress(job, sources, str(folder), name, fmt, trusted)
             res["path"] = virt(res["path"])
@@ -1337,6 +1382,11 @@ def api_archive_start():
         mode = "here" if data.get("mode") == "here" else "folder"
         limit = config.MAX_EXTRACT_MB * 1024 * 1024
         archives = [str(p) for p in items]
+        try:
+            for src_p in items:
+                _need(src_p)
+        except OSError as e:
+            return {"ok": False, "error": str(e)}, 502
 
         def work(job):
             made, skipped, files, last = [], 0, 0, None
@@ -1519,6 +1569,9 @@ def start_background_tasks():
             started.append("keepalive")
         if backup.start_background():
             started.append("backup")
+        import gitstore
+        if gitstore.start_background():
+            started.append("repo-storage")
         if vmupdate.recover_background():
             started.append("vm-update-recovery")
         if sandbox.restore_vms_background():

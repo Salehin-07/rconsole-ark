@@ -133,6 +133,18 @@ Other secrets are different: values you save with `sudo env` or `service add --e
 | `RCONSOLE_RESTORE_SETUP` | `1` | Re-run each VM's `vm setup` profiles after a restore. |
 | `RCONSOLE_RESTORE_DEPS` | `1` | Reinstall each VM's recorded packages, virtualenvs and Node projects after a restore. |
 
+### Files in your GitHub repo
+
+| Variable | Default | What it does |
+|---|---|---|
+| `RCONSOLE_STORAGE` | `host` | `host` keeps files on this disk; `github` keeps your files (workspace and each system's `/home`, `/srv`, `/data`) in the backup repo and uses the disk only as a cache. Falls back to `host` when the repo is not set up. Also switchable in the dashboard. |
+| `RCONSOLE_STORAGE_ENCRYPT` | `1` | Encrypt file names and contents in the repo (AES-256-GCM, key from `RCONSOLE_BACKUP_PASSPHRASE`). `0` stores them as plain text. |
+| `RCONSOLE_STORAGE_BRANCH` | `rconsole-storage` | Branch of the backup repo that holds the files (must differ from the backup branch). |
+| `RCONSOLE_STORAGE_CHUNK_MB` | `50` | Files are split into pieces of this size before upload (1 to 95; GitHub rejects files over 100 MB). |
+| `RCONSOLE_STORAGE_CACHE_MB` | `1024` | How much of the stored files may sit on the disk; above it, the least recently used big files become placeholders again. |
+| `RCONSOLE_STORAGE_STUB_MB` | `4` | Only files at least this big can become placeholders; smaller files always stay on the disk. |
+| `RCONSOLE_STORAGE_INTERVAL` | `20` | Seconds between looking for changed files to upload (minimum 5). |
+
 ### Updating
 
 | Variable | Default | What it does |

@@ -33,6 +33,7 @@ commit (``--force``), so the repository stays as small as one snapshot.
 """
 import base64
 import hashlib
+import json
 import os
 import shutil
 import struct
@@ -54,6 +55,7 @@ MAX_FILE_BYTES = 20 * 1024 * 1024
 GIT_TIMEOUT = 120
 
 INCLUDE_TOP = ("users.json", "secret.key", "pepper.key", "exposed.json", "services.json")
+RESTORE_ONLY = ("settings.json",)
 # Directory names never worth backing up (rebuildable caches / dependency trees).
 SKIP_DIRS = {"node_modules", "__pycache__", ".venv", "venv", ".cache", ".npm", ".rustup",
              ".gradle", ".m2", "site-packages"}
@@ -117,6 +119,25 @@ def _skip_path(rel):
     return any(rel == p or rel.startswith(p + "/") for p in SKIP_REL)
 
 
+def _settings_copy():
+    """A copy of settings.json without tokens, passphrases or the backup target's secrets (or ``None``)."""
+    import settingsfile
+    vals = settingsfile.load(config.DATA_DIR)
+    secret = {"RCONSOLE_BACKUP_TOKEN", "RCONSOLE_BACKUP_PASSPHRASE", "RCONSOLE_UPDATE_TOKEN"}
+    vals = {k: v for k, v in vals.items() if k not in secret}
+    if not vals:
+        return None
+    p = config.STORAGE_DIR / "settings.backup.json"
+    try:
+        config.ensure_private_dir(config.STORAGE_DIR)
+        new = json.dumps({"version": 1, "values": vals}, sort_keys=True)
+        if not p.is_file() or p.read_text() != new:
+            p.write_text(new)
+        return p
+    except OSError:
+        return None
+
+
 def iter_files():
     """Yield ``(archive_name, path)`` for everything that belongs in a snapshot."""
     d = config.DATA_DIR
@@ -124,7 +145,15 @@ def iter_files():
         p = d / name
         if p.is_file():
             yield name, p
+    # Dashboard settings travel with the backup, minus the secrets (they come from the environment).
+    sp = _settings_copy()
+    if sp:
+        yield "settings.json", sp
+    # With repo storage on, the workspace lives in the repo (and the disk only caches it): not saved twice.
+    import gitstore
     for sub in ("state", "workspace"):
+        if sub == "workspace" and gitstore.active():
+            continue
         yield from _walk(d / sub, sub)
     # `rconsole update` keeps the release it installed here (a few hundred KB) so that a restore on a
     # disk-less instance re-applies it (see updater.after_restore). Scratch and rollback copies stay out.
@@ -389,7 +418,7 @@ def _biggest(n=3):
 
 
 # ---------------------------------------------------------------- restore
-_ALLOWED_TOP = set(INCLUDE_TOP)
+_ALLOWED_TOP = set(INCLUDE_TOP) | set(RESTORE_ONLY)
 
 
 def _allowed(name):

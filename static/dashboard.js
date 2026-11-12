@@ -4,7 +4,9 @@
 (() => {
   const ME = window.RCONSOLE_USER;
   const TABS = [["overview", "Overview", "◔"], ["processes", "Processes", "☰"], ["users", "Users", "☺"], ["systems", "Systems", "▣"],
-                ["apps", "Apps", "⇄"], ["activity", "Activity", "↻"], ["health", "Health", "♥"]];
+                ["apps", "Apps", "⇄"], ["activity", "Activity", "↻"], ["health", "Health", "♥"],
+                ["repo", "Repo storage", "☁"], ["settings", "Settings", "⚙"]];
+  const cacheV = {};
   const main = document.getElementById("dmain");
   const tabsEl = document.getElementById("dtabs");
   const liveEl = document.getElementById("dh-live");
@@ -317,6 +319,97 @@
           , "No events yet.")];
     },
 
+    // Forms are built once and reused, so the 5-second refresh never wipes what you are typing.
+    async repo(d) {
+      const st = d.status, rp = d.repo, S = d.settings;
+      const when = (t) => (t ? ago(t) : "never");
+      const kv = (o) => h("dl", { class: "kv" }, Object.entries(o).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v == null || v === "" ? "-" : String(v))]));
+      const live = st.active ? "ok" : st.wanted ? "warn" : "";
+      const busyNow = st.state && st.state !== "idle";
+      const status = h("div", { class: "dgrid" },
+        h("div", { class: "card" }, h("h3", {}, "Storage ", h("span", { class: "sp" }),
+          h("span", { class: "pill " + live }, st.active ? "files live in the repo" : st.wanted ? "waiting for setup" : "files live on this host")),
+          kv({ Where: st.mode === "github" ? "GitHub repo (this host only caches)" : "this host's disk", Repo: rp.url || "not set",
+            Branch: st.branch, Encryption: st.encrypted ? "on" : "off (plain text in the repo)",
+            "Piece size": st.chunk_mb + " MB (GitHub's limit is 100 MB)", State: busyNow ? `${st.state} ${st.done}/${st.total} ${st.message || ""}` : "idle",
+            "Last sync": st.last_error ? "failed: " + st.last_error : when(st.last_time), Problems: (st.problems || []).join("; ") || "none",
+            Paused: st.blocked || "no" })),
+        h("div", { class: "card" }, h("h3", {}, "What is stored"),
+          kv({ Files: st.files, "Total size": bytes(st.bytes), Pieces: st.pieces, "On this disk (cache)": `${bytes(st.cache_bytes)} of ${bytes(st.cache_limit)}`,
+            "Placeholders": `${st.placeholders} (${bytes(st.placeholder_bytes)})`, Pinned: st.pinned, "Pushes": st.pushes, "Uploaded": bytes(st.uploaded) })));
+      if (!cacheV.repo) {
+        const url = h("input", { type: "text", placeholder: "https://github.com/you/rconsole-data.git", value: rp.url, autocomplete: "off", spellcheck: "false" });
+        const tok = h("input", { type: "password", placeholder: rp.token_set ? "set (leave blank to keep)" : "ghp_… / github_pat_…", autocomplete: "new-password" });
+        const pw = h("input", { type: "password", placeholder: rp.passphrase_set ? "set (leave blank to keep)" : "choose a passphrase", autocomplete: "new-password" });
+        const br = h("input", { type: "text", value: rp.branch, autocomplete: "off" });
+        const wipe = (f) => () => { delete cacheV.repo; return act({ action: "repo.configure", [f]: "", ["clear_" + f]: true }, { confirm: `Remove the saved ${f}?` }); };
+        const save = () => { const b = { action: "repo.configure", url: url.value.trim(), branch: br.value.trim() };
+          if (tok.value) b.token = tok.value; if (pw.value) b.passphrase = pw.value; tok.value = ""; pw.value = ""; return act(b); };
+        const row = (label, el, extra) => [h("dt", {}, label), h("dd", {}, el, extra || null)];
+        const modeSel = h("select", {}, h("option", { value: "host" }, "On this host's disk"), h("option", { value: "github" }, "In the GitHub repo"));
+        modeSel.value = S.RCONSOLE_STORAGE ? S.RCONSOLE_STORAGE.value : st.mode;
+        const enc = h("select", {}, h("option", { value: "1" }, "Encrypted"), h("option", { value: "0" }, "Plain (readable in the repo)"));
+        enc.value = S.RCONSOLE_STORAGE_ENCRYPT ? S.RCONSOLE_STORAGE_ENCRYPT.value : "1";
+        const rewrite = h("input", { type: "checkbox" });
+        cacheV.repo = h("div", { class: "dgrid" },
+          h("div", { class: "card" }, h("h3", {}, "The repository"),
+            h("div", { class: "sub" }, "Use a PRIVATE repository. The token needs Contents: read and write on it. Backups use the same repository on another branch."),
+            h("dl", { class: "kv" }, row("Repo URL", url), row("Token", tok, rp.token_set ? btn("Remove", wipe("token"), "danger") : null),
+              row("Passphrase", pw, rp.passphrase_set ? btn("Remove", wipe("passphrase"), "danger") : null), row("Storage branch", br)),
+            h("div", { class: "tools" }, btn("Save", save), btn("Test connection", () => act({ action: "repo.test" })))),
+          h("div", { class: "card" }, h("h3", {}, "Where files live"),
+            h("div", { class: "sub" }, "Workspace and each system's /home, /srv and /data. System folders (/root, /etc, /proc, /app …) always stay on the host. If the repo is not set up, files stay on the host automatically."),
+            h("dl", { class: "kv" }, row("Storage", modeSel, btn("Apply", () => { delete cacheV.repo; return act({ action: "repo.mode", mode: modeSel.value }, { confirm: modeSel.value === "host" ? "Bring every file back to this disk and stop using the repo?" : null }); })),
+              row("Encryption", enc, btn("Apply", () => act({ action: "repo.encrypt", on: enc.value === "1", rewrite: rewrite.checked }))),
+              row("Convert old files", h("label", {}, rewrite, " also rewrite files already stored (slow)"))),
+            h("div", { class: "tools" }, btn("Sync now", () => act({ action: "repo.sync" })),
+              btn("Bring every file back to disk", () => act({ action: "repo.hydrate" }, { confirm: "Download all placeholders now? Needs enough free disk." })))));
+      }
+      return [status, cacheV.repo, h("div", { class: "sub" }, "Piece size, cache size, sync interval and the rest are under Settings → Files in your GitHub repo.")];
+    },
+
+    async settings(d) {
+      if (cacheV.settings && cacheV.settingsVer === JSON.stringify(d.restart_needed)) return cacheV.settings;
+      cacheV.settingsVer = JSON.stringify(d.restart_needed);
+      const out = [];
+      if (d.restart_needed.length) out.push(h("div", { class: "card" }, h("h3", {}, "Restart needed ", h("span", { class: "sp" }),
+        btn("Restart now", () => act({ action: "server.restart" }, { confirm: "Restart the server? Services come back by themselves." }), "danger")),
+        h("div", {}, "These saved settings apply after a restart: " + d.restart_needed.join(", "))));
+      out.push(h("div", { class: "sub" }, "Changes are saved in the data folder and win over the environment variables of the same name. Leave a field alone to keep it. " +
+        "On a host without a persistent disk keep the repo URL, token and passphrase as environment variables too, so a fresh start can find the repo."));
+      for (const g of d.groups) {
+        const fields = [];
+        const dl = h("dl", { class: "kv" });
+        for (const s of g.settings) {
+          let el;
+          if (s.kind === "bool") { el = h("select", {}, h("option", { value: "1" }, "On"), h("option", { value: "0" }, "Off")); el.value = s.value; }
+          else if (s.kind === "choice") { el = h("select", {}, s.choices.map((c) => h("option", { value: c }, c))); el.value = s.value; }
+          else if (s.kind === "int") { el = h("input", { type: "number", min: s.min, max: s.max, value: s.value }); }
+          else if (s.kind === "secret") { el = h("input", { type: "password", placeholder: s.set ? "set (leave blank to keep)" : "not set", autocomplete: "new-password" }); }
+          else { el = h("input", { type: "text", value: s.value, placeholder: s.placeholder || s.default || "", autocomplete: "off", spellcheck: "false" }); }
+          fields.push([s, el]);
+          const pills = [h("span", { class: "pill" + (s.source === "dashboard" ? " admin" : "") }, s.source)];
+          if (!s.live) pills.push(h("span", { class: "pill warn", title: "applies after a restart" }, "restart"));
+          const reset = s.source === "dashboard" ? btn("Reset", () => { cacheV.settings = null; return act({ action: "settings.reset", names: [s.env] }); }) : null;
+          const clear = s.kind === "secret" && s.set ? btn("Clear", () => { cacheV.settings = null; return act({ action: "settings.save", changes: { [s.env]: "" } }, { confirm: `Clear ${s.label}?` }); }, "danger") : null;
+          dl.append(h("dt", { title: s.env }, s.label), h("dd", {}, el, " ", pills, " ", reset, clear, s.help ? h("div", { class: "sub" }, s.help) : null));
+        }
+        const save = () => {
+          const changes = {};
+          for (const [s, el] of fields) {
+            if (s.kind === "secret") { if (el.value) changes[s.env] = el.value; }
+            else if (el.value !== s.value) changes[s.env] = el.value;
+          }
+          if (!Object.keys(changes).length) { toast("nothing changed", false); return; }
+          cacheV.settings = null; return act({ action: "settings.save", changes });
+        };
+        out.push(h("div", { class: "card" }, h("h3", {}, g.title, h("span", { class: "sp" }), btn("Save", save)), dl));
+      }
+      out.push(h("div", { class: "card" }, h("h3", {}, "Fixed settings"), h("dl", { class: "kv" }, d.read_only.flatMap((r) => [h("dt", {}, r.env), h("dd", {}, r.why)]))));
+      cacheV.settings = out;
+      return out;
+    },
+
     async health(d) {
       const kv = (o) => h("dl", { class: "kv" }, Object.entries(o).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v == null || v === "" ? "-" : String(v))]));
       const s = d.server, b = d.backup || {}, k = d.keepalive || {}, u = d.update || {};
@@ -357,7 +450,10 @@
       if (document.querySelector(".modal-bg")) { liveEl.textContent = "live"; return; }   // never redraw under an open dialog
       const y = window.scrollY, active = document.activeElement;
       const keep = active && active.closest && active.closest("form.inline") ? null : undefined;
-      if (keep !== null) { main.replaceChildren(...nodes); window.scrollTo(0, y); }
+      const same = main.children.length === nodes.length && nodes.slice(1).every((n, i) => n === main.children[i + 1]);
+      if (same && nodes[0] === main.children[0]) { /* built once (settings): leave the form alone */ }
+      else if (same && (tab === "repo")) main.replaceChild(nodes[0], main.children[0]);   // only the status card refreshes
+      else if (keep !== null) { main.replaceChildren(...nodes); window.scrollTo(0, y); }
       liveEl.textContent = "live"; liveEl.classList.remove("off");
     } catch (e) {
       liveEl.textContent = "offline"; liveEl.classList.add("off");

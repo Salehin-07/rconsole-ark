@@ -3,6 +3,41 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.0 — 2026-11-12
+
+### Added
+- **Repo storage: your files live in the GitHub repo, the host disk only caches them.** Switch it on in the dashboard
+  (**Repo storage**) or with `RCONSOLE_STORAGE=github`. It stores the workspace and each system's `/home`, `/srv`
+  and `/data`; `/root`, `/etc`, `/proc`, `/app` and the other system folders stay on the host. Files are cut into
+  pieces of at most `RCONSOLE_STORAGE_CHUNK_MB` (default 50, maximum 95: GitHub rejects files over 100 MB) and joined
+  again when opened, so any file size works. Identical data is stored once; appending to a log re-sends only its last
+  piece. Uploads from the 📁 upload button (files and folders), edits, shell commands and extraction are all synced.
+  A restart or a fresh deploy needs only the repo: the folder tree comes back, small files immediately, big files as
+  placeholders that are fetched the moment the file manager or a command touches them. The cache is capped
+  (`RCONSOLE_STORAGE_CACHE_MB`): the least recently used big files become placeholders again.
+  If the repo is not set up (or the mode is `host`) nothing changes at all: files stay on the disk exactly as before.
+- **Encrypted or plain, switchable from the dashboard.** Pieces and the file list are AES-256-GCM encrypted (key from
+  the backup passphrase) or stored as plain text, your choice; "rewrite everything" converts what is already there.
+- **Every environment option is editable from the dashboard** (new **Settings** page): validated, saved in
+  `data/settings.json` (private, wins over the environment variable), applied live where possible and marked
+  *restart* where not, with a Restart button. Tokens and passphrases are write-only. Settings travel with backups
+  (without secrets). The repo, token, passphrase, branch, storage mode and encryption also have their own
+  **Repo storage** page with a connection test.
+- `storage` command: `storage` (status), `storage get|pin|unpin <path>`, `sudo storage sync|mode|encrypt`.
+- New variables: `RCONSOLE_STORAGE`, `_ENCRYPT`, `_BRANCH`, `_CHUNK_MB`, `_CACHE_MB`, `_STUB_MB`, `_INTERVAL`.
+
+### Changed
+- With repo storage on, the workspace is no longer included in backups (it is already in the repo).
+- gunicorn's config reads `data/settings.json` too, so a saved port, thread count or log level applies at start.
+
+### Notes
+- Repo storage uses plain `git` (partial clones, one push per batch, one commit that replaces the branch, so the repo
+  never accumulates history); it works with any git host, not only GitHub.
+- A program that opens a big file you did not name on its command line sees a small placeholder text: run
+  `storage get <path>` first or `storage pin <path>`. Interactive windows do not fetch automatically.
+- On a host without a persistent disk keep `RCONSOLE_BACKUP_URL`, `_TOKEN` and `_PASSPHRASE` as environment
+  variables so a blank instance can find the repo; settings typed into the dashboard live on the disk.
+
 ## 1.4.3 — 2026-11-10
 
 ### Added

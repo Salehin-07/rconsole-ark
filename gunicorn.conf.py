@@ -8,6 +8,10 @@ number of terminals you expect open at once (default 64).
 """
 import os
 
+import settingsfile
+
+settingsfile.inject()                       # options saved from the dashboard (PORT, threads, log level ...)
+
 bind = f"0.0.0.0:{os.environ.get('PORT', '5000')}"
 workers = 1                                  # in-memory state: never raise this
 worker_class = "gthread"                     # flask-sock websockets need threads

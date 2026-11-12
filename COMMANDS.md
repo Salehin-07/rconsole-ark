@@ -86,6 +86,7 @@ Legend: 🔒 = needs `sudo` (admin). `<x>` = required, `[x]` = optional.
 | [`kprocess`](#kprocess) | kill a process by PID | 🔒 |
 | [`service`](#service) | supervised bots/workers: autostart, restart on crash | |
 | [`keepalive`](#keepalive) | stay awake on free hosting (self-ping) | |
+| [`storage`](#storage) | keep your files in the GitHub repo instead of on the host's disk | admins for `sync`/`mode`/`encrypt` |
 | [`backup`](#backup) | encrypted backups, auto-restore on a fresh instance | 🔒 |
 | [`reboot`](#reboot) | restart rconsole without redeploying | 🔒 |
 | [`rconsole`](#rconsole) | version info and `rconsole update`: check for a new release and install it safely | admins to update |
@@ -123,7 +124,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.4.3` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.5.0` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -512,6 +513,26 @@ keepalive off       # (admins) pause until the next restart;  keepalive on  resu
 On by default on Render (the URL is detected). Elsewhere set `RCONSOLE_PUBLIC_URL` and `RCONSOLE_KEEPALIVE=1`;
 `RCONSOLE_KEEPALIVE_EXTRA=url1,url2` also pings your other free sites; `RCONSOLE_KEEPALIVE_INTERVAL` changes the
 period (seconds, minimum 60).
+
+### `storage`
+Keeps your **files** in the private GitHub repo (the one used for backups) and uses the host's disk only as a
+cache, so a small or disposable disk is never the limit. Files over the piece size (default 50 MB; GitHub refuses
+over 100 MB) are cut into pieces and joined again when you open them. Switch it on in the dashboard
+(**Repo storage**), or with `RCONSOLE_STORAGE=github`.
+```text
+storage                    # where your files live, how full the cache is, last sync / errors
+storage get <path>...      # bring placeholder files (or whole folders) back to this disk now
+storage pin <path>...      # keep files on this disk for good;  storage unpin <path>  undoes it
+sudo storage sync          # upload changes right now
+sudo storage mode github   # or: host  (files back on this disk)
+sudo storage encrypt on    # or: off  [--rewrite converts the files already stored]
+```
+Stored: the workspace (the host shell's home) and each system's `/home`, `/srv` and `/data`. `/root`, `/etc`, `/proc`,
+`/app` and the other system folders always stay on the host. A big file that is not on the disk shows as a small
+placeholder; the file manager (open, edit, download, preview, compress) and any command that names the file fetch
+it back by themselves. A program that opens a file you did not name on the command line sees the placeholder
+text: run `storage get` first, or `storage pin` the file. If the repo is not set up, nothing changes: files stay on
+the host.
 
 ### `backup`
 🔒 Encrypted snapshots of everything that matters, pushed to a **private git repo** (or a folder), restored

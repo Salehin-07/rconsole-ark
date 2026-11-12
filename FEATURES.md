@@ -1,6 +1,6 @@
 # Rconsole features
 
-Every feature of Rconsole 1.4.3, by area. This is the **map**; the details live in
+Every feature of Rconsole 1.5.0, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.
@@ -137,6 +137,8 @@ Made for hosts that **sleep when idle and wipe the disk on every deploy** — se
 | Feature | What you get |
 |---|---|
 | **`keepalive`** | Pings the site's own public URL (`/healthz`) every 10 minutes so a free instance is not suspended for inactivity (it cannot prevent provider restarts or quota limits). On by default on Render; `keepalive now`, `sudo keepalive off\|on`; also pings extra URLs (`RCONSOLE_KEEPALIVE_EXTRA`). |
+| **`storage`** | Files kept in the GitHub repo instead of on the disk: split into pieces under GitHub's 100 MB limit, joined when opened, encrypted or plain (your choice), host disk used only as a cache. Workspace and each system's `/home`, `/srv`, `/data` are stored; `/root`, `/etc`, `/proc`, `/app` stay on the host. Every option, the repo setup and the encryption switch are in the dashboard (**Repo storage**); `storage get\|pin\|unpin`, `sudo storage sync\|mode\|encrypt`. Falls back to host storage automatically when the repo is not set up. |
+| **Dashboard settings** | 🔒 Every environment option can be changed from the dashboard (**Settings**): saved in the data folder, wins over the environment variable, applied live where possible and flagged *restart* otherwise. Secrets are write-only. |
 | **`backup`** | 🔒 Encrypted snapshots to a **private git repo** (history never accumulates: each push replaces the branch) or a folder. Saves users and secrets, per-user state, the workspace, exposures, services, each VM's `/root`, the VM list and `vm setup` profiles, and the installed release of `rconsole update`. `sudo backup`, `now`, `restore --yes`, `help`. Runs every 15 minutes if something changed and once at shutdown. |
 | **Automatic restore** | On a blank instance the latest backup is restored **before anything else starts**; VMs are reinstalled, profiles re-applied and **packages reinstalled** (system, pip, npm, virtualenvs, Node projects) in the background; each VM stays locked (`restoring`) until done, then its services start by themselves. |
 | **`reboot`** | 🔒 Restarts in place without a redeploy (`sudo reboot --yes`: final backup → stop everything → reload), or `--hard` to exit the process. Services start again; the page reconnects. |
@@ -262,6 +264,7 @@ All through environment variables (`config.py`); the full table with defaults is
 | Files | `RCONSOLE_MAX_UPLOAD_MB`, `RCONSOLE_MAX_EXTRACT_MB` |
 | Staying awake | `RCONSOLE_KEEPALIVE`, `RCONSOLE_KEEPALIVE_INTERVAL`, `RCONSOLE_KEEPALIVE_EXTRA` |
 | Backups and restore | `RCONSOLE_BACKUP_URL`, `RCONSOLE_BACKUP_TOKEN`, `RCONSOLE_BACKUP_USER`, `RCONSOLE_BACKUP_BRANCH`, `RCONSOLE_BACKUP_DIR`, `RCONSOLE_BACKUP_PASSPHRASE`, `RCONSOLE_BACKUP_ENCRYPT`, `RCONSOLE_BACKUP_INTERVAL`, `RCONSOLE_BACKUP_MAX_MB`, `RCONSOLE_RESTORE_SETUP`, `RCONSOLE_RESTORE_DEPS` |
+| Files in your GitHub repo | `RCONSOLE_STORAGE`, `RCONSOLE_STORAGE_ENCRYPT`, `RCONSOLE_STORAGE_BRANCH`, `RCONSOLE_STORAGE_CHUNK_MB`, `RCONSOLE_STORAGE_CACHE_MB`, `RCONSOLE_STORAGE_STUB_MB`, `RCONSOLE_STORAGE_INTERVAL` |
 | Updating | `RCONSOLE_UPDATE_REPO`, `RCONSOLE_UPDATE_TOKEN`, `RCONSOLE_UPDATE_API` |
 | Docker Compose files | `RCONSOLE_DOMAIN`, `RCONSOLE_VERSION` |
 | Docker compatibility layer (inside VMs) | `DRUN_MODE`, `DRUN_PULL_OPTS`, `DOCKER_SHIM_LOCAL`, `DOCKER_HOST` |

@@ -88,6 +88,7 @@ PAGES = [
     ("console", "Using the console", "Guides", ("README.md", "## Using the console"), "Line mode and real programs."),
     ("ai-agent", "AI agent", "Guides", ("README.md", "## AI agent"), "sudo agent."),
     ("backup", "Backups and restore", "Guides", "docs/backup.md", "What is saved, what is not, and the limits."),
+    ("repo-storage", "Repo storage", "Guides", "docs/repo-storage.md", "Keep your files in GitHub; the disk only caches."),
     ("upgrading", "Updating and rollback", "Guides", "docs/upgrading.md", "rconsole update, vm update, redeploys."),
     ("configuration", "Configuration", "Reference", "docs/configuration.md", "Every environment variable."),
     ("commands", "Command reference", "Reference", "COMMANDS.md", "Every command, option and example."),
@@ -102,7 +103,7 @@ PAGES = [
 SOURCE_FILES = {"README.md": "index", "FREE_HOSTING.md": "free-hosting", "DEPLOY.md": "deploy",
                 "COMMANDS.md": "commands", "FEATURES.md": "features", "CHANGELOG.md": "changelog",
                 "structure.md": "file-reference", "SECURITY.md": "security",
-                "docs/index.md": "index", "docs/quick-start.md": "quick-start", "docs/backup.md": "backup",
+                "docs/index.md": "index", "docs/quick-start.md": "quick-start", "docs/backup.md": "backup", "docs/repo-storage.md": "repo-storage",
                 "docs/upgrading.md": "upgrading", "docs/configuration.md": "configuration",
                 "docs/security.md": "security", "docs/architecture.md": "architecture",
                 "docs/compatibility.md": "compatibility"}

@@ -35,7 +35,7 @@ Be clear about these before you rely on it:
 |---|---|
 | A guarantee of uptime | The keep-alive ping only prevents *inactivity-based* suspension. The provider can still restart, suspend or stop your instance (maintenance, quota or hours used up, policy changes). Expect a few minutes of downtime after a restart. |
 | Free on every host | Free means free **on a platform that has a free tier**. Only Render's free plan is a tested reference. Other hosts in the [deploy guide](../DEPLOY.md) may charge for compute, storage or both, and their free offers change. |
-| Persistent storage on a free tier | Free instances lose their disk on every restart. Rconsole restores from an encrypted backup, so you can lose everything changed since the last backup (up to 15 minutes by default). See [Backups](backup.md). |
+| Persistent storage on a free tier | Free instances lose their disk on every restart. Rconsole restores from an encrypted backup, so you can lose everything changed since the last backup (up to 15 minutes by default). See [Backups](backup.md), or keep your files in the GitHub repo instead: [Repo storage](repo-storage.md). |
 | Uninterrupted services across a redeploy | Processes are stopped when the instance stops. Service *definitions* and their files are restored, and the supervisor starts the services again once their Linux environment is rebuilt. |
 | A hard security boundary | Each Linux environment has its own root filesystem, home and, where the host allows it, its own PID namespace. All of them still run under the server's one user id. Give accounts only to people you trust. |
 | A public multi-user hosting platform | It is built for one person or a small trusted team (10 accounts by default). |

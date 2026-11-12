@@ -39,6 +39,9 @@ Environment variables
 ``RCONSOLE_MAX_UPLOAD_MB``     Largest single file the file browser will accept (default 64).
 ``RCONSOLE_MAX_EXTRACT_MB``    Most an archive may expand to when extracted in the file
                                browser (default 2048): a guard against zip bombs.
+``RCONSOLE_STORAGE``           ``host`` (default) or ``github``: keep user files in the backup repo.
+``RCONSOLE_STORAGE_*``         ``ENCRYPT``, ``BRANCH``, ``CHUNK_MB``, ``CACHE_MB``, ``STUB_MB``,
+                               ``INTERVAL`` - see gitstore.py and the docs.
 ``RCONSOLE_SUPERVISOR``        Run the service supervisor (default on).
 ``RCONSOLE_DEFAULT_SYSTEM``    System ``vm install`` uses by default (default ``debian``).
 ``RCONSOLE_ALLOWED_ORIGINS``   Extra hostnames the console is served from (comma
@@ -57,7 +60,12 @@ import os
 import secrets
 from pathlib import Path
 
+import settingsfile
+
 HERE = Path(__file__).resolve().parent
+# Options changed in the dashboard are saved in <data dir>/settings.json and win over the real environment
+# variables: put them in os.environ before anything below (or any other module) reads it.
+SAVED_SETTINGS = settingsfile.inject()
 
 
 def env_bool(name, default=False):
@@ -173,6 +181,22 @@ BACKUP_MAX_MB = max(1, env_int("RCONSOLE_BACKUP_MAX_MB", 40))
 RESTORE_SETUP = env_bool("RCONSOLE_RESTORE_SETUP", True)   # re-run `vm setup` profiles after a restore
 RESTORE_DEPS = env_bool("RCONSOLE_RESTORE_DEPS", True)     # reinstall each VM's packages / pip / npm after a restore
 VM_PIDNS = (os.environ.get("RCONSOLE_VM_PIDNS") or "auto").strip().lower()   # auto | on | off: one PID namespace per VM
+
+# --- files in the backup repo instead of on the disk (see gitstore.py) ---------------
+# "github" keeps the user's files (the workspace and each VM's /home) in the backup repository, split into
+# pieces under GitHub's 100 MB limit, and the host disk only caches them. It needs the backup repo (a GitHub
+# URL and token) and, when encrypting, the passphrase; without them everything stays on the host as before.
+STORAGE = (os.environ.get("RCONSOLE_STORAGE") or "host").strip().lower()
+if STORAGE not in ("host", "github"):
+    STORAGE = "host"
+STORAGE_ENCRYPT = env_bool("RCONSOLE_STORAGE_ENCRYPT", True)
+STORAGE_BRANCH = (os.environ.get("RCONSOLE_STORAGE_BRANCH") or "rconsole-storage").strip()
+STORAGE_CHUNK_MB = max(1, min(95, env_int("RCONSOLE_STORAGE_CHUNK_MB", 50)))
+STORAGE_CACHE_MB = max(16, env_int("RCONSOLE_STORAGE_CACHE_MB", 1024))
+STORAGE_STUB_MB = max(1, env_int("RCONSOLE_STORAGE_STUB_MB", 4))
+STORAGE_INTERVAL = max(5, env_int("RCONSOLE_STORAGE_INTERVAL", 20))
+# Where the repo storage keeps its local index and downloaded-piece scratch space (never part of a backup).
+STORAGE_DIR = DATA_DIR / "storage"
 
 # --- the service supervisor (see services.py) ---------------------------------------
 SUPERVISOR = env_bool("RCONSOLE_SUPERVISOR", True)

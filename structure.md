@@ -7,6 +7,8 @@ rconsole/
 ├── config.py               # All environment-driven settings + persisted secrets
 ├── FREE_HOSTING.md         # The purpose of rconsole: free Render-tier hosting for bots/sites/workers (start here)
 ├── fileops.py              # File-manager engine: compress / extract (safe, no symlink writes), properties, multi-delete, background jobs
+├── gitstore.py             # Repo storage: files kept in the GitHub repo (pieces, encryption, placeholders) + cmd_storage.py
+├── settings.py             # Every environment option as an editable dashboard setting (+ settingsfile.py: data/settings.json)
 ├── keepalive.py            # Self-ping of the public URL so free instances are not suspended for inactivity (+ cmd_keepalive.py)
 ├── backup.py               # Encrypted snapshots -> private git repo/folder; restore on a fresh instance (+ cmd_backup.py)
 ├── bootstrap.py            # Imported first by app.py: restores a backup BEFORE secrets are generated
@@ -67,6 +69,7 @@ rconsole/
 ├── tests/                  # unittest suite (run: python -m unittest discover -s tests)
 │   ├── helpers.py          # Isolated temp data dir; must be imported first
 │   ├── test_auth.py        # Hashing + migration, policy, quarantine, throttle
+│   ├── test_storage.py     # Repo storage against a local bare repo; dashboard settings; the `storage` command
 │   ├── test_dashboard.py   # Dashboard: access control, sections, actions, audit trail, logout button
 │   ├── test_serve.py       # serve.py: server choice, gunicorn command, built-in fallback + shutdown
 │   ├── test_sandbox.py     # Path confinement (symlink/.. escapes), authorization
@@ -328,3 +331,18 @@ Set `RCONSOLE_DATA_DIR` to put it on a persistent disk.
 `requests`, and `pywinpty` (Windows only). Managed with `uv`.
 
 **`.python-version`** — Pinned Python (>= 3.14).
+
+
+**`gitstore.py`** — Repo storage. Keeps the workspace and each system's `/home`, `/srv`, `/data` in the backup repo
+(branch `rconsole-storage`): files are cut into pieces of at most `RCONSOLE_STORAGE_CHUNK_MB`, stored by content
+hash (AES-256-GCM framed when encrypting), described by a gzip'd (and encrypted) `manifest`, pushed with plain `git`
+as ONE replacing commit. `_scan` finds changes, `sync_once` uploads in batches, `hydrate` joins pieces back,
+`evict` turns clean big files into self-describing placeholders (so `mv`/`cp` of a placeholder keeps its data),
+`materialize` rebuilds a blank disk, `before_command` (called from `sandbox.spec`) fetches placeholders a command
+names. Inactive (every hook a no-op) unless `RCONSOLE_STORAGE=github` and the repo is configured. Sync is paused,
+never destructive, if the repo cannot be read at boot.
+
+**`settings.py` / `settingsfile.py`** — The registry of dashboard-editable environment options. `settingsfile.inject`
+(called first thing in `config.py` and `gunicorn.conf.py`) puts `data/settings.json` into `os.environ`; `set_values`
+validates, saves, updates the matching `config` attribute and calls the owning module's hook. Options that cannot
+change while running are flagged for restart. Secrets are write-only.
