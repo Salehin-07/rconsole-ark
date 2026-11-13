@@ -131,10 +131,11 @@ class FrontEndTests(Base):
         def exts(name):
             m = re.search(rf"const {name} = \[(.*?)\];", js)
             return set(re.findall(r'"([a-z0-9]+)"', m.group(1)))
-        self.assertEqual(exts("IMAGE_EXTS") | exts("VIDEO_EXTS") | exts("AUDIO_EXTS"), set(rapp.MEDIA_TYPES))
+        self.assertEqual(exts("IMAGE_EXTS") | exts("VIDEO_EXTS") | exts("AUDIO_EXTS") | exts("PDF_EXTS"), set(rapp.MEDIA_TYPES))
         self.assertTrue(all(rapp.MEDIA_TYPES[e].startswith("image/") for e in exts("IMAGE_EXTS")))
         self.assertTrue(all(rapp.MEDIA_TYPES[e].startswith("video/") for e in exts("VIDEO_EXTS")))
         self.assertTrue(all(rapp.MEDIA_TYPES[e].startswith("audio/") for e in exts("AUDIO_EXTS")))
+        self.assertEqual({rapp.MEDIA_TYPES[e] for e in exts("PDF_EXTS")}, {"application/pdf"})
 
 
 if __name__ == "__main__":

@@ -58,7 +58,7 @@ rconsole/
 ├── pidns_init.py           # PID 1 of a VM's namespace: reaps zombies, exits when the server dies
 ├── vmdeps.py               # per-VM dependency manifest (deps.json): capture before backup, reinstall after restore
 ├── vmupdate.py             # `vm update`: lock, snapshot (hard links), upgrade, verify, rollback, crash recovery
-├── dashboard.py            # Admin dashboard backend: resource sampler, section views, admin actions, audit trail
+├── dashboard.py            # Dashboard backend: resource sampler, admin section views, normal-user views (own things only), own-password change, admin actions, audit trail
 ├── serve.py                # Launcher: gunicorn if usable, else built-in threaded server (Windows)
 ├── Dockerfile              # Image with proot/git/tini preinstalled (Render, any Docker host)
 ├── docker-entrypoint.sh    # Fixes root-owned volumes, then drops to uid 10001 (RCONSOLE_RUN_AS_ROOT=1 keeps root)
@@ -95,7 +95,7 @@ rconsole/
 │   ├── console.js          # Tab/terminal UI, xterm.js wiring, WebSocket client, editor UI
 │   ├── editor-core.js      # Code-editor text logic (auto-indent/close, comments, line ops, find): DOM-free, unit-tested
 │   ├── files-core.js       # File-manager selection / archive-name logic (click, ctrl/shift, drag band, long-press sweep): DOM-free, unit-tested
-│   ├── dashboard.js        # Admin dashboard UI (plain DOM + inline SVG charts, textContent only)
+│   ├── dashboard.js        # Dashboard UI for admins and normal users (plain DOM + inline SVG charts, textContent only)
 │   ├── dashboard.css       # Admin dashboard styling (uses the console theme variables)
 │   ├── style.css           # Console styling + terminal layout
 │   ├── logo.png, icon-192.png, icon-maskable-512.png, apple-touch-icon.png, favicon.ico, favicon-32.png  # the rconsole logo in every size the app, PWA manifest and login page use
@@ -104,7 +104,7 @@ rconsole/
 │   └── addon-fit.js        # xterm.js FitAddon (auto-fit terminal to container)
 ├── templates/              # Jinja2 templates
 │   ├── console.html        # Main console page (loads xterm.js + console.js)
-│   ├── dashboard.html      # Admin dashboard shell (admins only)
+│   ├── dashboard.html      # Dashboard shell (admins and normal users)
 │   ├── login.html          # Login page
 │   └── error.html          # Themed HTTP error page
 ├── data/                   # Runtime data (gitignored; override with RCONSOLE_DATA_DIR)
@@ -308,7 +308,7 @@ following links; confined users only get `bsdtar` for external formats. `app.py`
 through the sandbox first and exposes `/api/props`, `/api/archive`, `/api/archive/<id>`,
 `/api/archive/<id>/cancel` and the `delete_many` action of `/api/fs`.
 
-**`dashboard.py`** — Backend of `/dashboard` (admins only, checked in `app.py`). A sampler thread keeps an hour of
+**`dashboard.py`** — Backend of `/dashboard` (admins see everything; normal users only their own data via `view_user`, and everyone can change their own password; checked in `app.py`). A sampler thread keeps an hour of
 CPU / memory / disk / network history from `/proc` and the cgroup; `view(section)` returns the Overview, Processes,
 Users, Systems, Apps, Activity and Health data; `perform()` runs the admin actions (shared code with the `sudo` user
 commands) and `audit()` records them in `logs/audit.jsonl`.

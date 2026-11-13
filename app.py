@@ -88,8 +88,6 @@ IP_THROTTLE = auth.LoginThrottle(max_attempts=config.LOGIN_MAX_ATTEMPTS * 4)
 
 _SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 # Endpoints a user may reach while they still have to change the default password.
-_MUST_CHANGE_OK = {"run", "console_page", "static", "login", "api_tabs", "healthz", "api_logout"}
-_MUST_CHANGE_CMDS = {"cpass", "logout", "help", "clear", "cls", "rwhoami", "history"}
 
 
 # ---------------------------------------------------------------------------
@@ -331,10 +329,6 @@ def guard():
         session.clear()
         return redirect(url_for("login"))
 
-    # The factory password must be replaced before anything else is usable.
-    if session.get("must_change") and request.endpoint not in _MUST_CHANGE_OK:
-        return _json_error("password change required: run `sudo cpass`", 403)
-
     # Ensure server-side session state exists, then bring any persisted terminal
     # sessions (that aren't already running) back to life.
     username = session["username"]
@@ -371,7 +365,6 @@ def login():
             session["username"] = username
             session["login_time"] = time.time()
             session["last_activity"] = time.time()
-            session["must_change"] = auth.is_default_credential(username, password)
             session.permanent = True
             app.logger.info("login ok user=%s ip=%s", username, ip)
             dashboard.audit(username, "login", ip=ip)
@@ -432,13 +425,6 @@ def api_logout():
     return {"redirect": url_for("login")}
 
 
-def _first_word(raw):
-    parts = (raw or "").split()
-    if parts and parts[0] == "sudo":
-        parts = parts[1:]
-    return parts[0] if parts else ""
-
-
 @app.route("/api/run", methods=["POST"])
 def run():
     if "username" not in session:
@@ -453,15 +439,6 @@ def run():
     sess = state.get_session(username) or state.new_session(username)
     tab = state.ensure_tab(sess, username, tab_id)
     is_admin = auth.is_admin(username)
-
-    # Until the default password is replaced only a few commands may run (a
-    # pending interactive prompt, e.g. cpass asking for the new password, must
-    # still receive its answers).
-    if session.get("must_change") and tab.get("gen") is None:
-        if _first_word(raw) not in _MUST_CHANGE_CMDS:
-            return {"output": "You are using the default password. "
-                              "Run `sudo cpass` to set a new one first.",
-                    "cwd": tab["cwd"]}
 
     # Record history only for real commands (not interactive prompt replies).
     # Mutating tab state under STATE_LOCK so the background flush thread can't
@@ -501,17 +478,23 @@ def run():
 
 
 # ---------------------------------------------------------------------------
-# Admin dashboard (admins only; everyone else gets a plain 404 / 403)
+# Dashboard. Admins see everything; a normal user gets a limited dashboard that only ever
+# shows (and changes) their own things. Anonymous visitors get a plain 404 / 401.
 # ---------------------------------------------------------------------------
+def _dash_who():
+    """The logged-in user's name, or ``None``."""
+    return session.get("username") or None
+
+
 def _dash_admin():
     """The logged-in admin's name, or ``None`` (the caller then answers 404 / 403)."""
-    who = session.get("username")
+    who = _dash_who()
     return who if who and auth.is_admin(who) else None
 
 
 @app.get("/dashboard")
 def dashboard_page():
-    who = _dash_admin()
+    who = _dash_who()
     if not who:
         abort(404)                       # do not reveal that the page exists
     try:
@@ -521,19 +504,22 @@ def dashboard_page():
     sess = state.get_session(who)
     theme = sess.get("theme", state.DEFAULT_THEME) if sess else state.DEFAULT_THEME
     resp = Response(render_template("dashboard.html", username=who, theme=theme, cache_v=cache_v,
-                                    version=__version__))
+                                    version=__version__, is_admin=auth.is_admin(who)))
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
 
 @app.get("/api/dashboard/data")
 def api_dashboard_data():
-    who = _dash_admin()
+    who = _dash_who()
     if not who:
-        return _json_error("admins only", 403)
+        return _json_error("unauthorized", 401)
     section = request.args.get("section", "overview")
+    admin = auth.is_admin(who)
+    if not admin and section not in dashboard.USER_SECTIONS:
+        return _json_error("admins only", 403)
     try:
-        data = dashboard.view(section, who)
+        data = dashboard.view(section, who) if admin else dashboard.view_user(section, who)
     except ValueError as e:
         return _json_error(str(e), 400)
     resp = jsonify(data)
@@ -556,13 +542,42 @@ def api_dashboard_history():
 
 @app.get("/api/dashboard/log")
 def api_dashboard_log():
-    if not _dash_admin():
-        return _json_error("admins only", 403)
-    text = dashboard.log_tail(request.args.get("kind", ""), request.args.get("owner", ""),
-                              request.args.get("id", ""), request.args.get("lines", 200))
+    who = _dash_who()
+    if not who:
+        return _json_error("unauthorized", 401)
+    kind, owner, ident = request.args.get("kind", ""), request.args.get("owner", ""), request.args.get("id", "")
+    if not auth.is_admin(who) and not dashboard.user_log_ok(who, kind, owner, ident):
+        return _json_error("nothing to show", 404)
+    text = dashboard.log_tail(kind, owner, ident, request.args.get("lines", 200))
     if text is None:
         return _json_error("nothing to show", 404)
     return {"text": text}
+
+
+@app.post("/api/dashboard/password")
+def api_dashboard_password():
+    """Any signed-in user (admin or not) changes their own password, like ``sudo cpass``."""
+    who = _dash_who()
+    if not who:
+        return _json_error("unauthorized", 401)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return _json_error("bad request", 400)
+    ip = request.remote_addr or "?"
+    key = (ip, "pw:" + who.lower())
+    wait = USER_THROTTLE.retry_after(key)
+    if wait:
+        return {"ok": False, "message": f"Too many wrong passwords. Try again in {wait}s."}, 429
+    new, confirm = data.get("password"), data.get("confirm")
+    if isinstance(confirm, str) and confirm != new:
+        return {"ok": False, "message": "The new passwords do not match"}, 400
+    ok, msg, wrong = dashboard.change_own_password(who, data.get("current"), new)
+    if wrong:
+        USER_THROTTLE.failure(key)
+    elif ok:
+        USER_THROTTLE.success(key)
+    dashboard.audit(who, "user.password", who, "via the dashboard" if ok else msg, ip=ip, ok=ok)
+    return {"ok": ok, "message": msg}, (200 if ok else 400)
 
 
 @app.post("/api/dashboard/action")
@@ -891,10 +906,16 @@ def api_file():
         exists = p.exists()
         content = ""
         if exists:
+            blocked = fileops.edit_block_reason(p, by_name_only=True)      # by name first: nothing to fetch
+            if blocked:
+                return {"error": blocked[1], "kind": blocked[0], "blocked": True}, 415
             _need(p)
             if p.stat().st_size > MAX_EDIT_BYTES:
                 return {"error": "file too large for the editor "
                                  f"(limit {MAX_EDIT_BYTES // (1024 * 1024)} MB)"}, 413
+            blocked = fileops.edit_block_reason(p)                         # then by content (first bytes)
+            if blocked:
+                return {"error": blocked[1], "kind": blocked[0], "blocked": True}, 415
             with open(p, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
         return {"path": view.virt(p), "content": content, "exists": exists}
@@ -918,6 +939,11 @@ def api_file_save():
         return err
     try:
         p = _map(view, path)
+        if p.exists():
+            # Never overwrite a compressed or binary file with editor text (it would corrupt it).
+            blocked = fileops.edit_block_reason(p)
+            if blocked:
+                return {"ok": False, "error": blocked[1], "kind": blocked[0]}, 415
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
             f.write(content)
@@ -1185,6 +1211,7 @@ MEDIA_TYPES = {
     "mov": "video/quicktime",
     "mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg", "oga": "audio/ogg", "opus": "audio/ogg",
     "m4a": "audio/mp4", "aac": "audio/aac", "flac": "audio/flac", "weba": "audio/webm",
+    "pdf": "application/pdf",
 }
 
 
@@ -1204,16 +1231,21 @@ def api_media():
         p = _map(view, path)
         ctype = MEDIA_TYPES.get(p.suffix.lower().lstrip("."))
         if not ctype:
-            return {"error": "not an image, video or audio file the viewer can show"}, 415
+            return {"error": "not an image, video, audio or PDF file the viewer can show"}, 415
         if not p.is_file():
             return {"error": "not a regular file" if p.exists() else f"no such file: {view.virt(p)}"}, 404
         resp = send_file(p, mimetype=ctype, conditional=True, max_age=0)
         resp.headers["Content-Disposition"] = "inline"
         resp.headers["Cache-Control"] = "private, no-cache"
-        # An SVG opened directly must never run scripts with the console's cookies.
-        resp.headers["Content-Security-Policy"] = (
-            "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; "
-            "style-src 'unsafe-inline'")
+        if ctype == "application/pdf":
+            # Browsers refuse to show a PDF inside a CSP ``sandbox``, so a PDF gets a header without it. A PDF is
+            # not HTML (nosniff is set, and its own scripts never touch this site), only the page may frame it.
+            resp.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'"
+        else:
+            # An SVG opened directly must never run scripts with the console's cookies.
+            resp.headers["Content-Security-Policy"] = (
+                "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; "
+                "style-src 'unsafe-inline'")
         return resp
     except (OSError, sandbox.SandboxError) as e:
         return {"error": str(e)}, 500
@@ -1497,8 +1529,6 @@ def ws_terminal(ws):
     if "username" not in session:
         return
     username = session["username"]
-    if session.get("must_change"):
-        return _ws_notice(ws, "change the default password first: sudo cpass")
     sess = state.get_session(username)
     if not sess:
         return

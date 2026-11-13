@@ -1082,9 +1082,8 @@ body.touch #editor-bar button { font-size: 15px; padding: 12px 16px; }
 .term-close:hover, .term-close:focus-visible { opacity: 1; background: var(--red); outline: none; }
 
 /* ---- phone layout: settings menu --------------------------------------- */
-#settingsbtn { display: none; }
-body.is-admin #settingsbtn { display: inline-flex; align-items: center; justify-content: center;
-                             min-width: 40px; font-size: 18px; }
+#settingsbtn { display: inline-flex; align-items: center; justify-content: center;
+               min-width: 40px; font-size: 18px; }
 #logoutbtn {
   background: transparent; border: none; border-left: 1px solid var(--border); color: var(--dim);
   font-family: inherit; font-size: 12px; letter-spacing: 1px; text-transform: uppercase;
@@ -1354,3 +1353,71 @@ body.touch .files-row { padding-top: 3px; padding-bottom: 3px; }
 }
 .viewer-audio-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .viewer-audio audio { width: 100%; }
+
+/* ======================================================================================================
+   v1.5.1 refresh: shared tokens, calmer surfaces, clearer focus, a friendlier login. Everything is layered
+   on the existing theme variables, so every console theme keeps working.
+   ====================================================================================================== */
+:root {
+  --radius: 10px;
+  --radius-sm: 6px;
+  --ring: color-mix(in srgb, var(--blue) 70%, transparent);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .25);
+  --shadow-2: 0 12px 40px rgba(0, 0, 0, .45);
+  --ease: cubic-bezier(.2, .7, .2, 1);
+}
+html { scroll-behavior: smooth; }
+body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+::selection { background: color-mix(in srgb, var(--blue) 35%, transparent); }
+
+/* One focus ring for every control, only for keyboard users. */
+:where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--ring); outline-offset: 2px;
+}
+:where(input, textarea):focus-visible { outline-offset: 0; }
+
+/* Slim, theme-aware scrollbars. */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--fg) 22%, transparent); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--fg) 38%, transparent); background-clip: padding-box; border: 2px solid transparent; }
+
+/* Login: a centred card on a soft glow, bigger tap targets, clear error and focus states. */
+.login-body { min-height: 100dvh; padding: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0);
+  background: radial-gradient(900px 500px at 50% -10%, color-mix(in srgb, var(--blue) 14%, transparent), transparent 70%), var(--bg); }
+.login-box { border-radius: 16px; padding: 30px 32px 28px; box-shadow: var(--shadow-2); border-color: color-mix(in srgb, var(--fg) 12%, var(--border)); }
+.login-box label { letter-spacing: .08em; font-weight: 600; }
+.login-box input { border-radius: var(--radius); padding: 12px 12px; transition: border-color .15s, box-shadow .15s; }
+.login-box input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 22%, transparent); }
+.login-box button { border-radius: var(--radius); padding: 13px; transition: filter .15s, transform .1s var(--ease); }
+.login-box button:active { transform: translateY(1px); }
+.login-error { border-radius: var(--radius); }
+
+/* Console chrome. */
+#tabbar { box-shadow: 0 1px 0 color-mix(in srgb, var(--fg) 4%, transparent); }
+.tab { transition: color .15s, background .15s; }
+.tab:hover { color: var(--fg); }
+.tab.active { box-shadow: inset 0 -2px 0 var(--green); }
+#tabbar button { transition: color .15s, background .15s, border-color .15s; }
+
+/* File browser rows: a clearer hover, and rows that are easier to hit on a phone. */
+.files-row { transition: background .12s; }
+.files-row:hover { background: color-mix(in srgb, var(--fg) 5%, transparent); }
+@media (pointer: coarse) { .files-row { min-height: 46px; } }
+
+/* PDF viewer (file browser). */
+.viewer-pdf { width: 100%; height: 100%; border: 0; background: #fff; }
+#viewer-stage:has(.viewer-pdf) { flex-direction: column; align-items: stretch; justify-content: flex-start; overflow: hidden; }
+#viewer-stage:has(.viewer-pdf) .viewer-pdf { flex: 1; min-height: 0; }
+.viewer-hint { flex: 0 0 auto; text-align: center; padding: 6px 10px; background: var(--panel); border-top: 1px solid var(--border); }
+.viewer-hint button { background: none; border: 0; color: var(--blue); font: inherit; font-size: 12px; cursor: pointer; text-decoration: underline; padding: 4px 8px; }
+.viewer-msg button + button { margin-top: 8px; background: transparent; color: var(--fg); border: 1px solid var(--border); }
+
+/* A small message that fades by itself. */
+.notice { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 200;
+  max-width: min(92vw, 520px); padding: 10px 16px; border-radius: var(--radius); font-size: 13px; line-height: 1.4;
+  background: var(--panel); color: var(--fg); border: 1px solid color-mix(in srgb, var(--amber) 55%, var(--border)); box-shadow: var(--shadow-2);
+  animation: notice-in .2s var(--ease); }
+.notice.leaving { opacity: 0; transition: opacity .4s; }
+@keyframes notice-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .notice { animation: none; } }

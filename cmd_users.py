@@ -176,10 +176,7 @@ def cmd_rboot(ctx, args):
     auth.reset_to_defaults()
     return {"output": "*** HARD REBOOT ***\nSystem reinitialized to factory state.",
             "clear": True,
-            # The seeded admin is flagged for a password change unless the
-            # operator chose its password via RCONSOLE_ADMIN_PASSWORD.
-            "update_session": {"username": "ark",
-                               "must_change": not os.environ.get("RCONSOLE_ADMIN_PASSWORD")}}
+            "update_session": {"username": "ark"}}
 
 
 @commands.command("muser")
@@ -214,11 +211,7 @@ def cmd_cpass(ctx, args):
         if not ok:
             return f"cpass: {err}"
         dashboard.audit(ctx["username"], "user.password", target, "via sudo cpass")
-        out = {"output": f"Password updated for '{target}'."}
-        if target == ctx["username"]:
-            # Lifts the "default password" lockout for this session.
-            out["update_session"] = {"must_change": False}
-        return out
+        return {"output": f"Password updated for '{target}'."}
     return routine()
 
 

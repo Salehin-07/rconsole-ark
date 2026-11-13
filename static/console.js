@@ -2187,12 +2187,21 @@ function scheduleHighlight() {
   });
 }
 
+// Opens the editor; resolves false (and tells the user why) when the file must not be edited: compressed or
+// binary files, files over the size limit, or a failed read (opening those empty and saving would overwrite
+// the real file).
 async function openCodeEditor(path) {
   let content = "", exists = false;
   try {
     const r = await fetch("/api/file?path=" + encodeURIComponent(path));
     if (r.ok) { const j = await r.json(); content = j.content || ""; exists = !!j.exists; }
-  } catch (e) { /* offline: open empty */ }
+    else {
+      let msg = "Can't open " + path;
+      try { const j = await r.json(); if (j && j.error) msg = j.error; } catch (_) { /* keep default */ }
+      editorRefused(path, msg);
+      return false;
+    }
+  } catch (e) { editorRefused(path, "Can't reach the server to open " + path); return false; }
   editorState = { path, lang: langFromPath(path), dirty: false, exists, unit: "    " };
   if (EC) editorState.unit = EC.detectIndent(content, editorState.lang).unit;
   elEditor.removeAttribute("hidden");
@@ -2214,6 +2223,25 @@ async function openCodeEditor(path) {
   initEditorFontSize();
   edAfterChange();
   setTimeout(() => elEditorInput.focus({ preventScroll: true }), 60);
+  return true;
+}
+
+// Shown in the file manager's status line when there is one, otherwise appended to the terminal.
+function editorRefused(path, msg) {
+  if (typeof elFilesStatus !== "undefined" && elFilesStatus && !document.getElementById("files").hidden) {
+    elFilesStatus.textContent = msg;
+  } else showNotice(msg);
+}
+
+// A small message that fades by itself (used where there is no status line to write to).
+function showNotice(msg) {
+  const el = document.createElement("div");
+  el.className = "notice";
+  el.setAttribute("role", "status");
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.classList.add("leaving"), 4200);
+  setTimeout(() => el.remove(), 4700);
 }
 
 function closeCodeEditor() {
@@ -2937,8 +2965,8 @@ async function createEntry(kind, name) {
     return;
   }
   if (kind === "file") {
-    openCodeEditor(r.path);
-    hideFiles();
+    if (await openCodeEditor(r.path)) hideFiles();
+    else loadDir(filesState.cwd);
     return;
   }
   loadDir(filesState.cwd);
@@ -3175,19 +3203,21 @@ function openEntry(e) {
   if (!e) return;
   if (e.is_dir) loadDir(e.path);
   else if (mediaKind(e.name)) openViewer(e.path);          // photo / video: show it, keep the browser behind
-  else { openCodeEditor(e.path); hideFiles(); }
+  else { openCodeEditor(e.path).then((ok) => { if (ok) hideFiles(); }); }
 }
 
-// ---- media viewer: photos are shown, videos and music play (served inline by /api/media, Range-aware) ----------------
+// ---- media viewer: photos and PDFs are shown, videos and music play (served inline by /api/media, Range-aware) ----------------
 // Keep these lists in sync with MEDIA_TYPES in app.py (a test checks it).
 const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif", "svg"];
 const VIDEO_EXTS = ["mp4", "m4v", "webm", "ogv", "mov"];
 const AUDIO_EXTS = ["mp3", "wav", "ogg", "oga", "opus", "m4a", "aac", "flac", "weba"];
+const PDF_EXTS = ["pdf"];
 function mediaKind(name) {
   const ext = ((name || "").split(".").pop() || "").toLowerCase();
   if (IMAGE_EXTS.includes(ext)) return "image";
   if (VIDEO_EXTS.includes(ext)) return "video";
   if (AUDIO_EXTS.includes(ext)) return "audio";
+  if (PDF_EXTS.includes(ext)) return "pdf";
   return "";
 }
 const elViewer = document.getElementById("viewer");
@@ -3214,6 +3244,42 @@ function viewerMessage(text, entry) {
   }
   elViewerStage.appendChild(box);
 }
+// PDFs: the browser's own PDF viewer inside the page. Phones and some browsers have no inline PDF viewer
+// (navigator.pdfViewerEnabled is false), so they get a card with "open in a new tab" and "download" instead.
+function viewerShowPdf(e) {
+  const url = mediaUrl(e.path);
+  const card = (text) => {
+    const box = document.createElement("div");
+    box.className = "viewer-msg";
+    const t = document.createElement("div");
+    t.textContent = text;
+    const open = document.createElement("button");
+    open.type = "button";
+    open.textContent = "Open PDF in a new tab";
+    open.onclick = () => window.open(url, "_blank", "noopener");
+    const dl = document.createElement("button");
+    dl.type = "button";
+    dl.textContent = "⬇ Download";
+    dl.onclick = () => downloadEntry(e);
+    box.append(t, open, dl);
+    elViewerStage.textContent = "";
+    elViewerStage.appendChild(box);
+  };
+  if (navigator.pdfViewerEnabled === false) { card("Your browser can't show PDFs inside the page."); return; }
+  const frame = document.createElement("iframe");
+  frame.className = "viewer-pdf";
+  frame.title = e.name;
+  frame.src = url;
+  elViewerStage.appendChild(frame);
+  const hint = document.createElement("div");
+  hint.className = "viewer-hint";
+  const a = document.createElement("button");
+  a.type = "button";
+  a.textContent = "PDF not showing? Open it in a new tab";
+  a.onclick = () => window.open(url, "_blank", "noopener");
+  hint.appendChild(a);
+  elViewerStage.appendChild(hint);
+}
 function viewerShow(i) {
   const list = viewerState.list;
   if (!list.length) return;
@@ -3234,6 +3300,8 @@ function viewerShow(i) {
     img.onclick = () => img.classList.toggle("actual");            // fit-to-screen <-> actual size
     img.src = mediaUrl(e.path);
     elViewerStage.appendChild(img);
+  } else if (mediaKind(e.name) === "pdf") {
+    viewerShowPdf(e);
   } else if (mediaKind(e.name) === "audio") {
     const card = document.createElement("div");
     card.className = "viewer-audio";

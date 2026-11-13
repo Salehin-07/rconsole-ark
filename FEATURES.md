@@ -1,6 +1,6 @@
 # Rconsole features
 
-Every feature of Rconsole 1.5.0, by area. This is the **map**; the details live in
+Every feature of Rconsole 1.5.1, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.
@@ -55,7 +55,7 @@ root; everyone). One worker process with threads; all state in one data director
 | **`theme`** | 17 colour themes (`default light amber solarized dracula github ubuntu retro nord gruvbox matrix tokyonight catppuccin monokai everforest ayu papercolor`), saved per account, switchable live from the command or the theme button. |
 | **`logout`** | Signs you out; everything is kept. |
 | **Logout button** | Sits next to the theme and system buttons (inside the ⚙ menu on phones) and does exactly what `logout` does. |
-| **⚙ menu** | On phones it holds theme, system and logout. For admins it also holds a **Dashboard** link (shown on every screen size; never sent to non-admins). |
+| **⚙ menu** | On phones it holds theme, system and logout. It also holds the **Dashboard** link for every user (admins get the full dashboard, normal users their own). |
 | **Mobile first** | Installable as a home-screen app (web manifest + icon); on narrow screens the tab bar shrinks to tabs, **+**, **📁**, **⚙**; a footer key bar provides Tab / Esc / Ctrl / arrows for touch keyboards; `neofetch`, `vm list` and friends reformat to your width. |
 | **Update screen** | While `rconsole update` runs, every open tab shows a locked progress screen and reloads by itself ([section 7](#7-updating-rconsole-update)). |
 
@@ -189,7 +189,8 @@ Output is a rolling buffer; kills take the whole process tree.
 | Feature | What you get |
 |---|---|
 | **Accounts** | Admin and normal users; up to `RCONSOLE_MAX_USERS` (10). `suser`, `auser`, `nauser`, `muser`, `ruser`, `cpass`, `cuser` — all 🔒. The last admin can't be demoted or deleted; deleting a user removes their state, VMs, jobs, terminals and exposures; renaming moves everything with the name. |
-| **First login** | The factory `ark`/`ark` login only works to set a new password (`sudo cpass`); until then only `cpass`, `logout`, `help`, `clear`, `history` and `rwhoami` run. `RCONSOLE_ADMIN_PASSWORD` sets the first password. |
+| **First login** | The factory `ark`/`ark` login works straight away (nothing is forced); the dashboard warns until the password is changed (Dashboard → Account or `sudo cpass`). `RCONSOLE_ADMIN_PASSWORD` sets the first password. |
+| **Change your own password** | Every user, admin or not: Dashboard → **Account** (current password required, brute-force throttled, audited), the same as `sudo cpass`. |
 | **Passwords** | PBKDF2-HMAC-SHA256, 210 000 rounds, per-user salt plus a persisted random pepper; old hashes upgrade on login; minimum length `RCONSOLE_MIN_PASSWORD` (8). |
 | **Brute-force protection** | Throttled per (IP, user) and per IP with exponential lockout (`RCONSOLE_LOGIN_ATTEMPTS`/`..._LOCKOUT`); the response never reveals whether a user exists. |
 | **Sessions** | Signed cookie `rconsole_session` (HttpOnly, SameSite=Lax, Secure over HTTPS), 30-day inactivity timeout, a deleted user is logged out. |
@@ -197,7 +198,8 @@ Output is a rolling buffer; kills take the whole process tree.
 | **Authorization choke point** | `sandbox.py` decides host vs VM for the line console, jobs, hosted apps, the terminal WebSocket and the file APIs; host access is admin-only. |
 | **Secrets** | Generated secrets are stored `0600`, shared by all processes, and stripped from every user process and hosted app. |
 | **Users file** | Atomic `0600` writes; a corrupt file is quarantined, never silently reset. |
-| **Admin dashboard** | `/dashboard`, admins only (others get a 404 and no link). Live overview (CPU, memory, disk, network, load, one hour of graphs, alerts), processes (services, jobs, terminals, busiest host processes with owners; restart / stop / kill / logs), users (online status, create, promote, demote, reset password, stop everything, delete), systems (per-system process list, disk usage by area), exposed ports and hosted apps, and health (backups with *Back up now*, keep-alive, updates). Resource numbers come from `/proc` and the container's cgroup, so no extra dependency; `RCONSOLE_METRICS_INTERVAL` sets the sampling rate. |
+| **Dashboard (normal users)** | `/dashboard` for everyone signed in. A normal user sees only **their own** overview, services (with logs), exposed ports and hosted apps, Linux systems, jobs and terminals, and the Account page. Read-only: no start/stop/kill buttons, no other users, no server metrics, no settings. |
+| **Admin dashboard** | `/dashboard`, admins get everything (anonymous visitors get a 404). Live overview (CPU, memory, disk, network, load, one hour of graphs, alerts), processes (services, jobs, terminals, busiest host processes with owners; restart / stop / kill / logs), users (online status, create, promote, demote, reset password, stop everything, delete), systems (per-system process list, disk usage by area), exposed ports and hosted apps, and health (backups with *Back up now*, keep-alive, updates). Resource numbers come from `/proc` and the container's cgroup, so no extra dependency; `RCONSOLE_METRICS_INTERVAL` sets the sampling rate. |
 | **Audit trail** | Logins (also failed and locked-out ones), logouts, and every account or process change made from the dashboard or with `suser`, `auser`, `nauser`, `muser`, `cpass`, `ruser`; shown in the dashboard's *Activity* tab and kept in `logs/audit.jsonl` (rotated at 1 MB). |
 | **`rboot`** | 🔒 Factory reset: stops everything, wipes every user's state, VMs, logs and exposures, resets users to the default admin. No undo. |
 

@@ -13,8 +13,8 @@ uv sync
 uv run python serve.py          # http://127.0.0.1:5000
 ```
 
-`serve.py` uses gunicorn where it exists and a built-in server on Windows. Log in as **`ark` / `ark`**; Rconsole makes
-you replace that password (`sudo cpass`) before anything else works. To skip the default, set
+`serve.py` uses gunicorn where it exists and a built-in server on Windows. Log in as **`ark` / `ark`**; change that
+password at once (Dashboard → Account, or `sudo cpass`); the dashboard warns until you do. To skip the default, set
 `RCONSOLE_ADMIN_PASSWORD` before the first start.
 
 Linux systems (`vm`) need Linux. On Windows you get the host shell, editor and file manager only.

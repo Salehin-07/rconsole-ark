@@ -8,6 +8,7 @@ import posixpath
 from pathlib import Path
 
 import commands
+import fileops
 import sandbox
 
 
@@ -274,6 +275,9 @@ def cmd_edit(ctx, args):
     path = _resolve_path(ctx, target)
     if path.is_dir():
         return f"edit: {_virt(ctx, path)}: Is a directory"
+    blocked = fileops.edit_block_reason(path)
+    if blocked:
+        return f"edit: {blocked[1]}"
     return {"editor": _virt(ctx, path)}
 
 
@@ -376,6 +380,10 @@ def fm_routine(start, ctx):
             path = _resolve_path(ctx, name)
             if path.is_dir():
                 status = f"Not a file: {name}"
+                continue
+            blocked = fileops.edit_block_reason(path)
+            if blocked:
+                status = blocked[1]
                 continue
             # Hand off to the in-browser code editor (returns, ending the fm
             # session; closing the editor drops back to the console).

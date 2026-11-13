@@ -369,7 +369,7 @@ accounts you don't trust. The container itself remains your isolation boundary.
 Do this once, in order:
 
 1. **Log in** as `ark` with `RCONSOLE_ADMIN_PASSWORD`. If you did not set one,
-   you are forced to run `sudo cpass` first.
+   the factory `ark` password is public: change it at once (Dashboard → Account or `sudo cpass`).
 2. **Create real accounts** (`sudo muser`) instead of sharing `ark`.
 3. **Check the data survives:** run `vm list`, `vm install debian` (or any),
    create a file in `/root`, then trigger a redeploy/restart and confirm the VM and

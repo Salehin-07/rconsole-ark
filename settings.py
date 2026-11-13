@@ -218,7 +218,7 @@ READ_ONLY = [
     ("RCONSOLE_DATA_DIR", "the settings file lives there"),
     ("RCONSOLE_SECRET", "changing it signs everybody out"),
     ("RCONSOLE_PEPPER", "changing it invalidates every password"),
-    ("RCONSOLE_ADMIN_PASSWORD", "initial password only; use `sudo cpass`"),
+    ("RCONSOLE_ADMIN_PASSWORD", "initial password only; change it in Dashboard > Account or `sudo cpass`"),
     ("RCONSOLE_SERVER", "read by serve.py when it starts"),
     ("RCONSOLE_HOST", "read by serve.py when it starts"),
     ("RCONSOLE_RUN_AS_ROOT", "read by the Docker entrypoint"),

@@ -470,3 +470,17 @@ details.group[hidden], .empty[hidden] { display: none; }
 @keyframes slidein { from { transform: translateX(-100%); } to { transform: none; } }
 @media (min-width: 721px) { .drawer-bg { display: none; } }
 @media (prefers-reduced-motion: reduce) { .drawer, .drawer-bg { animation: none !important; transition: none !important; } }
+
+/* ======================================================================================================
+   v1.5.1: Account page (change your own password) and the normal user's dashboard
+   ====================================================================================================== */
+.pwform { display: flex; flex-direction: column; gap: 4px; }
+.pwform .field { border-top: 0; padding: 8px 0; }
+.pwform input { width: 100%; }
+.form-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding-top: 6px; }
+.form-status { font-size: 13px; min-height: 1.4em; }
+.form-status.ok { color: var(--green); }
+.form-status.bad { color: var(--red); }
+.card .hint { margin: 12px 0 0; }
+#dmain > .hint { margin-top: 14px; }
+@media (max-width: 640px) { .form-actions .b { width: 100%; } }

@@ -41,31 +41,60 @@ class AccessTests(DashBase):
         self.assertIn(c.get("/api/dashboard/data").status_code, (302, 401, 403, 404))
         self.assertIn(c.post("/api/dashboard/action", json={"action": "backup.now"}).status_code, (302, 401, 403, 404))
 
-    def test_normal_user_cannot_see_or_use_it(self):
+    def test_normal_user_gets_a_limited_dashboard(self):
         c = self.user()
-        self.assertEqual(c.get("/dashboard").status_code, 404)
-        self.assertEqual(c.get("/api/dashboard/data?section=overview").status_code, 403)
+        self.assertEqual(c.get("/dashboard").status_code, 200)
+        self.assertEqual(c.get("/api/dashboard/data?section=overview").status_code, 200)
+        for sec in ("settings", "users", "activity", "health", "repo"):          # admin-only sections
+            self.assertEqual(c.get(f"/api/dashboard/data?section={sec}").status_code, 403, sec)
         self.assertEqual(c.get("/api/dashboard/history").status_code, 403)
-        self.assertEqual(c.get("/api/dashboard/log?kind=job&owner=alice&id=1").status_code, 403)
         self.assertEqual(self.act(c, "user.create", username="x", password="longenough1")[0], 403)
         self.assertIsNone(auth.get_user("x"))
+
+    def test_normal_user_only_sees_own_things(self):
+        d = self.data(self.user(), "services")
+        self.assertTrue(all(s["owner"] == "alice" for s in d["services"]))
+        d = self.data(self.user(), "overview")
+        self.assertEqual(d["account"]["name"], "alice")
+        self.assertNotIn("users_online", d)
+        # logs: not someone else's job
+        self.assertEqual(self.user().get("/api/dashboard/log?kind=job&owner=bob&id=1").status_code, 404)
+
+    def test_everyone_can_change_their_own_password(self):
+        c = self.user()
+        pw = lambda **kw: c.post("/api/dashboard/password", json=kw)  # noqa: E731
+        self.assertEqual(pw(current="wrong", password="brandnewpass1", confirm="brandnewpass1").status_code, 400)
+        self.assertEqual(pw(current="longenough1", password="brandnewpass1", confirm="different").status_code, 400)
+        self.assertEqual(pw(current="longenough1", password="x", confirm="x").status_code, 400)       # too short
+        r = pw(current="longenough1", password="brandnewpass1", confirm="brandnewpass1")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertTrue(auth.verify("alice", "brandnewpass1"))
+        self.assertFalse(auth.verify("alice", "longenough1"))
+        self.assertEqual(rapp.app.test_client().post("/api/dashboard/password", json={}).status_code, 401)
+
+    def test_admin_can_change_own_password_too(self):
+        c = self.admin()
+        r = c.post("/api/dashboard/password", json={"current": "adminpass123", "password": "adminnewpass1"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(self.data(c, "account")["account"]["admin"], True)
 
     def test_admin_gets_the_page(self):
         r = self.admin().get("/dashboard")
         self.assertEqual(r.status_code, 200)
         self.assertIn(b"Dashboard", r.data)
 
-    def test_link_is_only_rendered_for_admins(self):
+    def test_link_is_rendered_for_everyone(self):
         self.assertIn(b'href="/dashboard"', self.admin().get("/console").data)
-        self.assertNotIn(b"/dashboard", self.user().get("/console").data)
+        self.assertIn(b'href="/dashboard"', self.user().get("/console").data)
 
-    def test_demoted_admin_loses_access_immediately(self):
+    def test_demoted_admin_keeps_a_limited_dashboard(self):
         auth.create_user("bob", "longenough1", True)
         c = rapp.app.test_client()
         c.post("/login", data={"username": "bob", "password": "longenough1"})
-        self.assertEqual(c.get("/dashboard").status_code, 200)
+        self.assertEqual(c.get("/api/dashboard/data?section=settings").status_code, 200)
         auth.set_admin("bob", False)
-        self.assertEqual(c.get("/dashboard").status_code, 404)
+        self.assertEqual(c.get("/dashboard").status_code, 200)
+        self.assertEqual(c.get("/api/dashboard/data?section=settings").status_code, 403)
 
     def test_cross_site_post_is_refused(self):
         c = self.admin()

@@ -1,13 +1,19 @@
 "use strict";
-// Admin dashboard: plain DOM, no libraries. All text is inserted with textContent (never as markup),
+// Dashboard (admins see everything, normal users only their own things): plain DOM, no libraries. All text is inserted with textContent (never as markup),
 // so usernames, commands and log output can never inject markup.
 (() => {
   const ME = window.RCONSOLE_USER;
+  const ADMIN = !!window.RCONSOLE_ADMIN;
   // [id, label, icon, shown in the phone's bottom bar, short label for it]
-  const TABS = [["overview", "Overview", "grid", 1, "Overview"], ["systems", "Systems", "server", 1, "Systems"],
+  const ADMIN_TABS = [["overview", "Overview", "grid", 1, "Overview"], ["systems", "Systems", "server", 1, "Systems"],
                 ["repo", "Repo storage", "cloud", 1, "Repo"], ["settings", "Settings", "sliders", 1, "Settings"],
                 ["processes", "Processes", "list", 0], ["users", "Users", "users", 0], ["apps", "Apps", "arrows", 0],
-                ["activity", "Activity", "pulse", 0], ["health", "Health", "heart", 0]];
+                ["activity", "Activity", "pulse", 0], ["health", "Health", "heart", 0], ["account", "Account", "lock", 0]];
+  // A normal user's dashboard: only their own account, services, apps, systems and processes.
+  const USER_TABS = [["overview", "Overview", "grid", 1, "Overview"], ["services", "Services", "refresh", 1, "Services"],
+                     ["apps", "Apps", "arrows", 1, "Apps"], ["systems", "Systems", "server", 1, "Systems"],
+                     ["processes", "Processes", "list", 0], ["account", "Account", "lock", 0]];
+  const TABS = ADMIN ? ADMIN_TABS : USER_TABS;
   const cacheV = {};
   const main = document.getElementById("dmain");
   const tabsEl = document.getElementById("dtabs");
@@ -638,12 +644,119 @@
     },
   };
 
-  function showVmProcs(v) {
+
+  // ---------------------------------------------------------------- Account (everyone) and the normal user's own views
+  async function changePassword(form, status) {
+    const f = form.elements, min = (cacheV.minPassword || 4);
+    const say = (msg, bad) => { status.textContent = msg; status.className = "form-status " + (bad ? "bad" : "ok"); toast(msg, bad); };
+    if (!f.current.value) return say("Enter your current password", true);
+    if (f.password.value.length < min) return say(`The new password needs at least ${min} characters`, true);
+    if (f.password.value !== f.confirm.value) return say("The new passwords do not match", true);
+    const submit = form.querySelector("button[type=submit]");
+    submit.disabled = true;
+    try {
+      const r = await api("/api/dashboard/password", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current: f.current.value, password: f.password.value, confirm: f.confirm.value }) });
+      const d = await r.json();
+      say(d.message || (d.ok ? "Password changed" : "Failed"), !d.ok);
+      if (d.ok) form.reset();
+    } catch (e) { say("Request failed", true); }
+    finally { submit.disabled = false; }
+  }
+
+  async function accountView(d) {
+    if (cacheV.account) return cacheV.account;            // built once so a half-typed form is never redrawn
+    const a = d.account;
+    cacheV.minPassword = a.min_password;
+    const kv = (o) => h("dl", { class: "kv" }, Object.entries(o).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v == null || v === "" ? "-" : String(v))]));
+    const status = h("div", { class: "form-status", role: "status" }, "");
+    const field = (id, label, ac, hint) => h("div", { class: "field" }, h("div", { class: "field-top" }, h("label", { for: "pw-" + id }, label)),
+      h("input", { id: "pw-" + id, name: id, type: "password", autocomplete: ac, required: true }), hint ? h("p", { class: "hint" }, hint) : null);
+    const form = h("form", { class: "pwform", novalidate: true, onsubmit: (e) => { e.preventDefault(); changePassword(form, status); } },
+      field("current", "Current password", "current-password"),
+      field("password", "New password", "new-password", `At least ${a.min_password} characters.`),
+      field("confirm", "Repeat the new password", "new-password"),
+      h("div", { class: "form-actions" }, h("button", { class: "b solid", type: "submit" }, "Change password"), status));
+    cacheV.account = [h("div", { class: "dgrid" },
+      h("div", { class: "card" }, h("h3", {}, "Your account"), kv({ Username: a.name, Role: a.admin ? "admin" : "normal user",
+        "Host shell": a.admin || a.host_access ? "allowed" : "not allowed", "Last active": a.last_seen ? ago(a.last_seen) : "now" }),
+        h("p", { class: "hint" }, "The same change as the `sudo cpass` command in the console.")),
+      h("div", { class: "card" }, h("h3", {}, "Change password"), form))];
+    return cacheV.account;
+  }
+
+  const USER_VIEWS = {
+    async overview(d) {
+      const k = d.counts, out = [];
+      const alerts = d.alerts.length ? d.alerts : [{ level: "ok", text: "Everything of yours looks healthy." }];
+      out.push(h("div", { class: "alerts" }, alerts.map((a) => h("div", { class: "alert " + a.level }, h("span", { class: "ai", "aria-hidden": "true" }, { ok: "✓", info: "ℹ" }[a.level] || "⚠"), h("span", {}, a.text)))));
+      out.push(h("div", { class: "dgrid small" },
+        meter("Services", `${k.services_running}/${k.services}`, "running / defined", null),
+        meter("Apps", `${k.apps}`, "published ports", null),
+        meter("Systems", `${k.systems}`, "Linux systems", null),
+        meter("Jobs", `${k.jobs_running}`, "running", null),
+        meter("Terminals", `${k.terminals}`, "open shells", null),
+        meter("Server", dur(d.server.uptime), `v${d.server.version} · ${d.server.host}`, null)));
+      out.push(h("h2", { class: "sec" }, "Your services"));
+      out.push(table(["Name", "State", "Uptime", "Where"], d.services.map((s) => h("tr", {}, td(s.name), td(statePill(s.state)),
+        td(s.state === "running" ? dur(s.uptime) : "-"), td(s.target))), "You have no services. Create one with the `service` command."));
+      out.push(h("h2", { class: "sec" }, "Your systems"));
+      out.push(table(["System", "State", "#Processes"], d.systems.map((v) => h("tr", {}, td([v.distro, v.version ? " " + v.version : ""]),
+        td(statePill(v.state)), td(v.proc_count, "num"))), "No Linux systems installed. Try `vm install debian`."));
+      return out;
+    },
+
+    async services(d) {
+      return [table(["Name", "State", "Uptime", "#Restarts", "Where", "Command", ""], d.services.map((s) => h("tr", {},
+        td(s.name), td([statePill(s.state), s.last_error ? h("div", { class: "sub" }, s.last_error) : null]),
+        td(s.state === "running" ? dur(s.uptime) : "-"), td(s.restarts, "num"), td(s.target), td(s.cmd, "cmd"),
+        td(btn("Logs", () => showLog("service", "", s.name, `service ${s.name}`))))),
+        "You have no services. Create one with the `service` command; it keeps your bot or worker running."),
+        h("p", { class: "hint" }, "Start, stop and restart services from the console with the `service` command.")];
+    },
+
+    async apps(d) {
+      return [h("h2", { class: "sec" }, "Your published ports ", h("small", {}, "expose <port> <name>")),
+        table(["Name", "Port", "Access", "State"], d.exposures.map((e) => h("tr", {},
+          td(h("a", { href: `/${e.name}/`, target: "_blank", rel: "noopener", style: "color:var(--blue)" }, `/${e.name}/`)), td(e.port, "num"),
+          td(h("span", { class: "pill " + (e.public ? "warn" : "") }, e.public ? "public" : "login required")),
+          td(h("span", { class: "pill " + (e.listening ? "ok" : "bad") }, e.listening ? "listening" : "nothing listening")))), "You have not published any port."),
+        h("h2", { class: "sec" }, "Your hosted apps"),
+        table(["Folder", "Port", "State", "PID"], d.hosted.map((a) => h("tr", {}, td(a.folder), td(a.port, "num"),
+          td(statePill(a.alive ? "running" : "stopped")), td(a.pid || "-", "num"))), "No hosted apps.")];
+    },
+
+    async systems(d) {
+      return [h("h2", { class: "sec" }, "Your Linux systems"),
+        table(["System", "State", "#Processes", ""], d.systems.map((v) => h("tr", {},
+          td([v.distro, v.version ? " " + v.version : ""]), td([statePill(v.state), v.message ? h("div", { class: "sub" }, v.message) : null]),
+          td(v.proc_count, "num"), td(v.proc_count ? btn("Processes", () => showVmProcs(v, true)) : ""))), "No systems installed. Try `vm install debian` in the console.")];
+    },
+
+    async processes(d) {
+      return [h("h2", { class: "sec" }, "Your jobs ", h("small", {}, "background commands")),
+        table(["Job", "State", "Runtime", "PID", "Where", "Command", ""], d.jobs.map((j) => h("tr", {},
+          td("%" + j.jid), td(statePill(j.alive ? "running" : "stopped")), td(dur(j.runtime)), td(j.pid || "-", "num"), td(j.vm || "host"), td(j.cmd, "cmd"),
+          td(btn("Output", () => showLog("job", j.owner, String(j.jid), `job %${j.jid}`))))), "You have no jobs."),
+        h("h2", { class: "sec" }, "Your terminals"),
+        table(["Tab", "Where", "Command", "PID"], d.terminals.map((t) => h("tr", {}, td(t.tab), td(t.vm || "host"), td(t.cmd || "shell", "cmd"), td(t.pid || "-", "num"))),
+          "No open terminals."),
+        h("h2", { class: "sec" }, "Your services"),
+        table(["Name", "State", "Uptime", "Command"], d.services.map((s) => h("tr", {}, td(s.name), td(statePill(s.state)), td(s.state === "running" ? dur(s.uptime) : "-"), td(s.cmd, "cmd"))),
+          "You have no services.")];
+    },
+    account: accountView,
+  };
+
+  VIEWS.account = accountView;
+  const V = ADMIN ? VIEWS : USER_VIEWS;
+
+  function showVmProcs(v, readOnly) {
     const bg = h("div", { class: "modal-bg", onclick: (e) => { if (e.target === bg) bg.remove(); } });
     bg.append(h("div", { class: "modal-box" }, h("div", { class: "tools" }, h("b", {}, `${v.owner} / ${v.distro}`), h("span", { class: "sp" }), btn("Close", () => bg.remove())),
       table(["PID", "State", "#Memory", "#CPU time", "Command", ""], v.procs.filter((p) => p.pid !== 1).map((p) => h("tr", {}, td(p.pid, "num"), td(p.state), td(bytes(p.rss_kb * 1024), "num"),
         td(dur(p.cpu_s), "num"), td(p.cmd, "cmd"),
-        td(btn("Stop", async () => { if (await act({ action: "vmproc.kill", owner: v.owner, vm: v.vm, pid: p.pid }, { confirm: `Send SIGTERM to ${p.pid}?` })) bg.remove(); }, "danger")))), "No processes.")));
+        td(readOnly ? "" : btn("Stop", async () => { if (await act({ action: "vmproc.kill", owner: v.owner, vm: v.vm, pid: p.pid }, { confirm: `Send SIGTERM to ${p.pid}?` })) bg.remove(); }, "danger")))), "No processes.")));
     document.body.append(bg);
   }
 
@@ -655,7 +768,7 @@
       const r = await api("/api/dashboard/data?section=" + tab);
       if (!r.ok) throw new Error("bad response");
       const data = await r.json();
-      const nodes = await VIEWS[tab](data);
+      const nodes = await V[tab](data);
       if (document.querySelector(".modal-bg")) { liveEl.textContent = "live"; return; }   // never redraw under an open dialog
       const y = window.scrollY, active = document.activeElement;
       const keep = active && active.closest && active.closest("form.inline") ? null : undefined;

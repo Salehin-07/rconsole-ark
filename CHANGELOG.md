@@ -3,6 +3,31 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.1 — 2026-11-13
+
+### Changed
+- **No forced `sudo cpass` any more.** Logging in with the factory `ark`/`ark` login no longer locks the console
+  (and the terminal socket, file APIs…) until you run `sudo cpass`. The Overview alert and the Account page remind you
+  while the factory password is in use. `RCONSOLE_ADMIN_PASSWORD` still sets the first password.
+- **The dashboard is for everyone.** The ⚙ menu has a Dashboard link for every user. Admins keep the full dashboard;
+  a normal user gets a limited one: their own overview, services (with logs), exposed ports and hosted apps, Linux
+  systems, jobs and terminals, all read-only. Admin sections, server metrics, other users and every admin action stay
+  admin-only (403).
+- **Overall UI refresh:** shared design tokens, one keyboard focus ring, slim theme-aware scrollbars, a calmer login
+  card, clearer tab and file-row states, larger touch targets for file rows.
+
+### Added
+- **Change your own password from the dashboard** (Dashboard → **Account**, for admins and normal users): current
+  password required, wrong guesses are throttled like logins, every change is audited. Same as `sudo cpass`.
+- **PDF viewer in the file browser** (next to photos, videos and music). Browsers without an inline PDF viewer (most
+  phones) get "Open in a new tab" and "Download" buttons.
+
+### Fixed
+- **The file editor never opens compressed or binary files** (archives, images, executables, databases, Office files,
+  anything with NUL bytes…): the file manager, `edit` and `fm` say why and offer the download; saving over such a file
+  is refused too, so it can't be corrupted. Previously a file the editor failed to load (for example one over the size
+  limit) opened as an empty editor, and saving would have overwritten the real file.
+
 ## 1.5.0 — 2026-11-12
 
 ### Fixed

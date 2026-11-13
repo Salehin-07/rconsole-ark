@@ -152,6 +152,77 @@ def archive_ext(name):
     return _ext_of(name, _ALL_EXTS)
 
 
+# ---- "is this something a text editor should ever open?" -------------------------------------------------
+# Compressed archives and binary files are never opened in the editor: it would show garbage, and saving
+# it back would corrupt the file. The name is checked first (cheap), then the first bytes of the content.
+_NOEDIT_EXTS = frozenset((
+    # packages, installers, disk images, compiled code
+    "exe", "dll", "so", "o", "a", "lib", "bin", "dylib", "ko", "elf", "class", "pyc", "pyo", "pyd",
+    "wasm", "dex", "msi", "dmg", "img", "vhd", "vmdk", "qcow2", "pkg", "appimage", "snap", "flatpak",
+    # databases and caches
+    "db", "sqlite", "sqlite3", "mdb", "accdb", "lmdb", "mdf", "pack", "idx", "npy", "npz", "pkl", "pickle",
+    "parquet", "feather", "h5", "hdf5", "onnx", "pt", "pth", "ckpt", "safetensors", "gguf",
+    # documents and office files (zip containers or proprietary binary)
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "epub", "mobi", "djvu", "pages", "numbers",
+    # images, audio, video, fonts
+    "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "avif", "heic", "heif", "tif", "tiff", "psd", "cr2", "nef",
+    "mp3", "wav", "ogg", "oga", "opus", "m4a", "aac", "flac", "wma", "weba", "mid", "midi",
+    "mp4", "m4v", "mkv", "avi", "mov", "wmv", "flv", "webm", "ogv", "3gp",
+    "ttf", "otf", "woff", "woff2", "eot",
+    # other compressed forms that are not in the archive list
+    "z", "lz", "lz4", "lzma", "br", "sz", "zpaq", "ace", "arj", "sit", "sitx", "jar", "war", "ear", "apk", "aab", "ipa",
+    "whl", "egg", "xpi", "crx", "nupkg", "gem",
+))
+# (prefix bytes, description) of well-known binary / compressed formats
+_MAGIC = (
+    (b"\x1f\x8b", "gzip"), (b"BZh1", "bzip2"), (b"BZh9", "bzip2"), (b"BZh2", "bzip2"), (b"BZh3", "bzip2"), (b"BZh4", "bzip2"), (b"BZh5", "bzip2"), (b"BZh6", "bzip2"), (b"BZh7", "bzip2"), (b"BZh8", "bzip2"), (b"\xfd7zXZ\x00", "xz"), (b"7z\xbc\xaf\x27\x1c", "7-Zip"),
+    (b"Rar!\x1a\x07", "RAR"), (b"PK\x03\x04", "zip"), (b"PK\x05\x06", "zip"), (b"\x28\xb5\x2f\xfd", "Zstandard"),
+    (b"\x04\x22\x4d\x18", "LZ4"), (b"\x7fELF", "executable"), (b"%PDF-", "PDF"), (b"\x89PNG", "image"),
+    (b"\xff\xd8\xff", "image"), (b"GIF87a", "image"), (b"GIF89a", "image"), (b"SQLite format 3\x00", "SQLite database"),
+    (b"\xca\xfe\xba\xbe", "compiled code"), (b"\xcf\xfa\xed\xfe", "executable"), (b"\x00asm", "WebAssembly"),
+    (b"\xd0\xcf\x11\xe0", "Office document"), (b"OggS", "audio/video"), (b"ID3\x03", "audio"), (b"ID3\x04", "audio"),
+)
+_SNIFF = 8192
+
+
+def edit_block_reason(path, by_name_only=False):
+    """Why ``path`` must not be opened in the text editor, or ``None`` if it is fine.
+
+    Returns ``(kind, message)`` with kind ``"archive"`` or ``"binary"``. A missing or empty file is
+    fine (the editor creates it). ``by_name_only`` skips reading the file (used before a repo-storage
+    placeholder has been fetched)."""
+    name = os.path.basename(str(path))
+    ext = archive_ext(name)
+    if ext:
+        return "archive", f"{name} is a compressed archive; the editor can't open it. Download it or extract it instead."
+    low = name.lower()
+    suffix = low.rsplit(".", 1)[-1] if "." in low.strip(".") else ""
+    if suffix in _NOEDIT_EXTS:
+        return "binary", f"{name} is a binary file; the editor can't open it. Download it instead."
+    if by_name_only:
+        return None
+    try:
+        with open(path, "rb") as f:
+            head = f.read(_SNIFF)
+    except OSError:
+        return None                      # missing / unreadable: the caller reports that its own way
+    if not head:
+        return None
+    for magic, what in _MAGIC:
+        if head.startswith(magic):
+            kind = "archive" if what in ("gzip", "bzip2", "xz", "7-Zip", "RAR", "zip", "Zstandard", "LZ4") else "binary"
+            return kind, (f"{name} looks like a {what} file; the editor can't open it. Download it instead."
+                          if kind == "binary" else
+                          f"{name} is a compressed archive ({what}); the editor can't open it. "
+                          "Download it or extract it instead.")
+    if b"\x00" in head:
+        return "binary", f"{name} is a binary file (it contains NUL bytes); the editor can't open it. Download it instead."
+    odd = sum(1 for b in head if b < 32 and b not in (9, 10, 12, 13, 27))
+    if odd * 100 > len(head) * 30:
+        return "binary", f"{name} doesn't look like text; the editor can't open it. Download it instead."
+    return None
+
+
 def stem_of(name):
     ext = archive_ext(name)
     stem = name[:-len(ext)] if ext else name

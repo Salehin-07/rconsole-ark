@@ -33,7 +33,7 @@
       <div class="sm-row" id="sm-theme-row"><span class="sm-label">Theme</span><span id="sm-theme-slot"></span></div>
       <div class="sm-row" id="sm-target-row"><span class="sm-label">System</span><span id="sm-target-slot"></span></div>
       <div class="sm-row" id="sm-logout-row"><span class="sm-label">Account</span><span id="sm-logout-slot"></span></div>
-      {% if is_admin %}<div class="sm-row sm-admin" id="sm-dash-row"><a id="dashlink" href="/dashboard" class="sm-link"><span class="sm-ico" aria-hidden="true">&#9638;</span><span class="sm-linktext"><b>Dashboard</b><small>Monitor and manage</small></span><span class="sm-arrow" aria-hidden="true">&rarr;</span></a></div>{% endif %}
+      <div class="sm-row sm-admin" id="sm-dash-row"><a id="dashlink" href="/dashboard" class="sm-link"><span class="sm-ico" aria-hidden="true">&#9638;</span><span class="sm-linktext"><b>Dashboard</b><small>{% if is_admin %}Monitor and manage{% else %}Your account, services and apps{% endif %}</small></span><span class="sm-arrow" aria-hidden="true">&rarr;</span></a></div>
     </div>
     <div id="screen">
       <div id="output"></div>

@@ -125,26 +125,15 @@ class AuthFlowTests(Base):
         self.assertEqual(h["X-Content-Type-Options"], "nosniff")
         self.assertEqual(h["X-Frame-Options"], "SAMEORIGIN")
 
-    def test_default_password_forces_change(self):
+    def test_default_password_no_longer_forces_cpass(self):
         auth.USERS_FILE.unlink()
         auth._cache.update(sig=None, users={})
         auth.seed_defaults()                      # ark / ark
         self.assertEqual(self.login("ark", "ark").status_code, 302)
         out = self.run_cmd("ls")["output"]
-        self.assertIn("sudo cpass", out)
-        self.assertEqual(self.c.get("/api/dir?path=/").status_code, 403)
-        self.assertEqual(self.c.get("/api/file?path=/etc/hostname").status_code, 403)
-        # cpass is allowed, and lifts the lock.
-        self.run_cmd("sudo cpass")
-        self.run_cmd("ark")
-        self.run_cmd("brandnewpass1")
-        res = self.run_cmd("brandnewpass1")
-        self.assertIn("Password updated", res["output"])
+        self.assertNotIn("sudo cpass", out)       # the console works straight away
         self.assertEqual(self.c.get("/api/dir?path=/").status_code, 200)
-        self.assertTrue(auth.verify("ark", "brandnewpass1"))
 
-
-class CsrfTests(Base):
     def test_cross_origin_post_blocked(self):
         self.login()
         r = self.c.post("/api/run", json={"cmd": "id"}, headers={"Origin": "https://evil.example"})
@@ -301,10 +290,50 @@ class HostModeTests(Base):
 
     def test_big_file_refused_by_editor(self):
         self.login()
-        p = os.path.join(os.environ["RCONSOLE_DATA_DIR"], "big.bin")
+        p = os.path.join(os.environ["RCONSOLE_DATA_DIR"], "big.txt")
         with open(p, "wb") as f:
             f.truncate(rapp.MAX_EDIT_BYTES + 1)
         self.assertEqual(self.c.get("/api/file", query_string={"path": p}).status_code, 413)
+
+    def test_editor_never_opens_binary_or_compressed_files(self):
+        import gzip
+        import zipfile
+        self.login()
+        d = os.environ["RCONSOLE_DATA_DIR"]
+        gz, zp, blob, png, txt = (os.path.join(d, n) for n in ("a.txt.gz", "b.zip", "noext", "pic.png", "ok.py"))
+        with gzip.open(gz, "wb") as f:
+            f.write(b"hello")
+        with zipfile.ZipFile(zp, "w") as z:
+            z.writestr("x", "y")
+        with open(blob, "wb") as f:                       # no telling extension: caught by its content
+            f.write(b"\x00\x01\x02binary\x00")
+        with open(png, "wb") as f:
+            f.write(b"\x89PNG\r\n")
+        with open(txt, "w", encoding="utf-8") as f:
+            f.write("print('héllo')\n")
+        for p in (gz, zp, blob, png):
+            r = self.c.get("/api/file", query_string={"path": p})
+            self.assertEqual(r.status_code, 415, p)
+            self.assertTrue(r.get_json()["blocked"])
+            before = open(p, "rb").read()
+            r = self.c.post("/api/file", json={"path": p, "content": "overwritten"})   # must not corrupt it
+            self.assertEqual(r.status_code, 415, p)
+            self.assertEqual(open(p, "rb").read(), before)
+        self.assertEqual(self.c.get("/api/file", query_string={"path": gz}).get_json()["kind"], "archive")
+        self.assertEqual(self.c.get("/api/file", query_string={"path": txt}).status_code, 200)
+        self.assertIn("compressed", self.run_cmd(f"edit {gz}")["output"])
+        self.assertIn("editor", self.run_cmd(f"edit {txt}"))
+
+    def test_pdf_is_served_inline_for_the_viewer(self):
+        self.login()
+        p = os.path.join(os.environ["RCONSOLE_DATA_DIR"], "doc.pdf")
+        with open(p, "wb") as f:
+            f.write(b"%PDF-1.4\n%%EOF\n")
+        r = self.c.get("/api/media", query_string={"path": p})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.mimetype, "application/pdf")
+        self.assertNotIn("sandbox", r.headers["Content-Security-Policy"])      # a sandboxed PDF will not render
+        self.assertEqual(r.headers["Content-Disposition"], "inline")
 
     def test_kprocess_refuses_server_pid(self):
         self.login()

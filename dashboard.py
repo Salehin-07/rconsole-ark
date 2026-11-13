@@ -426,9 +426,11 @@ def _terminal_rows():
     return sorted(rows, key=lambda r: (r["owner"], r["tab"]))
 
 
-def _vm_rows():
+def _vm_rows(only=None):
     rows = []
     for owner in sorted(auth.list_users()):
+        if only is not None and owner != only:
+            continue
         ids = list(sandbox.installed_vms(owner))
         for vm in sandbox.installing(owner):
             if vm not in ids:
@@ -520,7 +522,8 @@ def _alerts(cur):
     except Exception:
         pass
     if _default_password_in_use():
-        add("warn", "The default admin account 'ark' still uses its factory password. Run `sudo cpass`.")
+        add("warn", "The default admin account 'ark' still uses its factory password. "
+                    "Change it under Dashboard > Account, or run `sudo cpass`.")
     return out
 
 
@@ -661,7 +664,7 @@ def storage(refresh=False):
             "busy": _storage["busy"], "partial": _storage["partial"]}
 
 
-SECTIONS = ("overview", "processes", "users", "systems", "apps", "activity", "health")
+SECTIONS = ("overview", "processes", "users", "systems", "apps", "activity", "health", "account")
 
 
 def view(section, actor=""):
@@ -692,7 +695,89 @@ def view(section, actor=""):
         return settings.snapshot()
     if section == "repo":
         return _repo_view()
+    if section == "account":
+        return view_user("account", actor)
     raise ValueError(f"unknown section '{section}'")
+
+
+# ------------------------------------------------------------------ normal-user dashboard
+# Everyone may open the dashboard; a normal user only ever sees (and may change) their own things.
+USER_SECTIONS = ("overview", "services", "apps", "systems", "processes", "account")
+
+
+def _mine(rows, who, key="owner"):
+    return [r for r in rows if r.get(key) == who]
+
+
+def view_user(section, who):
+    """One section of a normal user's dashboard: only ``who``'s own data (``ValueError`` if unknown)."""
+    if section not in USER_SECTIONS:
+        raise ValueError(f"unknown section '{section}'")
+    u = auth.get_user(who) or {}
+    seen = last_seen(who)
+    svcs = _mine(_service_rows(), who)
+    jobs_ = _mine(_job_rows(), who)
+    terms = _mine(_terminal_rows(), who)
+    exps_all, hosted_all = _app_rows()
+    exps = _mine(exps_all, who)
+    hosted = _mine(hosted_all, who)
+    systems = _vm_rows(only=who)
+    if section == "services":
+        return {"services": svcs}
+    if section == "apps":
+        return {"exposures": exps, "hosted": hosted}
+    if section == "systems":
+        return {"systems": systems}
+    if section == "processes":
+        return {"jobs": jobs_, "terminals": terms, "services": svcs}
+    account = {"name": who, "admin": bool(u.get("is_admin")), "last_seen": int(seen[0]) if seen else None,
+               "host_access": bool(sandbox.host_allowed(who)), "min_password": config.MIN_PASSWORD_LEN}
+    if section == "account":
+        return {"account": account}
+    alerts = []
+    if who == auth.DEFAULT_ADMIN and _default_password_in_use():
+        alerts.append({"level": "warn", "text": "Your account still uses the factory password. Change it under Account."})
+    for v in systems:
+        if v["state"] == "failed":
+            alerts.append({"level": "warn", "text": f"Your system {v['vm']} failed: {v['message']}"})
+    for s_ in svcs:
+        if s_["enabled"] and s_["state"] in ("backoff", "restarting"):
+            alerts.append({"level": "warn", "text": f"Your service '{s_['name']}' keeps stopping"
+                                                      f"{': ' + s_['last_error'] if s_['last_error'] else ''}."})
+    return {"account": account, "alerts": alerts,
+            "counts": {"services": len(svcs), "services_running": sum(1 for x in svcs if x["state"] == "running"),
+                       "apps": len(exps), "systems": len(systems), "jobs_running": sum(1 for x in jobs_ if x["alive"]),
+                       "terminals": sum(1 for x in terms if x["alive"])},
+            "server": {"version": __version__, "uptime": int(time.time() - STARTED),
+                       "host": config.PLATFORM or "self-hosted"},
+            "services": svcs[:5], "systems": systems[:5]}
+
+
+def change_own_password(actor, current, new):
+    """Let any signed-in user change their own password. Returns ``(ok, message, wrong_current)``.
+
+    The current password is required (a stolen session cookie alone must not be enough to take an
+    account over), and every attempt is audited by the caller."""
+    if not isinstance(current, str) or not isinstance(new, str):
+        return False, "bad request", False
+    if not auth.verify(actor, current):
+        return False, "The current password is not right", True
+    if new == current:
+        return False, "Choose a password different from the current one", False
+    ok, err = auth.set_password(actor, new)
+    if ok:
+        _default_pw["t"] = 0.0          # re-check the factory-password warning on the next view
+    return ok, ("Password changed" if ok else err), False
+
+
+def user_log_ok(who, kind, owner="", ident=""):
+    """May a normal user read this log? Only their own jobs and services."""
+    if kind == "job":
+        return owner == who
+    if kind == "service":
+        i = services.info(ident)
+        return bool(i) and i.get("owner") == who
+    return False
 
 
 def log_tail(kind, owner="", ident="", lines=200):
@@ -848,7 +933,7 @@ def _perform(actor, action, data):          # noqa: C901 - a flat dispatch table
         return ok, (f"deleted user '{user}'" if ok else err), user
     if action == "user.password":
         if user == actor:
-            return False, "use sudo cpass to change your own password", user
+            return False, "change your own password under Dashboard > Account (or sudo cpass)", user
         ok, err = auth.set_password(user, data.get("password") or "")
         return ok, (f"password changed for '{user}'" if ok else err), user
     if action == "user.stop":

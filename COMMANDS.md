@@ -124,7 +124,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.5.0` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.5.1` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -662,8 +662,8 @@ Admin commands need `sudo` (🔒). Passwords must be at least 8 characters (`RCO
 
 ### `cpass`
 🔒 Changes a password. It asks **which user** (Enter = yourself), then the new password twice. If you still use the
-factory password (`ark`/`ark`), this is the command you must run first — until you do, only `cpass`, `logout`,
-`help`, `clear`, `history` and `rwhoami` work.
+factory password (`ark`/`ark`) you should change it first (nothing is blocked, but the dashboard warns). Any user can also
+change their own password under **Dashboard → Account**.
 
 ### `cuser`
 🔒 Renames **you**. It asks for the new username. Your tabs, aliases, VMs and exposures move with the name.

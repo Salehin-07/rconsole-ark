@@ -11,7 +11,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.5.0** · MIT licensed
+**Version 1.5.1** · MIT licensed
 
 ## Why this exists
 
@@ -91,13 +91,17 @@ Commands run on one of two **targets**:
   find/replace, comment toggling, line shortcuts, an adjustable font size and a touch symbol bar.
 - Hosted web apps behind a path-based proxy: start them yourself and `expose` them, or let
   the `service` supervisor run them (autostart, crash restart, logs).
-- Visual file browser (📁) that **shows photos and plays videos and music** in a built-in viewer, with **download** (files, or whole folders as a `.zip`) and
+- Visual file browser (📁) that **shows photos and PDFs and plays videos and music** in a built-in viewer, with **download** (files, or whole folders as a `.zip`) and
   **upload** (files or entire folders).
-- **Admin dashboard** (`/dashboard`, admins only): live CPU / memory / disk / network graphs, every process, service,
+- **Dashboard** (`/dashboard`, ⚙ menu): **admins** get live CPU / memory / disk / network graphs, every process, service,
   job and terminal with kill / restart / logs, user management (create, promote, demote, reset, delete), per-system
-  views, disk usage, an audit trail and alerts. Plus a **logout button** next to the theme and system buttons.
-- Accounts with admin/non-admin roles, brute-force protection, forced
-  replacement of the factory password, session timeout, and factory reset.
+  views, disk usage, an audit trail and alerts. **Normal users** get a limited dashboard with only their own
+  services, apps, systems, jobs and terminals (read-only, with logs). **Everyone** can change their own password
+  under **Account**, like `sudo cpass`. Plus a **logout button** next to the theme and system buttons.
+- The file editor never opens **compressed or binary files** (archives, images, executables, databases…): it tells you
+  why and offers the download instead, so a save can never corrupt them.
+- Accounts with admin/non-admin roles, brute-force protection, a warning in the dashboard while the factory
+  password is in use, session timeout, and factory reset.
 - Native **AI agent** (`sudo agent`) with file and shell tools.
 
 ---
@@ -121,9 +125,9 @@ uv sync                      # create the environment
 uv run python main.py        # http://127.0.0.1:5000
 ```
 
-Log in as **`ark` / `ark`**. Rconsole immediately asks you to replace that
-password (`sudo cpass`) before anything else works. To skip the default
-entirely, set `RCONSOLE_ADMIN_PASSWORD` before the first start.
+Log in as **`ark` / `ark`**. Nothing is forced, but the factory password is public: change it at once under
+**Dashboard → Account** or with `sudo cpass` (the dashboard warns you until you do). To start with your own,
+set `RCONSOLE_ADMIN_PASSWORD` before the first start.
 
 Production (single worker + threads — see [Deployment](#deployment)):
 
@@ -477,7 +481,7 @@ calling the terminal websocket or the file APIs directly.
 | `neofetch` / `fetch` / `rfetch` | System summary: your VM's (in `vm` mode) or Rconsole's (`host` mode); `rfetch` is always Rconsole's. Fits your screen width. |
 | `<cmd> &`, `jobs`, `jobout %n`, `jobtail %n`, `fg %n`, `kill %n` | Background jobs. |
 | `logout` | Log out (anyone). |
-| `sudo cpass` / `cuser` | Change a password / rename a user (state and VM move with the name). |
+| `sudo cpass` / `cuser` | Change a password / rename a user (state and VM move with the name). Every user can also change their own password under Dashboard → Account. |
 | `sudo muser` / `ruser` | Create / delete a user (their VM and state are removed too). |
 | `sudo suser` / `auser <u>` / `nauser <u>` | List users / grant / revoke admin. |
 | `sudo rboot` | Factory reset: kill apps, wipe state and VMs, reset users. |
@@ -691,7 +695,7 @@ rconsole](COMMANDS.md#updating-rconsole). Every feature is catalogued in [FEATUR
 
 | Symptom | Cause / Fix |
 |---------|-------------|
-| "Password change required" / commands refused after login | You used the default password. Run `sudo cpass`. |
+| The dashboard warns that the factory password is in use | Change it under Dashboard → Account, or run `sudo cpass`. |
 | `host access is restricted to admins` | Non-admins use the VM: `vm install`, then `vm shell`. |
 | `vm install` fails: "proot cannot run" | Either the platform blocks `ptrace` (Rconsole already retries without seccomp acceleration — use a VPS then), or the proot is too old (`unknown program 'prooted-…'`): Rconsole fetches 5.5.0 on x86-64; elsewhere install a newer one. |
 | `bash: cannot set terminal process group … no job control` | Fixed in current versions (the terminal now gets a controlling terminal). Update. |

@@ -13,7 +13,7 @@
 <body class="dash">
   <header id="dh">
     <a class="dh-back" href="/console" title="Back to the console">&larr; Console</a>
-    <span class="dh-title">Dashboard</span>
+    <span class="dh-title">{{ "Dashboard" if is_admin else "My dashboard" }}</span>
     <span class="dh-spacer"></span>
     <span id="dh-live" class="dh-live" title="Refreshes automatically">live</span>
     <span class="dh-user">{{ username }} · v{{ version }}</span>
@@ -21,7 +21,7 @@
   <nav id="dtabs" role="tablist"></nav>
   <main id="dmain" aria-live="polite"></main>
   <div id="dtoast" role="status"></div>
-  <script>window.RCONSOLE_USER = "{{ username }}";</script>
+  <script>window.RCONSOLE_USER = "{{ username }}"; window.RCONSOLE_ADMIN = {{ "true" if is_admin else "false" }};</script>
   <script src="{{ url_for('static', filename='dashboard.js', v=cache_v) }}" defer></script>
 </body>
 </html>
