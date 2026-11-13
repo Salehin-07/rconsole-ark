@@ -201,7 +201,7 @@ Everything is configured through environment variables. The reference below is *
 
 | Variable | Default | What it does |
 |---|---|---|
-| `RCONSOLE_MAX_UPLOAD_MB` | `64` | Largest single file the file browser accepts. |
+| `RCONSOLE_MAX_UPLOAD_MB` | `1024` | Largest single file the file browser accepts (big files are sent in parts, so this is not limited by a proxy's request size). |
 | `RCONSOLE_MAX_EXTRACT_MB` | `2048` | Most an archive may expand to when extracted in the file browser (zip-bomb guard; minimum 16). |
 
 ### Staying awake
@@ -232,10 +232,10 @@ Everything is configured through environment variables. The reference below is *
 
 | Variable | Default | What it does |
 |---|---|---|
-| `RCONSOLE_STORAGE` | `host` | `host` keeps files on this disk; `github` keeps your files (workspace and each system's `/home`, `/srv`, `/data`) in the backup repo and uses the disk only as a cache. Falls back to `host` when the repo is not set up. Also switchable in the dashboard. |
+| `RCONSOLE_STORAGE` | auto | `host` keeps files on this disk; `github` keeps your files (workspace and each system's `/home`, `/srv`, `/data`) in the backup repo and uses the disk only as a cache. Left unset it is `github` as soon as the repo, token and passphrase are configured, otherwise `host`; it also falls back to `host` when the repo is not usable. Also switchable in the dashboard. |
 | `RCONSOLE_STORAGE_ENCRYPT` | `1` | Encrypt file names and contents in the repo (AES-256-GCM, key from `RCONSOLE_BACKUP_PASSPHRASE`). `0` stores them as plain text. |
 | `RCONSOLE_STORAGE_BRANCH` | `rconsole-storage` | Branch of the backup repo that holds the files (must differ from the backup branch). |
-| `RCONSOLE_STORAGE_CHUNK_MB` | `50` | Files are split into pieces of this size before upload (1 to 95; GitHub rejects files over 100 MB). |
+| `RCONSOLE_STORAGE_CHUNK_MB` | `48` | Files are split into pieces of this size before upload (1 to 95; GitHub rejects files over 100 MB). |
 | `RCONSOLE_STORAGE_CACHE_MB` | `1024` | How much of the stored files may sit on the disk; above it, the least recently used big files become placeholders again. |
 | `RCONSOLE_STORAGE_STUB_MB` | `4` | Only files at least this big can become placeholders; smaller files always stay on the disk. |
 | `RCONSOLE_STORAGE_INTERVAL` | `20` | Seconds between looking for changed files to upload (minimum 5). |

@@ -413,6 +413,51 @@ class FileTransferTests(Base):
         self.assertEqual(open(outside).read(), "untouched")
         self.assertFalse(os.path.islink(os.path.join(self.root, "d", "link.txt")))
 
+    def upload_part(self, name, data, offset, total, uid="ab12cd34ef56", overwrite=False):
+        form = {"dir": self.root, "file": (io.BytesIO(data), name), "upload_id": uid,
+                "offset": str(offset), "total": str(total)}
+        if overwrite:
+            form["overwrite"] = "1"
+        return self.c.post("/api/upload", data=form, content_type="multipart/form-data")
+
+    def test_upload_in_parts_assembles_a_file_bigger_than_one_request(self):
+        parts = [b"A" * 1000, b"B" * 1000, b"C" * 500]
+        total, off = 2500, 0
+        for i, part in enumerate(parts):
+            r = self.upload_part("big.bin", part, off, total)
+            self.assertEqual(r.status_code, 200, r.data)
+            self.assertEqual(r.get_json().get("partial", False), i < 2)
+            off += len(part)
+        self.assertEqual(open(os.path.join(self.root, "big.bin"), "rb").read(), b"".join(parts))
+        self.assertEqual([n for n in os.listdir(self.root) if n.startswith(".")], [])
+
+    def test_upload_part_retry_is_idempotent(self):
+        self.assertEqual(self.upload_part("r.bin", b"1" * 100, 0, 150).status_code, 200)
+        self.assertEqual(self.upload_part("r.bin", b"2" * 50, 100, 150).status_code, 200)   # completes it
+        self.assertEqual(self.upload_part("r2.bin", b"1" * 100, 0, 150, uid="1111111122222222").status_code, 200)
+        self.assertEqual(self.upload_part("r2.bin", b"x" * 20, 100, 150, uid="1111111122222222").status_code, 200)
+        r = self.upload_part("r2.bin", b"2" * 50, 100, 150, uid="1111111122222222")          # retried part
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(open(os.path.join(self.root, "r2.bin"), "rb").read(), b"1" * 100 + b"2" * 50)
+
+    def test_upload_parts_out_of_order_and_over_limit_are_refused(self):
+        r = self.upload_part("o.bin", b"x" * 10, 50, 100, uid="aaaaaaaabbbbbbbb")
+        self.assertEqual(r.status_code, 409)
+        import config
+        old = config.MAX_UPLOAD_MB
+        config.MAX_UPLOAD_MB = 1
+        try:
+            r = self.upload_part("huge.bin", b"x", 0, 5 * 1024 * 1024, uid="ccccccccdddddddd")
+            self.assertEqual(r.status_code, 413)
+        finally:
+            config.MAX_UPLOAD_MB = old
+        self.assertEqual(self.upload_part("bad", b"x", 0, 10, uid="../evil").status_code, 400)
+
+    def test_upload_part_existing_file_needs_overwrite(self):
+        self.upload("e.bin", b"old")
+        self.assertEqual(self.upload_part("e.bin", b"n" * 5, 0, 10, uid="eeeeeeeeffffffff").status_code, 409)
+        self.assertEqual(open(os.path.join(self.root, "e.bin"), "rb").read(), b"old")
+
     def test_upload_size_limit(self):
         import config
         old = config.MAX_UPLOAD_MB

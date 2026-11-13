@@ -2980,13 +2980,9 @@ function downloadEntry(e) {
 
 // ---- upload: files or a whole folder, one request per file so progress and errors are per file
 const UPLOAD_PARALLEL = 3;
-function uploadOne(file, dir, rel, overwrite, onProgress) {
+const UPLOAD_PART = 24 * 1048576;   // files above this go up in parts, so no proxy request-size limit applies
+function postUpload(fd, onProgress) {
   return new Promise((resolve) => {
-    const fd = new FormData();
-    fd.append("dir", dir);
-    fd.append("rel", rel);
-    if (overwrite) fd.append("overwrite", "1");
-    fd.append("file", file, file.name);
     const x = new XMLHttpRequest();
     x.open("POST", "/api/upload");
     x.upload.onprogress = (ev) => { if (ev.lengthComputable) onProgress(ev.loaded); };
@@ -2999,6 +2995,36 @@ function uploadOne(file, dir, rel, overwrite, onProgress) {
     x.onerror = () => resolve({ ok: false, status: 0, exists: false, error: "network error" });
     x.send(fd);
   });
+}
+async function uploadOne(file, dir, rel, overwrite, onProgress) {
+  const base = (fd) => { fd.append("dir", dir); fd.append("rel", rel); if (overwrite) fd.append("overwrite", "1"); };
+  if (file.size <= UPLOAD_PART) {
+    const fd = new FormData();
+    base(fd);
+    fd.append("file", file, file.name);
+    return postUpload(fd, onProgress);
+  }
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(12))).map((b) => b.toString(16).padStart(2, "0")).join("");
+  let offset = 0, last = { ok: false, error: "nothing sent" };
+  while (offset < file.size) {
+    const end = Math.min(file.size, offset + UPLOAD_PART);
+    let tries = 0;
+    for (;;) {
+      const fd = new FormData();
+      base(fd);
+      fd.append("upload_id", id);
+      fd.append("offset", String(offset));
+      fd.append("total", String(file.size));
+      fd.append("file", file.slice(offset, end), file.name);
+      last = await postUpload(fd, (n) => onProgress(offset + n));
+      // a part that failed on the network or on the server is retried alone; real refusals are final
+      if (last.ok || (last.status !== 0 && last.status < 500) || ++tries >= 3) break;
+      await new Promise((r) => setTimeout(r, 800 * tries));
+    }
+    if (!last.ok) return last;
+    offset = end;
+  }
+  return last;
 }
 async function uploadFiles(fileList) {
   const files = Array.from(fileList || []);

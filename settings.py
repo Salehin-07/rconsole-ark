@@ -57,7 +57,7 @@ def _csv_urls(raw):
 
 class Setting:
     def __init__(self, env, group, label, kind, *, attr=None, conv=None, default="", live=True, choices=(),
-                 lo=None, hi=None, secret=False, help="", module=None, placeholder=""):
+                 lo=None, hi=None, secret=False, help="", module=None, placeholder="", unit=""):
         self.env, self.group, self.label, self.kind = env, group, label, kind
         self.attr = attr                  # config attribute that mirrors it (or None)
         self.module = module              # alternative: (module name, attribute) to set
@@ -66,7 +66,7 @@ class Setting:
         self.live = live
         self.choices = tuple(choices)
         self.lo, self.hi, self.secret = lo, hi, secret
-        self.help, self.placeholder = help, placeholder
+        self.help, self.placeholder, self.unit = help, placeholder, unit
 
     def typed(self, raw):
         return self.conv(raw) if self.conv else raw
@@ -144,7 +144,7 @@ SETTINGS = [
     # ---- services
     _B("RCONSOLE_SUPERVISOR", "services", "Service supervisor", "SUPERVISOR", True, live=False),
     # ---- files
-    _I("RCONSOLE_MAX_UPLOAD_MB", "files", "Largest upload (MB)", "MAX_UPLOAD_MB", 64, 1, 100000),
+    _I("RCONSOLE_MAX_UPLOAD_MB", "files", "Largest upload (MB)", "MAX_UPLOAD_MB", 1024, 1, 100000),
     _I("RCONSOLE_MAX_EXTRACT_MB", "files", "Largest extraction (MB)", "MAX_EXTRACT_MB", 2048, 16, 1000000),
     # ---- keepalive
     _B("RCONSOLE_KEEPALIVE", "keepalive", "Keep-alive self-ping", "KEEPALIVE", config.PLATFORM == "render"),
@@ -168,12 +168,16 @@ SETTINGS = [
     _B("RCONSOLE_RESTORE_SETUP", "backup", "Re-run vm setup after restore", "RESTORE_SETUP", True),
     _B("RCONSOLE_RESTORE_DEPS", "backup", "Reinstall dependencies after restore", "RESTORE_DEPS", True),
     # ---- repo storage
-    _C("RCONSOLE_STORAGE", "storage", "Where files live", "STORAGE", "host", ("host", "github"),
-       help="host: on this machine's disk. github: in the repo above (falls back to host if it is not set up)."),
+    Setting("RCONSOLE_STORAGE", "storage", "Where files live", "choice", attr="STORAGE", default="host",
+            choices=("host", "github"),
+            conv=lambda raw: (str(raw or "").strip().lower() if str(raw or "").strip().lower() in ("host", "github")
+                              else config.default_storage()),
+            help="host: on this machine's disk. github: in the repo above. Left alone it is github as soon as "
+                 "the repo, token and passphrase are set (and host if the repo is not set up)."),
     _B("RCONSOLE_STORAGE_ENCRYPT", "storage", "Encrypt files in the repo", "STORAGE_ENCRYPT", True,
        help="Needs the passphrase. Off stores file names and contents as plain text in the repo."),
     _S("RCONSOLE_STORAGE_BRANCH", "storage", "Storage branch", "STORAGE_BRANCH", "rconsole-storage"),
-    _I("RCONSOLE_STORAGE_CHUNK_MB", "storage", "Split files into pieces of (MB)", "STORAGE_CHUNK_MB", 50, 1, 95,
+    _I("RCONSOLE_STORAGE_CHUNK_MB", "storage", "Split files into pieces of (MB)", "STORAGE_CHUNK_MB", 48, 1, 95,
        help="GitHub refuses files over 100 MB, so bigger files are split."),
     _I("RCONSOLE_STORAGE_CACHE_MB", "storage", "Local cache size (MB)", "STORAGE_CACHE_MB", 1024, 16, 10_000_000,
        help="Above this, the least recently used big files become placeholders again."),
@@ -188,11 +192,26 @@ SETTINGS = [
             conv=lambda raw: (raw or "").strip().rstrip("/") or "https://api.github.com"),
 ]
 BY_ENV = {s.env: s for s in SETTINGS}
+_UNITS = {"RCONSOLE_THREADS": "threads", "RCONSOLE_MIN_PASSWORD": "characters", "RCONSOLE_MAX_USERS": "accounts",
+          "RCONSOLE_METRICS_INTERVAL": "seconds", "RCONSOLE_LOGIN_ATTEMPTS": "attempts",
+          "RCONSOLE_LOGIN_LOCKOUT": "seconds", "RCONSOLE_MAX_UPLOAD_MB": "MB", "RCONSOLE_MAX_EXTRACT_MB": "MB",
+          "RCONSOLE_KEEPALIVE_INTERVAL": "seconds", "RCONSOLE_BACKUP_INTERVAL": "seconds",
+          "RCONSOLE_BACKUP_MAX_MB": "MB", "RCONSOLE_STORAGE_CHUNK_MB": "MB", "RCONSOLE_STORAGE_CACHE_MB": "MB",
+          "RCONSOLE_STORAGE_STUB_MB": "MB", "RCONSOLE_STORAGE_INTERVAL": "seconds", "PORT": ""}
+for _e, _u in _UNITS.items():
+    BY_ENV[_e].unit = _u
 
-GROUP_TITLES = [("storage", "Files in your GitHub repo"), ("backup", "Backups and the repo"),
-                ("server", "Server"), ("login", "Accounts and login"), ("systems", "Linux systems (VMs)"),
-                ("services", "Services"), ("files", "Files"), ("keepalive", "Staying awake"),
-                ("update", "Updating")]
+GROUP_TITLES = [
+    ("storage", "Files in your GitHub repo", "Piece size, cache and sync timing for repo storage."),
+    ("backup", "Backups and the repo", "The private repository, its token and passphrase, and backup timing."),
+    ("server", "Server", "Port, threads, HTTPS and proxy behaviour."),
+    ("login", "Accounts and login", "Password rules, account limit and lockout."),
+    ("systems", "Linux systems", "How virtual Linux systems are created and run."),
+    ("services", "Services", "The supervisor that keeps your bots and sites running."),
+    ("files", "Files", "Upload and extraction limits in the file manager."),
+    ("keepalive", "Staying awake", "Pings that stop a free host from sleeping."),
+    ("update", "Updating", "Where updates come from."),
+]
 
 # Variables the dashboard shows but cannot change, with the reason.
 READ_ONLY = [
@@ -231,21 +250,29 @@ def current_raw(s):
 
 
 def _display(s, raw):
+    """The value in force, as the dashboard should show it: the real number or text, not a placeholder."""
+    if s.kind == "secret":
+        return ""
+    typed = s.typed(raw) if s.conv else raw
     if s.kind == "bool":
-        return "1" if _bool(raw, _bool(s.default, False)) else "0"
-    return "" if raw is None else str(raw)
+        return "1" if typed else "0"
+    if isinstance(typed, (tuple, list)):
+        return ", ".join(str(x) for x in typed)
+    return "" if typed is None else str(typed)
 
 
 def snapshot():
     """Everything the dashboard needs: grouped settings with their current values (never secrets)."""
     sv = saved()
     groups = []
-    for key, title in GROUP_TITLES:
+    for key, title, blurb in GROUP_TITLES:
         rows = []
         for s in (x for x in SETTINGS if x.group == key):
             raw = current_raw(s)
-            row = {"env": s.env, "label": s.label, "kind": s.kind, "live": s.live, "help": s.help,
-                   "default": s.default, "choices": list(s.choices), "min": s.lo, "max": s.hi,
+            orig = settingsfile.ORIGINAL.get(s.env, os.environ.get(s.env)) if s.env in sv else None
+            row = {"env": s.env, "label": s.label, "kind": s.kind, "live": s.live, "help": s.help, "unit": s.unit,
+                   "default": s.default,
+                   "fallback": "" if s.secret else (orig if orig else _display(s, None)), "choices": list(s.choices), "min": s.lo, "max": s.hi,
                    "source": source(s, sv), "placeholder": s.placeholder,
                    "pending_restart": s.env in _pending_restart}
             if s.secret:
@@ -253,7 +280,7 @@ def snapshot():
             else:
                 row["value"] = _display(s, raw)
             rows.append(row)
-        groups.append({"key": key, "title": title, "settings": rows})
+        groups.append({"key": key, "title": title, "blurb": blurb, "settings": rows})
     ro = [{"env": e, "why": w, "value": ("" if e in ("RCONSOLE_SECRET", "RCONSOLE_PEPPER",
                                                       "RCONSOLE_ADMIN_PASSWORD") else os.environ.get(e, ""))}
           for e, w in READ_ONLY]
@@ -386,6 +413,10 @@ def set_values(changes, actor=""):
             else:
                 _pending_restart.add(env)
                 restart.append(env)
+    # the storage mode follows the repo being set up unless it was chosen explicitly
+    if any(e in clean for e in ("RCONSOLE_BACKUP_URL", "RCONSOLE_BACKUP_TOKEN", "RCONSOLE_BACKUP_PASSPHRASE",
+                                "RCONSOLE_STORAGE_ENCRYPT")):
+        _apply_one(BY_ENV["RCONSOLE_STORAGE"])
     names = ", ".join(s_label(e) for e in clean)
     msg = f"saved: {names}" if not restart else f"saved: {names}. Restart the server to apply: " + \
         ", ".join(s_label(e) for e in restart)

@@ -5,11 +5,18 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
 
 ## 1.5.0 — 2026-11-12
 
+### Fixed
+- **Files over 64 MB could not be uploaded** (the default per-file limit was 64 MB and refused them before any
+  splitting). The default is now 1024 MB, and big files are sent in **parts of 24 MB** (each part is retried on its
+  own), so no proxy's request-size limit can reject them either. A 103 MB file is stored as three pieces and comes
+  back bit-for-bit identical.
+- Repo storage pieces default to 48 MB (was 50) so none of them crosses GitHub's 50 MB large-file warning.
+
 ### Added
 - **Repo storage: your files live in the GitHub repo, the host disk only caches them.** Switch it on in the dashboard
   (**Repo storage**) or with `RCONSOLE_STORAGE=github`. It stores the workspace and each system's `/home`, `/srv`
   and `/data`; `/root`, `/etc`, `/proc`, `/app` and the other system folders stay on the host. Files are cut into
-  pieces of at most `RCONSOLE_STORAGE_CHUNK_MB` (default 50, maximum 95: GitHub rejects files over 100 MB) and joined
+  pieces of at most `RCONSOLE_STORAGE_CHUNK_MB` (default 48, maximum 95: GitHub rejects files over 100 MB) and joined
   again when opened, so any file size works. Identical data is stored once; appending to a log re-sends only its last
   piece. Uploads from the 📁 upload button (files and folders), edits, shell commands and extraction are all synced.
   A restart or a fresh deploy needs only the repo: the folder tree comes back, small files immediately, big files as
@@ -27,6 +34,19 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
 - New variables: `RCONSOLE_STORAGE`, `_ENCRYPT`, `_BRANCH`, `_CHUNK_MB`, `_CACHE_MB`, `_STUB_MB`, `_INTERVAL`.
 
 ### Changed
+- **Repo storage is now the default as soon as the repo is set up** (URL, token and, when encrypting, the
+  passphrase) and `RCONSOLE_STORAGE` is not set; choosing `host` explicitly still wins. Saving the connection in the
+  dashboard switches it on at once.
+- **Settings show the value in force**, the real number or text, never an empty box with a faint placeholder; a
+  setting changed in the dashboard says what **Reset** will go back to.
+- **Dashboard redesign, mobile first.** One design system for every control: the same 44 px touch height, radius,
+  border and focus ring for inputs, selects, switches, segmented controls and buttons; real switches instead of
+  On/Off dropdowns; custom dialogs (bottom sheets on phones, with Esc and focus handling) instead of the browser's
+  confirm/prompt; styled toasts; a phone bottom bar with four main tabs and a **More** sheet instead of nine
+  cramped icons. **Settings**: collapsible groups with a description each, search, a sticky "N unsaved changes"
+  bar (Save / Discard), units next to numbers, help text under each field, saved-secret chips. **Repo storage**: a
+  status card that says in words where your files live, four stat tiles with a cache meter, and a guided setup
+  (connect, where files live, encryption, maintenance) with a readiness checklist.
 - With repo storage on, the workspace is no longer included in backups (it is already in the repo).
 - gunicorn's config reads `data/settings.json` too, so a saved port, thread count or log level applies at start.
 

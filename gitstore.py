@@ -6,7 +6,7 @@ files you create live in the backup repository and the disk only *caches* them:
 * what is stored: the **workspace** (the host shell's home) and each VM's ``/home``, ``/srv`` and ``/data``.
   System folders (``/root``, ``/etc``, ``/proc``, ``/app``, ``/usr`` ...) never leave the host: they take
   almost no room. ``node_modules``, virtualenvs and caches stay on the host as well (they are rebuilt).
-* how: every file is cut into pieces of at most ``RCONSOLE_STORAGE_CHUNK_MB`` (default 50, hard maximum 95:
+* how: every file is cut into pieces of at most ``RCONSOLE_STORAGE_CHUNK_MB`` (default 48, hard maximum 95:
   GitHub refuses files over 100 MB), each piece is stored once under its content hash (so identical data is
   stored once, and appending to a log re-sends only the last piece), and a **manifest** maps each path to its
   pieces. The manifest and the pieces are encrypted (AES-256-GCM, key from the passphrase) unless you turn
@@ -785,8 +785,8 @@ def _scan():
                 continue
             for e in it:
                 name = e.name
-                if name.endswith(SKIP_SUFFIX):
-                    continue
+                if name.endswith(SKIP_SUFFIX) or (name.startswith(".") and ".upload-" in name):
+                    continue                                 # temporary files of a running upload
                 key = dkey + "/" + name
                 try:
                     st = e.stat(follow_symlinks=False)

@@ -1,8 +1,8 @@
 # Repo storage: keep your files in GitHub
 
 Free hosts give you a small disk that is wiped on every deploy. With **repo storage** your files live in your private
-GitHub repository and the host's disk only **caches** them. Switch it on in the dashboard (**Repo storage**) or with
-`RCONSOLE_STORAGE=github`.
+GitHub repository and the host's disk only **caches** them. Once the repository, token and passphrase are set it is used automatically (a `host` choice always wins); you can also switch it
+in the dashboard (**Repo storage**) or with `RCONSOLE_STORAGE`.
 
 ## What is stored
 
@@ -13,7 +13,7 @@ GitHub repository and the host's disk only **caches** them. Switch it on in the 
 
 ## How it works
 
-* **Pieces.** Every file is cut into pieces of at most `RCONSOLE_STORAGE_CHUNK_MB` (default 50, maximum 95) because
+* **Pieces.** Every file is cut into pieces of at most `RCONSOLE_STORAGE_CHUNK_MB` (default 48, maximum 95) because
   GitHub rejects files over 100 MB. The pieces are joined again when you open the file. There is no limit on the
   number of pieces, so any file size works. Each piece is stored once under its content hash: identical data is not
   duplicated, and appending to a log re-sends only its last piece.
@@ -36,7 +36,7 @@ GitHub repository and the host's disk only **caches** them. Switch it on in the 
 
 1. Create a **private** repository and a token with *Contents: read and write* on it.
 2. Dashboard → **Repo storage** → enter the URL, token and passphrase → **Save** → **Test connection**.
-3. Choose **In the GitHub repo** → **Apply**. The first upload runs in the background (watch the status card).
+3. Choose **GitHub repo** → **Apply** (it is already the default once the URL, token and passphrase are saved, unless you chose the host explicitly). The first upload runs in the background (watch the status card).
 
 The same repository is used by [backups](backup.md) on another branch (`rconsole-backup`; storage uses
 `rconsole-storage`). On a host with no persistent disk keep `RCONSOLE_BACKUP_URL`, `RCONSOLE_BACKUP_TOKEN` and

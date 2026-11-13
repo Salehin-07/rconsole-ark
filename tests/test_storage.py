@@ -368,6 +368,31 @@ class SettingsTests(DashBase):
         self.assertIn("status", repo)
         self.assertEqual(self.user().get("/api/dashboard/data?section=settings").status_code, 403)
 
+    def test_settings_show_the_value_in_force_not_a_blank(self):
+        snap = {s["env"]: s for g in settings.snapshot()["groups"] for s in g["settings"]}
+        self.assertEqual(snap["RCONSOLE_HOST_HOME"]["value"], config.HOST_HOME)
+        self.assertEqual(snap["RCONSOLE_STORAGE_BRANCH"]["value"], "rconsole-storage")
+        self.assertEqual(snap["RCONSOLE_STORAGE_CHUNK_MB"]["value"], "48")
+        self.assertEqual(snap["RCONSOLE_BACKUP_BRANCH"]["value"], "rconsole-backup")
+        self.assertEqual(snap["RCONSOLE_MAX_UPLOAD_MB"]["value"], "1024")
+        self.assertEqual(snap["RCONSOLE_DEFAULT_SYSTEM"]["value"], "debian")
+
+    def test_storage_defaults_to_the_repo_once_it_is_set_up(self):
+        old = (config.BACKUP_URL, config.BACKUP_TOKEN, config.BACKUP_PASSPHRASE, config.STORAGE_ENCRYPT)
+        try:
+            config.BACKUP_URL, config.BACKUP_TOKEN, config.BACKUP_PASSPHRASE = "", "", ""
+            self.assertEqual(config.default_storage(), "host")
+            ok, msg, _ = settings.set_values({"RCONSOLE_BACKUP_URL": "https://github.com/x/y.git",
+                                              "RCONSOLE_BACKUP_TOKEN": "tok", "RCONSOLE_BACKUP_PASSPHRASE": "pw"})
+            self.assertTrue(ok, msg)
+            self.assertEqual(config.STORAGE, "github")          # nobody chose: the configured repo is used
+            settings.set_values({"RCONSOLE_STORAGE": "host"})
+            self.assertEqual(config.STORAGE, "host")            # an explicit choice always wins
+        finally:
+            settings.set_values({e: None for e in ("RCONSOLE_STORAGE", "RCONSOLE_BACKUP_URL", "RCONSOLE_BACKUP_TOKEN",
+                                                   "RCONSOLE_BACKUP_PASSPHRASE")})
+            config.BACKUP_URL, config.BACKUP_TOKEN, config.BACKUP_PASSPHRASE, config.STORAGE_ENCRYPT = old
+
     def test_dashboard_value_wins_over_the_environment(self):
         os.environ["RCONSOLE_METRICS_INTERVAL"] = "30"
         settings.set_values({"RCONSOLE_METRICS_INTERVAL": "12"})

@@ -15,7 +15,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const dom = new JSDOM(html, { runScripts: "outside-only", url: "http://localhost/dashboard", pretendToBeVisual: true });
   const w = dom.window, d = w.document, errors = [], posts = [];
   w.addEventListener("error", (e) => errors.push(e.message));
-  w.confirm = () => true;
   const ok = (j) => ({ ok: true, status: 200, json: async () => j });
   w.fetch = async (url, opts) => {
     if (url.startsWith("/api/dashboard/data")) return ok(fx[new URL(url, "http://x").searchParams.get("section")]);
@@ -30,7 +29,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const go = async (name) => { d.querySelector(`#dtabs [data-tab="${name}"]`).click(); await sleep(120); };
   await sleep(150);
 
-  check("all seven tabs exist", d.querySelectorAll("#dtabs button").length === 7);
+  const dlgBtn = (i) => { const b = d.querySelectorAll(".dlg .d-actions button"); return b[i < 0 ? b.length + i : i]; };
+  check("all nine tabs exist, plus a More button for phones", d.querySelectorAll("#dtabs [data-tab]").length === 9 && !!d.querySelector("#dtabs .more-tab"));
   check("overview shows meters and charts", /CPU/.test(text()) && /Memory/.test(text()) && d.querySelectorAll("svg.chart").length >= 6);
   check("overview charts draw lines", d.querySelectorAll("svg.chart path").length > 0);
 
@@ -38,7 +38,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const chartSvg = d.querySelector(".chartbox svg.chart");
   chartSvg.dispatchEvent(new w.MouseEvent("pointermove", { clientX: 10, bubbles: true }));
   check("overview: hovering a chart shows a readout", d.querySelector(".chartbox .ctip") && !d.querySelector(".chartbox .ctip").hidden);
-  check("tabs have icons and labels", d.querySelectorAll("#dtabs .ti").length === 7 && d.querySelectorAll("#dtabs .tl").length === 7);
+  check("tabs have icons and labels", d.querySelectorAll("#dtabs [data-tab] .ti svg").length === 9 && d.querySelectorAll("#dtabs [data-tab] .tl-full").length === 9);
 
   await go("processes");
   check("tables label every cell (used by the phone layout)", d.querySelectorAll("#dmain table td[data-label]").length > 5);
@@ -60,6 +60,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check("users: no actions on your own row", !me.querySelector("button"));
   posts.length = 0;
   [...alice.querySelectorAll("button")].find((b) => b.textContent === "Promote").click(); await sleep(60);
+  check("users: Promote asks first in a styled dialog (not the browser's)", !!d.querySelector(".dlg") && posts.length === 0);
+  dlgBtn(0).click(); await sleep(40);
+  check("users: Cancel closes the dialog and posts nothing", !d.querySelector(".dlg") && posts.length === 0);
+  [...alice.querySelectorAll("button")].find((b) => b.textContent === "Promote").click(); await sleep(60);
+  dlgBtn(-1).click(); await sleep(60);
   check("users: Promote posts user.promote", posts[0] && posts[0].action === "user.promote" && posts[0].username === "alice");
   posts.length = 0;
   const form = d.querySelector("form.inline");
@@ -69,6 +74,52 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   for (const t of ["systems", "apps", "activity", "health"]) { await go(t); check(`${t}: renders`, text().length > 20); }
   check("apps: exposure shown", /\/site\//.test((await go("apps"), text())));
+
+  // ---- repo storage page
+  await go("repo");
+  check("repo: hero says where files live", !!d.querySelector(".hero h2") && /live on this host|live in your GitHub repo|finish the setup/.test(d.querySelector(".hero h2").textContent));
+  check("repo: four stat tiles", d.querySelectorAll(".tiles .tile").length === 4);
+  check("repo: connect form has url, token, passphrase and branch", d.querySelectorAll(".step").length >= 3 && d.querySelectorAll("#dmain input[type=password]").length === 2);
+  check("repo: mode is a segmented control", d.querySelectorAll(".seg button").length === 2 && !!d.querySelector(".seg button[aria-checked=true]"));
+  check("repo: encryption is a switch", !!d.querySelector("#dmain .switch[role=switch]"));
+  const seg = d.querySelectorAll(".seg button"); const applyBtn = [...d.querySelectorAll("#dmain button")].find((b) => b.textContent === "Apply");
+  const startedOn = [...seg].findIndex((b) => b.getAttribute("aria-checked") === "true"); seg[1 - startedOn].click();
+  check("repo: picking the other mode enables Apply", !applyBtn.disabled);
+  posts.length = 0; applyBtn.click(); await sleep(60);
+  if (d.querySelector(".dlg")) { dlgBtn(-1).click(); await sleep(60); }
+  check("repo: Apply posts repo.mode", posts.some((x) => x.action === "repo.mode"), JSON.stringify(posts));
+  await go("repo");
+  const formBefore = d.querySelector("#dmain input[type=password]"); formBefore.value = "typed-token";
+  await sleep(5300);
+  check("repo: the refresh does not wipe what you are typing", d.querySelector("#dmain input[type=password]") && d.querySelector("#dmain input[type=password]").value === "typed-token");
+
+  // ---- settings page
+  await go("settings");
+  check("settings: groups are collapsible sections", d.querySelectorAll("details.group").length >= 9);
+  check("settings: shows real values, not blanks", [...d.querySelectorAll("#dmain input[type=number]")].every((i) => i.value !== "") && [...d.querySelectorAll("#dmain input[type=text]")].some((i) => i.value === "rconsole-storage"));
+  check("settings: booleans are switches", d.querySelectorAll("#dmain .switch").length >= 10);
+  check("settings: no secret value is ever in the page", !/ghp_|github_pat_/.test(d.getElementById("dmain").innerHTML));
+  check("settings: save bar is hidden until something changes", !d.getElementById("dsave") || !d.getElementById("dsave").classList.contains("show"));
+  const first = d.querySelector("details.group[open] .switch");
+  first.click(); await sleep(30);
+  check("settings: toggling shows the save bar with a count", d.getElementById("dsave").classList.contains("show") && /1 unsaved/.test(d.getElementById("dsave").textContent));
+  check("settings: the changed field is marked", !!d.querySelector(".field.changed"));
+  posts.length = 0;
+  d.querySelector("#dsave .b.solid").click(); await sleep(80);
+  check("settings: Save posts settings.save with only the change", posts.length === 1 && posts[0].action === "settings.save" && Object.keys(posts[0].changes).length === 1, JSON.stringify(posts));
+  await go("settings");
+  const searchBox = d.querySelector("#dmain input[type=search]"); searchBox.value = "chunk"; searchBox.dispatchEvent(new w.Event("input", { bubbles: true }));
+  const shown = () => d.querySelectorAll("#dmain .g-body.cols .field:not(.hidden)").length;
+  check("settings: search narrows the list", shown() >= 1 && shown() <= 3, String(shown()));
+  searchBox.value = "zzzzzz"; searchBox.dispatchEvent(new w.Event("input", { bubbles: true }));
+  check("settings: nothing found says so", shown() === 0 && [...d.querySelectorAll("#dmain .card.empty")].some((e) => !e.hidden));
+  check("settings: leaving the page hides the save bar", (await go("overview"), !d.getElementById("dsave").classList.contains("show")));
+
+  // ---- More sheet and Esc
+  d.querySelector("#dtabs .more-tab").click(); await sleep(40);
+  check("more: lists the tabs that are not in the bottom bar", d.querySelectorAll(".dlg .sheet-list button").length === 5);
+  d.querySelector(".dlg").dispatchEvent(new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await sleep(30);
+  check("dialogs close with Esc", !d.querySelector(".dlg"));
   check("no JS errors", errors.length === 0, errors.join("; "));
   process.exit(failures ? 1 : 0);
 })();

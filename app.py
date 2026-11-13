@@ -1233,6 +1233,44 @@ def _upload_target(view, folder, rel):
     return target
 
 
+def _upload_part(upload, dest, view, upload_id, offset, total, limit):
+    """Append one part of a large upload to its partial file; the last part moves it into place.
+
+    Parts are idempotent: a retried part truncates the partial file back to its offset first."""
+    tmp = dest.with_name(f".{dest.name}.upload-{upload_id}")
+    if offset == 0:
+        _sweep_stale_uploads(dest.parent)
+        mode = "wb"
+    else:
+        mode = "r+b"
+        if not tmp.is_file() or tmp.stat().st_size < offset:
+            return {"ok": False, "error": "upload parts arrived out of order; start the file again"}, 409
+    with open(tmp, mode) as f:
+        f.truncate(offset)
+        f.seek(offset)
+        shutil.copyfileobj(upload.stream, f, 1024 * 1024)
+        got = f.tell()
+    if got > total or got > limit:
+        tmp.unlink(missing_ok=True)
+        return {"ok": False, "error": f"file too large (limit {config.MAX_UPLOAD_MB} MB per file)"}, 413
+    if got < total:
+        return {"ok": True, "partial": True, "received": got}
+    os.replace(tmp, dest)
+    return {"ok": True, "path": view.virt(dest), "size": dest.stat().st_size}
+
+
+def _sweep_stale_uploads(folder):
+    """Forget partial uploads nobody finished (older than an hour) so they do not pile up."""
+    cutoff = time.time() - 3600
+    try:
+        for e in os.scandir(folder):
+            if e.name.startswith(".") and ".upload-" in e.name and e.is_file(follow_symlinks=False) \
+                    and e.stat(follow_symlinks=False).st_mtime < cutoff:
+                os.unlink(e.path)
+    except OSError:
+        pass
+
+
 @app.route("/api/upload", methods=["POST"])
 def api_upload():
     """Receive one file (``file``) into ``dir``; ``rel`` keeps a folder upload's layout."""
@@ -1250,6 +1288,21 @@ def api_upload():
     folder = request.form.get("dir", "")
     rel = request.form.get("rel") or upload.filename or ""
     overwrite = request.form.get("overwrite") in ("1", "true", "yes")
+    # Big files arrive in parts (see uploadOne in console.js): upload_id + offset + total. One request per part
+    # keeps each request small, so no proxy body limit can reject a large file, and a failed part is retried alone.
+    upload_id = request.form.get("upload_id", "")
+    chunked = bool(upload_id)
+    if chunked and not re.fullmatch(r"[0-9a-f]{8,32}", upload_id):
+        return {"ok": False, "error": "bad upload id"}, 400
+    try:
+        offset = int(request.form.get("offset", "0"))
+        total = int(request.form.get("total", "0"))
+    except ValueError:
+        return {"ok": False, "error": "bad upload offsets"}, 400
+    if chunked and (offset < 0 or total < 1 or offset > total):
+        return {"ok": False, "error": "bad upload offsets"}, 400
+    if chunked and total > limit:
+        return {"ok": False, "error": f"file too large (limit {config.MAX_UPLOAD_MB} MB per file)"}, 413
     try:
         base = view.virt(_map(view, folder))
         if not _map(view, folder).is_dir():
@@ -1258,13 +1311,15 @@ def api_upload():
         if vpath is None:
             return {"ok": False, "error": f"unsafe file name: {rel!r}"}, 400
         dest = _map(view, vpath, follow_last=False)          # replace a symlink, never write through it
-        if os.path.lexists(dest):
+        if (not chunked or offset == 0) and os.path.lexists(dest):
             if dest.is_dir() and not dest.is_symlink():
                 return {"ok": False, "error": f"{view.virt(dest)} is a folder"}, 409
             if not overwrite:
                 return {"ok": False, "exists": True, "path": view.virt(dest),
                         "error": f"{view.virt(dest)} already exists"}, 409
         dest.parent.mkdir(parents=True, exist_ok=True)
+        if chunked:
+            return _upload_part(upload, dest, view, upload_id, offset, total, limit)
         tmp = dest.with_name(f".{dest.name}.upload-{uuid.uuid4().hex[:8]}")
         try:
             upload.save(tmp)

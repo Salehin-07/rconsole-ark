@@ -36,10 +36,11 @@ Environment variables
                                ``RCONSOLE_BACKUP_DIR`` backs up to a folder instead.
 ``RCONSOLE_MAX_USERS``         Account cap (default 10): this is for one person or a
                                small team.
-``RCONSOLE_MAX_UPLOAD_MB``     Largest single file the file browser will accept (default 64).
+``RCONSOLE_MAX_UPLOAD_MB``     Largest single file the file browser will accept (default 1024; big files are sent in parts).
 ``RCONSOLE_MAX_EXTRACT_MB``    Most an archive may expand to when extracted in the file
                                browser (default 2048): a guard against zip bombs.
-``RCONSOLE_STORAGE``           ``host`` (default) or ``github``: keep user files in the backup repo.
+``RCONSOLE_STORAGE``           ``host`` or ``github``: keep user files in the backup repo. Default: ``github``
+                               when the repo (URL, token, passphrase) is already set up, else ``host``.
 ``RCONSOLE_STORAGE_*``         ``ENCRYPT``, ``BRANCH``, ``CHUNK_MB``, ``CACHE_MB``, ``STUB_MB``,
                                ``INTERVAL`` - see gitstore.py and the docs.
 ``RCONSOLE_SUPERVISOR``        Run the service supervisor (default on).
@@ -156,7 +157,7 @@ MAX_USERS = max(1, env_int("RCONSOLE_MAX_USERS", 10))
 # history is kept. Larger values cost less on a tiny free instance.
 METRICS_INTERVAL = max(2, min(300, env_int("RCONSOLE_METRICS_INTERVAL", 5)))
 # Largest single file the file browser's upload button accepts (one request per file).
-MAX_UPLOAD_MB = max(1, env_int("RCONSOLE_MAX_UPLOAD_MB", 64))
+MAX_UPLOAD_MB = max(1, env_int("RCONSOLE_MAX_UPLOAD_MB", 1024))
 # Most an archive may expand to when extracted from the file browser (zip-bomb guard).
 MAX_EXTRACT_MB = max(16, env_int("RCONSOLE_MAX_EXTRACT_MB", 2048))
 
@@ -186,12 +187,22 @@ VM_PIDNS = (os.environ.get("RCONSOLE_VM_PIDNS") or "auto").strip().lower()   # a
 # "github" keeps the user's files (the workspace and each VM's /home) in the backup repository, split into
 # pieces under GitHub's 100 MB limit, and the host disk only caches them. It needs the backup repo (a GitHub
 # URL and token) and, when encrypting, the passphrase; without them everything stays on the host as before.
-STORAGE = (os.environ.get("RCONSOLE_STORAGE") or "host").strip().lower()
-if STORAGE not in ("host", "github"):
-    STORAGE = "host"
 STORAGE_ENCRYPT = env_bool("RCONSOLE_STORAGE_ENCRYPT", True)
+
+
+def default_storage():
+    """``github`` when the repo is already set up (URL, token and, if encrypting, the passphrase), else ``host``.
+
+    Used when RCONSOLE_STORAGE says nothing, so a configured repo is used for files without another switch."""
+    ready = bool(BACKUP_URL and BACKUP_TOKEN and (BACKUP_PASSPHRASE or not STORAGE_ENCRYPT))
+    return "github" if ready else "host"
+
+
+STORAGE = (os.environ.get("RCONSOLE_STORAGE") or "").strip().lower()
+if STORAGE not in ("host", "github"):
+    STORAGE = default_storage()
 STORAGE_BRANCH = (os.environ.get("RCONSOLE_STORAGE_BRANCH") or "rconsole-storage").strip()
-STORAGE_CHUNK_MB = max(1, min(95, env_int("RCONSOLE_STORAGE_CHUNK_MB", 50)))
+STORAGE_CHUNK_MB = max(1, min(95, env_int("RCONSOLE_STORAGE_CHUNK_MB", 48)))
 STORAGE_CACHE_MB = max(16, env_int("RCONSOLE_STORAGE_CACHE_MB", 1024))
 STORAGE_STUB_MB = max(1, env_int("RCONSOLE_STORAGE_STUB_MB", 4))
 STORAGE_INTERVAL = max(5, env_int("RCONSOLE_STORAGE_INTERVAL", 20))
