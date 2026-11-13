@@ -62,7 +62,7 @@
     heart: ["M20.8 4.6a5.5 5.5 0 00-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 00-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 000-7.8z"],
     folder: ["M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"],
     box: ["M21 8l-9-5-9 5v8l9 5 9-5z", "M3 8l9 5 9-5M12 13v8"], download: ["M12 3v12m0 0l-4-4m4 4l4-4", "M4 21h16"],
-    back: ["M15 18l-6-6 6-6"], trash: ["M4 7h16M10 11v6M14 11v6", "M6 7l1 13h10l1-13M9 7V4h6v3"],
+    back: ["M15 18l-6-6 6-6"], menu: ["M4 6h16M4 12h16M4 18h16"], trash: ["M4 7h16M10 11v6M14 11v6", "M6 7l1 13h10l1-13M9 7V4h6v3"],
   };
   function icon(name, cls) {
     const el = svg("svg", { class: "ico" + (cls ? " " + cls : ""), viewBox: "0 0 24 24", "aria-hidden": "true" });
@@ -672,19 +672,46 @@
     tab = TABS.some((t) => t[0] === name) ? name : "overview";
     if (location.hash !== "#" + tab) history.replaceState(null, "", "#" + tab);
     for (const b of tabsEl.children) b.classList.toggle("on", b.dataset.tab === tab);
-    moreBtn.classList.toggle("on", !TABS.find((t) => t[0] === tab)[3]);
+    tabTitle.textContent = TABS.find((t) => t[0] === tab)[1];
     if (window.__saveBarSync) window.__saveBarSync();
     main.replaceChildren(h("div", { class: "muted" }, "loading…"));
     load();
   }
-  for (const [id, label, ico, primary, short] of TABS) tabsEl.append(h("button", { type: "button", role: "tab", "data-tab": id, class: primary ? "" : "sec-tab", onclick: () => select(id) },
-    h("span", { class: "ti", "aria-hidden": "true" }, icon(ico)), h("span", { class: "tl tl-full" }, label), h("span", { class: "tl tl-short" }, short || label)));
-  const moreBtn = h("button", { type: "button", class: "more-tab", "aria-haspopup": "dialog", onclick: async () => {
-    const id = await dialog({ ico: "more", title: "More", actions: [{ label: "Close", value: null, cls: "ghost" }],
-      content: (close) => h("div", { class: "sheet-list", style: "margin-top:12px" }, TABS.filter((t) => !t[3]).map((t) => h("button", { type: "button", class: t[0] === tab ? "on" : "", onclick: () => close(t[0]) }, icon(t[2]), t[1]))) });
-    if (id) select(id);
-  } }, h("span", { class: "ti", "aria-hidden": "true" }, icon("more")), h("span", { class: "tl tl-short" }, "More"));
-  tabsEl.append(moreBtn);
+  for (const [id, label, ico] of TABS) tabsEl.append(h("button", { type: "button", role: "tab", "data-tab": id, onclick: () => select(id) },
+    h("span", { class: "ti", "aria-hidden": "true" }, icon(ico)), h("span", { class: "tl" }, label)));
+
+  // Phones: a menu button in the header opens a drawer with every page (the tab strip is for wide screens).
+  const header = document.getElementById("dh");
+  const tabTitle = h("span", { class: "dh-tab" }, "");
+  const menuBtn = h("button", { type: "button", class: "dh-menu", "aria-label": "Open menu", "aria-haspopup": "dialog", "aria-expanded": "false" }, icon("menu"));
+  header.prepend(menuBtn);
+  header.insertBefore(tabTitle, header.querySelector(".dh-title").nextSibling);
+  function openDrawer() {
+    const prev = document.activeElement;
+    const bg = h("div", { class: "drawer-bg", role: "presentation" });
+    const close = () => { bg.classList.add("leaving"); menuBtn.setAttribute("aria-expanded", "false"); document.body.classList.remove("noscroll");
+      setTimeout(() => bg.remove(), 160); if (prev && prev.focus) prev.focus(); };
+    const go = (id) => { close(); select(id); };
+    const nav = h("nav", { class: "drawer", role: "dialog", "aria-modal": "true", "aria-label": "Dashboard menu" },
+      h("div", { class: "drawer-head" }, h("span", { class: "drawer-title" }, "Dashboard"), h("button", { type: "button", class: "b ghost", "aria-label": "Close menu", onclick: close }, icon("x"))),
+      h("div", { class: "drawer-list" }, TABS.map((t) => h("button", { type: "button", class: t[0] === tab ? "on" : "", "aria-current": t[0] === tab ? "page" : null, onclick: () => go(t[0]) }, icon(t[2]), t[1]))),
+      h("div", { class: "drawer-foot" }, h("a", { class: "b block", href: "/console" }, icon("back", "sm"), "Back to the console"),
+        h("p", { class: "hint" }, `${window.RCONSOLE_USER || ""}`)));
+    bg.append(nav);
+    bg.addEventListener("mousedown", (e) => { if (e.target === bg) close(); });
+    bg.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { e.stopPropagation(); close(); return; }
+      if (e.key !== "Tab") return;
+      const f = [...nav.querySelectorAll("button, a")]; const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+    document.body.append(bg);
+    document.body.classList.add("noscroll");
+    menuBtn.setAttribute("aria-expanded", "true");
+    (nav.querySelector(".on") || nav.querySelector("button")).focus();
+  }
+  menuBtn.onclick = openDrawer;
   window.addEventListener("hashchange", () => select(location.hash.slice(1)));
   document.addEventListener("visibilitychange", () => { paused = document.hidden; if (!paused) load(); });
   timer = setInterval(load, 5000);

@@ -30,7 +30,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(150);
 
   const dlgBtn = (i) => { const b = d.querySelectorAll(".dlg .d-actions button"); return b[i < 0 ? b.length + i : i]; };
-  check("all nine tabs exist, plus a More button for phones", d.querySelectorAll("#dtabs [data-tab]").length === 9 && !!d.querySelector("#dtabs .more-tab"));
+  check("all nine tabs exist, and the header has a menu button for phones", d.querySelectorAll("#dtabs [data-tab]").length === 9 && !!d.querySelector("#dh .dh-menu"));
   check("overview shows meters and charts", /CPU/.test(text()) && /Memory/.test(text()) && d.querySelectorAll("svg.chart").length >= 6);
   check("overview charts draw lines", d.querySelectorAll("svg.chart path").length > 0);
 
@@ -38,7 +38,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const chartSvg = d.querySelector(".chartbox svg.chart");
   chartSvg.dispatchEvent(new w.MouseEvent("pointermove", { clientX: 10, bubbles: true }));
   check("overview: hovering a chart shows a readout", d.querySelector(".chartbox .ctip") && !d.querySelector(".chartbox .ctip").hidden);
-  check("tabs have icons and labels", d.querySelectorAll("#dtabs [data-tab] .ti svg").length === 9 && d.querySelectorAll("#dtabs [data-tab] .tl-full").length === 9);
+  check("tabs have icons and labels", d.querySelectorAll("#dtabs [data-tab] .ti svg").length === 9 && d.querySelectorAll("#dtabs [data-tab] .tl").length === 9);
 
   await go("processes");
   check("tables label every cell (used by the phone layout)", d.querySelectorAll("#dmain table td[data-label]").length > 5);
@@ -115,10 +115,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check("settings: nothing found says so", shown() === 0 && [...d.querySelectorAll("#dmain .card.empty")].some((e) => !e.hidden));
   check("settings: leaving the page hides the save bar", (await go("overview"), !d.getElementById("dsave").classList.contains("show")));
 
-  // ---- More sheet and Esc
-  d.querySelector("#dtabs .more-tab").click(); await sleep(40);
-  check("more: lists the tabs that are not in the bottom bar", d.querySelectorAll(".dlg .sheet-list button").length === 5);
-  d.querySelector(".dlg").dispatchEvent(new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await sleep(30);
+  // ---- phone menu drawer, and Esc on dialogs
+  const menu = d.querySelector("#dh .dh-menu"); menu.click(); await sleep(30);
+  check("menu: the button opens a drawer listing every page", menu.getAttribute("aria-expanded") === "true" && d.querySelectorAll(".drawer .drawer-list button").length === 9);
+  check("menu: the current page is marked", !!d.querySelector(".drawer .drawer-list button.on[aria-current=page]"));
+  d.querySelector(".drawer-bg").dispatchEvent(new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await sleep(250);
+  check("menu: Esc closes it", !d.querySelector(".drawer-bg") && menu.getAttribute("aria-expanded") === "false");
+  menu.click(); await sleep(30);
+  [...d.querySelectorAll(".drawer .drawer-list button")].find((b) => b.textContent === "Users").click(); await sleep(250);
+  check("menu: choosing a page opens it, closes the drawer and titles the header", !d.querySelector(".drawer-bg") && d.querySelector("#dh .dh-tab").textContent === "Users");
+  const dlgTest = [...d.querySelectorAll("#dmain button")].find((b) => b.textContent === "Delete");
+  if (dlgTest) { dlgTest.click(); await sleep(40); d.querySelector(".dlg").dispatchEvent(new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await sleep(30); }
   check("dialogs close with Esc", !d.querySelector(".dlg"));
   check("no JS errors", errors.length === 0, errors.join("; "));
   process.exit(failures ? 1 : 0);

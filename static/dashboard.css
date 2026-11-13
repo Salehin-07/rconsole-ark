@@ -389,7 +389,6 @@ details.group .g-body > .field:first-child { padding-top: var(--sp-4); border-to
 #dtabs { top: 56px; padding: var(--sp-2) var(--sp-4); }
 #dtabs button { min-height: 38px; font-size: 14px; padding: 0 var(--sp-4); }
 #dtabs .ti { display: inline-flex; }
-#dtabs .more-tab { display: none; }
 
 /* ---------- tables, tidied */
 table.t td, table.t th { padding: 12px 14px; }
@@ -415,7 +414,7 @@ form.inline label { font-size: 14px; color: var(--fg); gap: var(--sp-2); min-hei
 @media (max-width: 720px) {
   .dash { --ctl-sm: 40px; }
   #dh { min-height: 52px; }
-  #dmain { padding: var(--sp-4) var(--sp-3) calc(var(--nav-h) + var(--sp-6) + env(safe-area-inset-bottom)); gap: var(--sp-3); }
+  #dmain { padding: var(--sp-4) var(--sp-3) calc(var(--sp-6) + env(safe-area-inset-bottom)); gap: var(--sp-3); }
   .page-head h2 { font-size: 20px; }
   .card { padding: var(--sp-4) var(--sp-4); }
   .hero { padding: var(--sp-4); }
@@ -423,15 +422,13 @@ form.inline label { font-size: 14px; color: var(--fg); gap: var(--sp-2); min-hei
   .hero h2 { font-size: 18px; }
   .tile { padding: var(--sp-3) var(--sp-4); }
   .tile .v { font-size: 21px; }
-  /* bottom bar: four main tabs and "More" (the rest are in a sheet) */
-  #dtabs { grid-template-columns: repeat(5, 1fr); min-height: var(--nav-h); padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); align-items: stretch; }
-  #dtabs button { padding: 4px 0; min-height: 0; font-size: 11px; font-weight: 600; gap: 3px; border-radius: 12px; justify-content: center; }
-  #dtabs button.sec-tab { display: none; }
-  #dtabs .more-tab { display: inline-flex; }
-  #dtabs .ti .ico, #dtabs .ti svg { width: 22px; height: 22px; }
-  #dtabs button.on { border-color: transparent; }
-  #dtoast { bottom: calc(var(--nav-h) + var(--sp-4) + env(safe-area-inset-bottom)); }
-  #dsave { bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); padding: var(--sp-2) var(--sp-3); }
+  /* phones: no tab strip; the header's menu button opens a drawer */
+  #dtabs { display: none; }
+  #dh .dh-back, #dh .dh-user, #dh .dh-title { display: none; }
+  #dh .dh-menu { display: inline-flex; }
+  #dh .dh-tab { display: block; }
+  #dtoast { bottom: calc(var(--sp-4) + env(safe-area-inset-bottom)); }
+  #dsave { bottom: 0; padding: var(--sp-2) var(--sp-3); }
   button.b, .btn { min-height: var(--ctl-sm); }
   .row-act { flex-direction: column; align-items: stretch; gap: var(--sp-3); }
   .row-act button.b { width: 100%; min-height: var(--ctl); }
@@ -446,9 +443,30 @@ form.inline label { font-size: 14px; color: var(--fg); gap: var(--sp-2); min-hei
 @media (prefers-reduced-motion: reduce) { .switch::after, .meter > i, details.group .g-chev, .modal-box, .modal-bg, #dsave { transition: none !important; animation: none !important; } }
 
 body.dash.noscroll { overflow: hidden; }
-.tl-short { display: none; }
-@media (max-width: 720px) { .tl-full { display: none; } .tl-short { display: inline; } }
 .alert { align-items: center; padding: var(--sp-3) var(--sp-4); border-radius: var(--r); }
 .alert .ai { display: inline-flex; }
 details.group[hidden], .empty[hidden] { display: none; }
 .card.empty { border-radius: var(--r); }
+
+/* ---------- phone menu: button in the header + slide-in drawer */
+.dh-menu { display: none; align-items: center; justify-content: center; width: 44px; height: 44px; margin-left: -6px; padding: 0; color: var(--fg); background: transparent; border: 0; border-radius: 12px; cursor: pointer; }
+.dh-menu:hover { background: var(--muted-bg); }
+.dh-menu:focus-visible { outline: none; box-shadow: var(--ring); }
+.dh-tab { display: none; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+.drawer-bg { position: fixed; inset: 0; z-index: 55; background: rgba(5, 8, 12, .6); backdrop-filter: blur(3px); animation: fade .15s ease-out; }
+.drawer-bg.leaving { opacity: 0; transition: opacity .16s; }
+.drawer { position: absolute; top: 0; bottom: 0; left: 0; width: min(320px, 86vw); display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line);
+  box-shadow: 0 0 60px rgba(0,0,0,.5); padding: max(var(--sp-3), env(safe-area-inset-top)) var(--sp-3) max(var(--sp-3), env(safe-area-inset-bottom)); animation: slidein .22s cubic-bezier(.3,.8,.3,1); }
+.drawer-bg.leaving .drawer { transform: translateX(-100%); transition: transform .16s; }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-2) var(--sp-2) var(--sp-3); }
+.drawer-title { font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
+.drawer-list { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
+.drawer-list button { display: flex; align-items: center; gap: var(--sp-3); min-height: 48px; padding: 0 var(--sp-3); font: inherit; font-size: 16px; font-weight: 500; color: var(--fg); background: transparent; border: 0; border-radius: var(--r-sm); cursor: pointer; text-align: left; }
+.drawer-list button:hover { background: var(--muted-bg); }
+.drawer-list button:focus-visible { outline: none; box-shadow: var(--ring); }
+.drawer-list button.on { color: var(--green); background: color-mix(in srgb, var(--green) 11%, transparent); font-weight: 650; }
+.drawer-foot { padding-top: var(--sp-3); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--sp-2); }
+.drawer-foot .hint { text-align: center; }
+@keyframes slidein { from { transform: translateX(-100%); } to { transform: none; } }
+@media (min-width: 721px) { .drawer-bg { display: none; } }
+@media (prefers-reduced-motion: reduce) { .drawer, .drawer-bg { animation: none !important; transition: none !important; } }

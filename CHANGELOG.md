@@ -42,8 +42,7 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
 - **Dashboard redesign, mobile first.** One design system for every control: the same 44 px touch height, radius,
   border and focus ring for inputs, selects, switches, segmented controls and buttons; real switches instead of
   On/Off dropdowns; custom dialogs (bottom sheets on phones, with Esc and focus handling) instead of the browser's
-  confirm/prompt; styled toasts; a phone bottom bar with four main tabs and a **More** sheet instead of nine
-  cramped icons. **Settings**: collapsible groups with a description each, search, a sticky "N unsaved changes"
+  confirm/prompt; styled toasts; a **menu button** on phones that opens a drawer with every page instead of a cramped tab strip. **Settings**: collapsible groups with a description each, search, a sticky "N unsaved changes"
   bar (Save / Discard), units next to numbers, help text under each field, saved-secret chips. **Repo storage**: a
   status card that says in words where your files live, four stat tiles with a cache meter, and a guided setup
   (connect, where files live, encryption, maintenance) with a readiness checklist.
