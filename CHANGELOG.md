@@ -3,6 +3,24 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.3 — 2026-11-15
+
+### Fixed
+- **Dashboard overview: the stat cards (CPU, Memory, Disk, Network, Users, Terminals, Jobs, ...) showed nothing.**
+  The v1.5.0 redesign added a `.meter` style for thin progress bars (8 px high, content hidden). The overview cards
+  used the same class name, so every card was squeezed to 8 px and its text, bar and trend line were clipped away,
+  while the charts below (a different class) kept working. The cards are now `.card.stat`, so the two no longer
+  collide. `tests/js/dashboard_check.js` also checks that no element carries both `card` and `meter`.
+
+### Added
+- **Word, Excel and PowerPoint files open in the file browser viewer.** `.docx` shows as a formatted document,
+  `.xlsx` / `.xlsm` / `.xls` as a table with one tab per sheet (first 2000 rows x 60 columns of a sheet), `.pptx` as
+  the text of each slide. Everything is parsed in your browser by bundled libraries (mammoth, SheetJS, JSZip;
+  `static/vendor/office`, no external requests, nothing converted on the server) and drawn inside a sandboxed iframe
+  that cannot run scripts or reach the console. Files over 40 MB and password-protected or damaged files offer a
+  download instead. Old binary `.doc` / `.ppt` cannot be previewed, so the viewer offers the download. These files
+  are never opened in the code editor.
+
 ## 1.5.2 — 2026-11-15
 
 ### Changed

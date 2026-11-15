@@ -222,7 +222,7 @@
   const C = { green: "#5ee08a", blue: "#6db3ff", amber: "#ffcb6b", red: "#ff6b6b" };
 
   function meter(label, value, sub, p, trend) {
-    return h("div", { class: "card meter " + (p != null ? level(p) : "") }, h("h3", {}, label), h("div", { class: "big" }, value),
+    return h("div", { class: "card stat " + (p != null ? level(p) : "") }, h("h3", {}, label), h("div", { class: "big" }, value),
              sub ? h("div", { class: "sub" }, sub) : null,
              p != null ? h("div", { class: "bar " + level(p) }, h("i", { style: `width:${Math.min(100, p)}%` })) : null,
              trend || null);

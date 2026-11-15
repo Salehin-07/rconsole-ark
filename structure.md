@@ -94,6 +94,8 @@ rconsole/
 ├── static/                 # Front-end assets (served as static)
 │   ├── console.js          # Tab/terminal UI, xterm.js wiring, WebSocket client, editor UI
 │   ├── editor-core.js      # Code-editor text logic (auto-indent/close, comments, line ops, find): DOM-free, unit-tested
+│   ├── office-viewer.js    # File-browser Office preview (.docx via mammoth, .xlsx/.xls via SheetJS, .pptx text via JSZip) in a sandboxed iframe
+│   ├── vendor/office/      # Bundled mammoth 1.8.0, SheetJS 0.18.5, JSZip 3.10.1 (browser builds + licences)
 │   ├── pdf-viewer.js       # File-browser PDF viewer (loading state, range requests, only visible pages drawn); loads vendor/pdfjs on first use
 │   ├── vendor/pdfjs/       # Bundled pdf.js 3.11.174 (Apache-2.0) with its worker, cmaps and standard fonts
 │   ├── files-core.js       # File-manager selection / archive-name logic (click, ctrl/shift, drag band, long-press sweep): DOM-free, unit-tested
@@ -293,6 +295,11 @@ text and selection and returns one edit `{from, to, insert, selStart, selEnd}` (
 edits through `document.execCommand` (so native undo/redo keeps working) from the
 `beforeinput` / `keydown` handlers, and owns the status bar, font size
 (`--editor-fs`), find bar and touch symbol bar.
+
+**`static/office-viewer.js`** — The Office preview (`tests/test_media_shell.py`, checked in a real browser). Loads
+the matching bundled library on first use, fetches the file from `/api/media`, parses it in the page and shows the
+result in an `<iframe sandbox>` with no scripts and a `default-src 'none'` policy. Sheets get a tab per sheet (cut at
+2000 rows x 60 columns), slides show their text only, files over 40 MB offer a download.
 
 **`static/pdf-viewer.js`** — The PDF viewer (`tests/js/pdf_viewer_check.js`). Opens the file
 with pdf.js in range-request mode (`disableAutoFetch`), shows "Opening PDF…" and the download

@@ -1212,6 +1212,12 @@ MEDIA_TYPES = {
     "mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg", "oga": "audio/ogg", "opus": "audio/ogg",
     "m4a": "audio/mp4", "aac": "audio/aac", "flac": "audio/flac", "weba": "audio/webm",
     "pdf": "application/pdf",
+    # Office files are parsed in the browser (static/office-viewer.js); the server only hands over the bytes.
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
+    "xls": "application/vnd.ms-excel",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 }
 
 
@@ -1231,7 +1237,7 @@ def api_media():
         p = _map(view, path)
         ctype = MEDIA_TYPES.get(p.suffix.lower().lstrip("."))
         if not ctype:
-            return {"error": "not an image, video, audio or PDF file the viewer can show"}, 415
+            return {"error": "not an image, video, audio, PDF or Office file the viewer can show"}, 415
         if not p.is_file():
             return {"error": "not a regular file" if p.exists() else f"no such file: {view.virt(p)}"}, 404
         resp = send_file(p, mimetype=ctype, conditional=True, max_age=0)

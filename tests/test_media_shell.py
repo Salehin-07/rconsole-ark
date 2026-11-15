@@ -131,11 +131,14 @@ class FrontEndTests(Base):
         def exts(name):
             m = re.search(rf"const {name} = \[(.*?)\];", js)
             return set(re.findall(r'"([a-z0-9]+)"', m.group(1)))
-        self.assertEqual(exts("IMAGE_EXTS") | exts("VIDEO_EXTS") | exts("AUDIO_EXTS") | exts("PDF_EXTS"), set(rapp.MEDIA_TYPES))
+        self.assertEqual(exts("IMAGE_EXTS") | exts("VIDEO_EXTS") | exts("AUDIO_EXTS") | exts("PDF_EXTS") | exts("OFFICE_EXTS"), set(rapp.MEDIA_TYPES))
         self.assertTrue(all(rapp.MEDIA_TYPES[e].startswith("image/") for e in exts("IMAGE_EXTS")))
         self.assertTrue(all(rapp.MEDIA_TYPES[e].startswith("video/") for e in exts("VIDEO_EXTS")))
         self.assertTrue(all(rapp.MEDIA_TYPES[e].startswith("audio/") for e in exts("AUDIO_EXTS")))
         self.assertEqual({rapp.MEDIA_TYPES[e] for e in exts("PDF_EXTS")}, {"application/pdf"})
+        self.assertTrue(all("office" in rapp.MEDIA_TYPES[e] or "ms-excel" in rapp.MEDIA_TYPES[e] for e in exts("OFFICE_EXTS")))
+        # old binary .doc/.ppt are shown as a download card, never served as a previewable type
+        self.assertFalse(exts("LEGACY_OFFICE_EXTS") & set(rapp.MEDIA_TYPES))
 
     def test_pdf_supports_range_requests_and_is_never_gzipped(self):
         """The viewer fetches byte ranges (start of the file first, then only the visible pages)."""
@@ -169,3 +172,35 @@ class FrontEndTests(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_office_preview_engine_is_served_wired_and_sandboxed(self):
+        self.login()
+        for name in ("office-viewer.js", "vendor/office/mammoth.browser.min.js", "vendor/office/xlsx.full.min.js",
+                     "vendor/office/jszip.min.js"):
+            r = self.c.get("/static/" + name)
+            self.assertEqual(r.status_code, 200, name)
+            self.assertGreater(len(r.get_data()), 1000, name)
+        js = self.c.get("/static/console.js").get_data(as_text=True)
+        self.assertIn("RCOffice.open", js)
+        self.assertIn("/static/office-viewer.js", js)
+        viewer = self.c.get("/static/office-viewer.js").get_data(as_text=True)
+        self.assertIn('setAttribute("sandbox", "")', viewer)   # a document can never run script or touch the console
+        self.assertIn("default-src 'none'", viewer)
+        self.assertIn(".viewer-office", self.c.get("/static/style.css").get_data(as_text=True))
+
+    def test_office_files_are_served_inline_by_the_media_endpoint(self):
+        self.login()
+        data = os.environ["RCONSOLE_DATA_DIR"]
+        for ext in ("docx", "xlsx", "pptx", "xls", "xlsm"):
+            p = os.path.join(data, "sample." + ext)
+            with open(p, "wb") as f:
+                f.write(b"PK\x03\x04 not a real document")
+            r = self.c.get("/api/media", query_string={"path": p})
+            self.assertEqual(r.status_code, 200, ext)
+            self.assertEqual(r.headers["Content-Disposition"], "inline")
+            self.assertIn("sandbox", r.headers["Content-Security-Policy"])
+        legacy = os.path.join(data, "old.doc")
+        with open(legacy, "wb") as f:
+            f.write(b"\xd0\xcf\x11\xe0")
+        self.assertEqual(self.c.get("/api/media", query_string={"path": legacy}).status_code, 415)
+

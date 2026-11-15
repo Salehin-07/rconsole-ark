@@ -23,22 +23,23 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     if (url === "/api/dashboard/action") { posts.push(JSON.parse(opts.body)); return ok({ ok: true, message: "done" }); }
     return { ok: false, status: 404, json: async () => ({}) };
   };
-  w.RCONSOLE_USER = "ark"; w.scrollTo = () => {};
+  w.RCONSOLE_USER = "ark"; w.RCONSOLE_ADMIN = true; w.scrollTo = () => {};
   w.eval(fs.readFileSync(path.join(root, "static", "dashboard.js"), "utf8"));
   const text = () => d.getElementById("dmain").textContent;
   const go = async (name) => { d.querySelector(`#dtabs [data-tab="${name}"]`).click(); await sleep(120); };
   await sleep(150);
 
   const dlgBtn = (i) => { const b = d.querySelectorAll(".dlg .d-actions button"); return b[i < 0 ? b.length + i : i]; };
-  check("all nine tabs exist, and the header has a menu button for phones", d.querySelectorAll("#dtabs [data-tab]").length === 9 && !!d.querySelector("#dh .dh-menu"));
+  check("all ten admin tabs exist, and the header has a menu button for phones", d.querySelectorAll("#dtabs [data-tab]").length === 10 && !!d.querySelector("#dh .dh-menu"));
   check("overview shows meters and charts", /CPU/.test(text()) && /Memory/.test(text()) && d.querySelectorAll("svg.chart").length >= 6);
   check("overview charts draw lines", d.querySelectorAll("svg.chart path").length > 0);
 
-  check("overview: meter cards carry a trend line", d.querySelectorAll(".card.meter svg.spark path").length >= 3);
+  check("overview: no element mixes the stat-card class with the progress-bar class (v1.5.2 collision)", d.querySelectorAll(".card.meter").length === 0);
+  check("overview: meter cards carry a trend line", d.querySelectorAll(".card.stat svg.spark path").length >= 3);
   const chartSvg = d.querySelector(".chartbox svg.chart");
   chartSvg.dispatchEvent(new w.MouseEvent("pointermove", { clientX: 10, bubbles: true }));
   check("overview: hovering a chart shows a readout", d.querySelector(".chartbox .ctip") && !d.querySelector(".chartbox .ctip").hidden);
-  check("tabs have icons and labels", d.querySelectorAll("#dtabs [data-tab] .ti svg").length === 9 && d.querySelectorAll("#dtabs [data-tab] .tl").length === 9);
+  check("tabs have icons and labels", d.querySelectorAll("#dtabs [data-tab] .ti svg").length === 10 && d.querySelectorAll("#dtabs [data-tab] .tl").length === 10);
 
   await go("processes");
   check("tables label every cell (used by the phone layout)", d.querySelectorAll("#dmain table td[data-label]").length > 5);
@@ -117,7 +118,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // ---- phone menu drawer, and Esc on dialogs
   const menu = d.querySelector("#dh .dh-menu"); menu.click(); await sleep(30);
-  check("menu: the button opens a drawer listing every page", menu.getAttribute("aria-expanded") === "true" && d.querySelectorAll(".drawer .drawer-list button").length === 9);
+  check("menu: the button opens a drawer listing every page (admin: ten)", menu.getAttribute("aria-expanded") === "true" && d.querySelectorAll(".drawer .drawer-list button").length === 10);
   check("menu: the current page is marked", !!d.querySelector(".drawer .drawer-list button.on[aria-current=page]"));
   d.querySelector(".drawer-bg").dispatchEvent(new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await sleep(250);
   check("menu: Esc closes it", !d.querySelector(".drawer-bg") && menu.getAttribute("aria-expanded") === "false");

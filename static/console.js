@@ -3202,7 +3202,7 @@ function applySelectionUI() {
 function openEntry(e) {
   if (!e) return;
   if (e.is_dir) loadDir(e.path);
-  else if (mediaKind(e.name)) openViewer(e.path);          // photo / video: show it, keep the browser behind
+  else if (mediaKind(e.name)) openViewer(e.path);          // photo / video / audio / PDF / Office: show it, keep the browser behind
   else { openCodeEditor(e.path).then((ok) => { if (ok) hideFiles(); }); }
 }
 
@@ -3212,12 +3212,16 @@ const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif", "
 const VIDEO_EXTS = ["mp4", "m4v", "webm", "ogv", "mov"];
 const AUDIO_EXTS = ["mp3", "wav", "ogg", "oga", "opus", "m4a", "aac", "flac", "weba"];
 const PDF_EXTS = ["pdf"];
+const OFFICE_EXTS = ["docx", "xlsx", "xlsm", "xls", "pptx"];   // previewed in the browser (static/office-viewer.js)
+const LEGACY_OFFICE_EXTS = ["doc", "ppt"];                     // old binary Word/PowerPoint: cannot be previewed, offered as a download
 function mediaKind(name) {
   const ext = ((name || "").split(".").pop() || "").toLowerCase();
   if (IMAGE_EXTS.includes(ext)) return "image";
   if (VIDEO_EXTS.includes(ext)) return "video";
   if (AUDIO_EXTS.includes(ext)) return "audio";
   if (PDF_EXTS.includes(ext)) return "pdf";
+  if (OFFICE_EXTS.includes(ext)) return "office";
+  if (LEGACY_OFFICE_EXTS.includes(ext)) return "legacy";
   return "";
 }
 const elViewer = document.getElementById("viewer");
@@ -3253,6 +3257,43 @@ function assetVersion() {
   const s = document.querySelector('script[src*="console.js"]');
   const m = s && /[?&]v=([^&]+)/.exec(s.getAttribute("src") || "");
   return m ? m[1] : "";
+}
+let officeScriptPromise = null;
+function loadOfficeViewerScript() {
+  if (window.RCOffice) return Promise.resolve();
+  if (!officeScriptPromise) {
+    officeScriptPromise = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      const v = assetVersion();
+      s.src = "/static/office-viewer.js" + (v ? "?v=" + v : "");
+      s.onload = () => resolve();
+      s.onerror = () => { officeScriptPromise = null; reject(new Error("load failed")); };
+      document.head.appendChild(s);
+    });
+  }
+  return officeScriptPromise;
+}
+function viewerShowOffice(e) {
+  const idx = viewerState.idx;
+  const boot = document.createElement("div");
+  boot.className = "pdfv-boot";
+  const spin = document.createElement("span");
+  spin.className = "pdfv-spin";
+  const label = document.createElement("span");
+  label.textContent = "Opening document…";
+  boot.append(spin, label);
+  elViewerStage.appendChild(boot);
+  loadOfficeViewerScript().then(() => {
+    if (viewerState.idx !== idx || viewerState.list[idx] !== e) return;
+    boot.remove();
+    viewerState.cleanup = window.RCOffice.open(elViewerStage, mediaUrl(e.path), {
+      name: e.name,
+      version: assetVersion(),
+      onFallback: (msg) => { if (viewerState.idx === idx) viewerMessage(msg, e); },
+    }).destroy;
+  }).catch(() => {
+    if (viewerState.idx === idx) viewerMessage("The document viewer could not be loaded.", e);
+  });
 }
 let pdfScriptPromise = null;
 function loadPdfViewerScript() {
@@ -3342,6 +3383,10 @@ function viewerShow(i) {
     elViewerStage.appendChild(img);
   } else if (mediaKind(e.name) === "pdf") {
     viewerShowPdf(e);
+  } else if (mediaKind(e.name) === "office") {
+    viewerShowOffice(e);
+  } else if (mediaKind(e.name) === "legacy") {
+    viewerMessage("Old-format Word and PowerPoint files (.doc, .ppt) can't be previewed here. Download it and open it in Word, or save it as .docx first.", e);
   } else if (mediaKind(e.name) === "audio") {
     const card = document.createElement("div");
     card.className = "viewer-audio";
