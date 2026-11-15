@@ -57,6 +57,9 @@ VM_PREFIXES = ("home", "srv", "data")    # folders of a VM's root filesystem tha
 SKIP_DIRS = {"node_modules", "__pycache__", ".venv", "venv", ".cache", ".npm", ".rustup", ".gradle", ".m2",
              "site-packages"}
 SKIP_SUFFIX = (".rcpart", ".rcstub")
+GC_GRACE = 6 * 3600                      # a piece must stay unreferenced this long before cleanup removes it
+GC_EVERY = 6 * 3600                      # how often the background sync runs the cleanup
+_gc_at = time.time()
 
 
 class StoreError(Exception):
@@ -73,8 +76,9 @@ _booted = False
 _hydrating_all = False
 _blocked = ""                            # why syncing is paused (e.g. the repo could not be reached at boot)
 _S = {"state": "idle", "message": "", "done": 0, "total": 0, "last_ok": None, "last_error": "", "last_time": None,
-      "pushes": 0, "uploaded": 0, "hydrated": 0, "evicted": 0, "remote_changed": False}
-STATE = {"head": None, "man": {}, "store": {}, "local": {}, "blobs": [], "pins": [], "synced_roots": []}
+      "pushes": 0, "uploaded": 0, "hydrated": 0, "evicted": 0, "remote_changed": False, "gc_removed": 0,
+      "gc_last": None}
+STATE = {"head": None, "man": {}, "store": {}, "local": {}, "blobs": [], "pins": [], "synced_roots": [], "orphans": {}}
 STUBS = {}                               # key -> real size, for placeholders on this disk
 _last_up = {}
 
@@ -121,7 +125,7 @@ def status():
                  cache_limit=config.STORAGE_CACHE_MB * 1024 * 1024, chunk_mb=config.STORAGE_CHUNK_MB,
                  branch=config.STORAGE_BRANCH, repo=_scrub(config.BACKUP_URL), interval=config.STORAGE_INTERVAL,
                  running=bool(_thread and _thread.is_alive()), head=(STATE["head"] or "")[:10],
-                 pinned=len(STATE["pins"]), hydrating_all=_hydrating_all)
+                 pinned=len(STATE["pins"]), hydrating_all=_hydrating_all, unused_pieces=len(STATE["orphans"]))
     return s
 
 
@@ -464,7 +468,7 @@ def _load_state():
     except (OSError, ValueError):
         raw = {}
     with _lock:
-        for k in ("head", "man", "store", "local", "blobs", "pins", "synced_roots"):
+        for k in ("head", "man", "store", "local", "blobs", "pins", "synced_roots", "orphans"):
             if k in raw:
                 STATE[k] = raw[k]
         STUBS.clear()
@@ -874,12 +878,14 @@ def sync_once(reason="scheduled", force=False):
         puts, dels, seen_roots, hot = _scan()
         if not puts and not dels and not force:
             _evict_if_needed()
+            _maybe_gc()
             _set(state="idle", message="", last_ok=True, last_error="", last_time=time.time())
             if hot:
                 _wake.set()
             return True, "no changes"
         ok, msg = _apply(puts, dels, reason)
         _evict_if_needed()
+        _maybe_gc()
         _set(state="idle", message="")
         if hot:
             _wake.set()
@@ -924,12 +930,77 @@ def _apply(puts, dels, reason):
     skipped = []
     pending_local = {}
 
+    batch_prev = {}                  # key -> its manifest entry before this batch (None = new): what to undo
+
+    def _revert(keys, why):
+        for k in keys:
+            prev = batch_prev.pop(k, None)
+            if prev is None:
+                man.pop(k, None)
+            else:
+                man[k] = prev
+            pending_local.pop(k, None)
+            _last_up.pop(k, None)
+            if k not in skipped:
+                skipped.append(k)
+        if keys:
+            _set(last_error=_scrub(why))
+
+    def _push_pieces():
+        """Step 1: the pieces go first, in their own commits. Nothing refers to them yet, so a reader still sees
+        the previous manifest (the previous complete files) however this ends."""
+        group, size = {}, 0
+        for cid, p in list(staged_all.items()):
+            n = os.path.getsize(p)
+            if group and size + n > BATCH_BYTES:
+                _commit_pieces(group)
+                group, size = {}, 0
+            group[cid] = p
+            size += n
+        if group:
+            _commit_pieces(group)
+
+    def _commit_pieces(group):
+        commit = push_commit({_blob_path(c): p for c, p in group.items()}, [], {},
+                             f"rconsole storage pieces {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        with _lock:
+            STATE["head"] = commit
+            blobs.update(group)
+            STATE["blobs"] = sorted(blobs)
+            _S["pushes"] += 1
+        _save_state()
+        for c in group:
+            staged_all.pop(c, None)
+
     def flush(final=False):
-        nonlocal staged_all, staged_bytes, man, blobs, pending_local
-        if not staged_all and not final:
+        nonlocal staged_all, staged_bytes, man, blobs, pending_local, batch_prev
+        if not staged_all and not batch_prev and not final:
             return
-        refs = {c[0] for e in man.values() for c in e.get("c", ())}
-        orphans = [b for b in blobs if b not in refs and b not in staged_all]
+        # 0. re-read every piece that is about to be sent and check it is exactly what its id says
+        bad = {cid for cid, p in staged_all.items() if not _chunk_ok(cid, p, encrypt)}
+        if bad:
+            for cid in bad:
+                with contextlib.suppress(OSError):
+                    os.unlink(staged_all.pop(cid))
+            _revert([k for k in list(batch_prev) if any(c[0] in bad for c in (man.get(k) or {}).get("c", ()))],
+                    "a piece failed its check before upload; it will be retried")
+        # 1. pieces first
+        _push_pieces()
+        # 2. every piece the new entries need must now be in the repository; otherwise the entry is not published
+        if batch_prev:
+            with Reader() as rd:
+                present = {x.rsplit("/", 1)[-1] for x in rd.ls() if x.startswith("b/")}
+            lost = set()
+            for k in list(batch_prev):
+                missing = [c[0] for c in (man.get(k) or {}).get("c", ()) if c[0] not in present]
+                if missing:
+                    lost.update(missing)
+                    _revert([k], f"{os.path.basename(k)}: a piece did not reach the repository; it will be retried")
+            if lost:
+                with _lock:
+                    blobs.difference_update(lost)
+                    STATE["blobs"] = sorted(blobs)
+        # 3. only now the manifest: one small commit that switches readers from the old files to the new ones
         name, mdata = _encode_manifest(man, remote_store)
         store = dict(STATE["store"] or remote_store or {})
         store.update({"v": 1, "manifest": name, "created": store.get("created") or int(time.time()),
@@ -939,16 +1010,11 @@ def _apply(puts, dels, reason):
             store = dict(STATE["store"], **store)
         extra = {"store.json": json.dumps(store, indent=1).encode(), name: mdata}
         old = "manifest.gz" if name == "manifest.enc" else "manifest.enc"
-        rm = [_blob_path(b) for b in orphans] + [old]
-        add = {_blob_path(cid): p for cid, p in staged_all.items()}
-        commit = push_commit(add, rm, extra, f"rconsole storage {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        commit = push_commit({}, [old], extra, f"rconsole storage {time.strftime('%Y-%m-%d %H:%M:%S')}")
         with _lock:
             STATE["head"] = commit
             STATE["man"] = dict(man)
             STATE["store"] = store
-            blobs |= set(staged_all)
-            blobs -= set(orphans)
-            STATE["blobs"] = sorted(blobs)
             for k, rec in pending_local.items():
                 if rec is None:
                     STATE["local"].pop(k, None)
@@ -961,7 +1027,7 @@ def _apply(puts, dels, reason):
                         STUBS.pop(k, None)
             _S["pushes"] += 1
         _save_state()
-        staged_all, staged_bytes, pending_local = {}, 0, {}
+        staged_all, staged_bytes, pending_local, batch_prev = {}, 0, {}, {}
 
     try:
         for key, kind, path, extra in puts:
@@ -979,6 +1045,7 @@ def _apply(puts, dels, reason):
                 elif kind == "stubcopy":
                     src = man.get(extra["from"])
                     if src and src.get("h") == extra["hash"]:
+                        batch_prev[key] = man.get(key)
                         man[key] = dict(src)
                         st = os.lstat(path)
                         pending_local[key] = {"t": "f", "s": src["s"], "m": st.st_mtime_ns, "disk": st.st_size,
@@ -991,6 +1058,7 @@ def _apply(puts, dels, reason):
                     cur = man.get(key)
                     unchanged = bool(cur and cur.get("h") == entry["h"] and cur.get("t") == "f")
                     if not unchanged:
+                        batch_prev[key] = cur
                         man[key] = entry
                         staged_all.update(staged)
                         staged_bytes += sum(os.path.getsize(p) for p in staged.values())
@@ -1022,6 +1090,88 @@ def _apply(puts, dels, reason):
     if skipped:
         _wake.set()                                         # files that were busy: try again soon
     return True, msg
+
+
+def _chunk_ok(cid, path, encrypt):
+    """Re-read a staged piece from disk and check it is exactly what its id says (hash, or MAC + decryption)."""
+    try:
+        if encrypt:
+            enc, mac = _keys()
+            h = hmac.new(mac, digestmod=hashlib.sha256)
+            with open(path, "rb") as f:
+                _decode_frames(enc, cid.encode(), f, h.update)
+        else:
+            h = _hash_new()
+            with open(path, "rb") as f:
+                for b in iter(lambda: f.read(1024 * 1024), b""):
+                    h.update(b)
+        return h.hexdigest() == cid
+    except (OSError, StoreError):
+        return False
+
+
+# ----------------------------------------------------------------------------- cleanup of unused pieces
+def _gc_locked(grace):
+    """Remove pieces that no manifest entry points at (an upload that stopped before its manifest was published,
+    a replaced or deleted file). Needs ``_sync_lock``. Returns ``(removed, still_waiting)``."""
+    global _gc_at
+    now = time.time()
+    _gc_at = now
+    with Reader() as rd:
+        if not rd.tip:
+            return 0, 0
+        store, man = _load_remote(rd)
+        if rd.read((store or {}).get("manifest") or "manifest.gz") is None:
+            return 0, 0                  # no readable file list: every piece would look unused, so delete nothing
+        names = [x for x in rd.ls() if x.startswith("b/")]
+    refs = {c[0] for e in man.values() for c in e.get("c", ())}
+    orphans = {}
+    for x in names:
+        cid = x.rsplit("/", 1)[-1]
+        if cid not in refs:
+            orphans[cid] = x
+    with _lock:
+        seen = {c: t for c, t in STATE.get("orphans", {}).items() if c in orphans}
+        for c in orphans:
+            seen.setdefault(c, now)
+        STATE["orphans"] = seen
+    due = [c for c in orphans if now - seen[c] >= grace]
+    if due:
+        commit = push_commit({}, [orphans[c] for c in due], {},
+                             f"rconsole storage cleanup {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        gone = set(due)
+        with _lock:
+            STATE["head"] = commit
+            STATE["blobs"] = [b for b in STATE["blobs"] if b not in gone]
+            for c in due:
+                STATE["orphans"].pop(c, None)
+            _S["gc_removed"] += len(due)
+    with _lock:
+        _S["gc_last"] = now
+    _save_state()
+    return len(due), len(orphans) - len(due)
+
+
+def _maybe_gc():
+    if time.time() - _gc_at >= GC_EVERY:
+        try:
+            _gc_locked(GC_GRACE)
+        except Exception:                # cleanup is housekeeping: never let it fail a sync
+            pass
+
+
+def gc(now=False):
+    """Clean up unused pieces. ``now`` skips the waiting period (safe: no sync can be running while this does)."""
+    if not active():
+        raise StoreError("repo storage is off")
+    if not _sync_lock.acquire(blocking=False):
+        raise StoreError("a sync is running; try again in a minute")
+    try:
+        if _blocked or not _booted:
+            raise StoreError(_blocked or "repo storage is still starting")
+        return _gc_locked(0 if now else GC_GRACE)
+    finally:
+        _sync_lock.release()
 
 
 # ----------------------------------------------------------------------------- hydrate and evict
@@ -1576,7 +1726,8 @@ def forget_everything():
     """Tests / `reset`: drop the in-memory and on-disk bookkeeping (the repo is untouched)."""
     global _booted, _blocked
     with _lock:
-        STATE.update({"head": None, "man": {}, "store": {}, "local": {}, "blobs": [], "pins": [], "synced_roots": []})
+        STATE.update({"head": None, "man": {}, "store": {}, "local": {}, "blobs": [], "pins": [], "synced_roots": [],
+                      "orphans": {}})
         STUBS.clear()
         _last_up.clear()
         _key_locks.clear()

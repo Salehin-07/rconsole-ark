@@ -3224,9 +3224,10 @@ const elViewer = document.getElementById("viewer");
 const elViewerStage = document.getElementById("viewer-stage");
 const elViewerName = document.getElementById("viewer-name");
 const elViewerCount = document.getElementById("viewer-count");
-const viewerState = { list: [], idx: -1 };
+const viewerState = { list: [], idx: -1, cleanup: null };
 function mediaUrl(path) { return "/api/media?path=" + encodeURIComponent(path); }
 function viewerClearStage() {
+  if (viewerState.cleanup) { try { viewerState.cleanup(); } catch (_) {} viewerState.cleanup = null; }
   for (const v of elViewerStage.querySelectorAll("video, audio")) { try { v.pause(); } catch (_) {} v.removeAttribute("src"); v.load(); }
   elViewerStage.textContent = "";
 }
@@ -3244,41 +3245,80 @@ function viewerMessage(text, entry) {
   }
   elViewerStage.appendChild(box);
 }
-// PDFs: the browser's own PDF viewer inside the page. Phones and some browsers have no inline PDF viewer
-// (navigator.pdfViewerEnabled is false), so they get a card with "open in a new tab" and "download" instead.
-function viewerShowPdf(e) {
+// PDFs: our own viewer (static/pdf-viewer.js + bundled pdf.js). It shows a loading state at once, fetches byte
+// ranges only (the start of the file first, then whatever the visible pages need) and draws just the pages on screen.
+// If it cannot start (engine blocked, password, damaged file) the stage falls back to a card, or - when the engine
+// itself is missing - to the browser's own PDF viewer.
+function assetVersion() {
+  const s = document.querySelector('script[src*="console.js"]');
+  const m = s && /[?&]v=([^&]+)/.exec(s.getAttribute("src") || "");
+  return m ? m[1] : "";
+}
+let pdfScriptPromise = null;
+function loadPdfViewerScript() {
+  if (window.RCPdf) return Promise.resolve();
+  if (!pdfScriptPromise) {
+    pdfScriptPromise = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      const v = assetVersion();
+      s.src = "/static/pdf-viewer.js" + (v ? "?v=" + v : "");
+      s.onload = () => resolve();
+      s.onerror = () => { pdfScriptPromise = null; reject(new Error("load failed")); };
+      document.head.appendChild(s);
+    });
+  }
+  return pdfScriptPromise;
+}
+function viewerPdfCard(e, text) {
   const url = mediaUrl(e.path);
-  const card = (text) => {
-    const box = document.createElement("div");
-    box.className = "viewer-msg";
-    const t = document.createElement("div");
-    t.textContent = text;
-    const open = document.createElement("button");
-    open.type = "button";
-    open.textContent = "Open PDF in a new tab";
-    open.onclick = () => window.open(url, "_blank", "noopener");
-    const dl = document.createElement("button");
-    dl.type = "button";
-    dl.textContent = "⬇ Download";
-    dl.onclick = () => downloadEntry(e);
-    box.append(t, open, dl);
-    elViewerStage.textContent = "";
-    elViewerStage.appendChild(box);
-  };
-  if (navigator.pdfViewerEnabled === false) { card("Your browser can't show PDFs inside the page."); return; }
+  const box = document.createElement("div");
+  box.className = "viewer-msg";
+  const t = document.createElement("div");
+  t.textContent = text;
+  const open = document.createElement("button");
+  open.type = "button";
+  open.textContent = "Open PDF in a new tab";
+  open.onclick = () => window.open(url, "_blank", "noopener");
+  const dl = document.createElement("button");
+  dl.type = "button";
+  dl.textContent = "⬇ Download";
+  dl.onclick = () => downloadEntry(e);
+  box.append(t, open, dl);
+  viewerClearStage();
+  elViewerStage.appendChild(box);
+}
+function viewerShowPdfNative(e) {
+  const url = mediaUrl(e.path);
+  if (navigator.pdfViewerEnabled === false) { viewerPdfCard(e, "Your browser can't show PDFs inside the page."); return; }
   const frame = document.createElement("iframe");
   frame.className = "viewer-pdf";
   frame.title = e.name;
   frame.src = url;
   elViewerStage.appendChild(frame);
-  const hint = document.createElement("div");
-  hint.className = "viewer-hint";
-  const a = document.createElement("button");
-  a.type = "button";
-  a.textContent = "PDF not showing? Open it in a new tab";
-  a.onclick = () => window.open(url, "_blank", "noopener");
-  hint.appendChild(a);
-  elViewerStage.appendChild(hint);
+}
+function viewerShowPdf(e) {
+  const url = mediaUrl(e.path);
+  const idx = viewerState.idx;
+  const box = document.createElement("div");
+  box.className = "pdfv-boot";
+  const spin = document.createElement("span");
+  spin.className = "pdfv-spin";
+  const label = document.createElement("span");
+  label.textContent = "Opening PDF…";
+  box.append(spin, label);
+  elViewerStage.appendChild(box);                      // something is on screen from the first moment
+  loadPdfViewerScript().then(() => {
+    if (viewerState.idx !== idx || viewerState.list[idx] !== e) return;   // moved on while the engine loaded
+    box.remove();
+    viewerState.cleanup = window.RCPdf.open(elViewerStage, url, {
+      version: assetVersion(),
+      onFallback: (msg) => { if (viewerState.idx === idx) viewerPdfCard(e, msg); },
+    }).destroy;
+  }).catch(() => {
+    if (viewerState.idx !== idx) return;
+    box.remove();
+    viewerShowPdfNative(e);
+  });
 }
 function viewerShow(i) {
   const list = viewerState.list;
@@ -3354,7 +3394,8 @@ document.getElementById("viewer-dl").onclick = () => {
 };
 elViewer.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); closeViewer(); return; }
-  if (ev.target && (ev.target.tagName === "VIDEO" || ev.target.tagName === "AUDIO")) return;  // arrows seek inside a player
+  if (ev.target && (ev.target.tagName === "VIDEO" || ev.target.tagName === "AUDIO" || ev.target.tagName === "INPUT")) return;  // arrows seek inside a player / move the caret
+  if (ev.target && ev.target.closest && ev.target.closest(".pdfv")) return;                       // a PDF scrolls with the keys
   if (ev.key === "ArrowLeft") { ev.preventDefault(); viewerShow(viewerState.idx - 1); }
   else if (ev.key === "ArrowRight") { ev.preventDefault(); viewerShow(viewerState.idx + 1); }
 });
@@ -3362,7 +3403,7 @@ elViewer.addEventListener("keydown", (ev) => {
 (() => {
   let x0 = null, y0 = 0;
   elViewerStage.addEventListener("touchstart", (ev) => {
-    if (ev.touches.length !== 1 || ev.target.tagName === "VIDEO" || ev.target.tagName === "AUDIO") { x0 = null; return; }
+    if (ev.touches.length !== 1 || ev.target.tagName === "VIDEO" || ev.target.tagName === "AUDIO" || ev.target.closest(".pdfv")) { x0 = null; return; }
     x0 = ev.touches[0].clientX; y0 = ev.touches[0].clientY;
   }, { passive: true });
   elViewerStage.addEventListener("touchend", (ev) => {

@@ -94,6 +94,8 @@ rconsole/
 ├── static/                 # Front-end assets (served as static)
 │   ├── console.js          # Tab/terminal UI, xterm.js wiring, WebSocket client, editor UI
 │   ├── editor-core.js      # Code-editor text logic (auto-indent/close, comments, line ops, find): DOM-free, unit-tested
+│   ├── pdf-viewer.js       # File-browser PDF viewer (loading state, range requests, only visible pages drawn); loads vendor/pdfjs on first use
+│   ├── vendor/pdfjs/       # Bundled pdf.js 3.11.174 (Apache-2.0) with its worker, cmaps and standard fonts
 │   ├── files-core.js       # File-manager selection / archive-name logic (click, ctrl/shift, drag band, long-press sweep): DOM-free, unit-tested
 │   ├── dashboard.js        # Dashboard UI for admins and normal users (plain DOM + inline SVG charts, textContent only)
 │   ├── dashboard.css       # Admin dashboard styling (uses the console theme variables)
@@ -291,6 +293,12 @@ text and selection and returns one edit `{from, to, insert, selStart, selEnd}` (
 edits through `document.execCommand` (so native undo/redo keeps working) from the
 `beforeinput` / `keydown` handlers, and owns the status bar, font size
 (`--editor-fs`), find bar and touch symbol bar.
+
+**`static/pdf-viewer.js`** — The PDF viewer (`tests/js/pdf_viewer_check.js`). Opens the file
+with pdf.js in range-request mode (`disableAutoFetch`), shows "Opening PDF…" and the download
+bar at once, lays out one placeholder per page from page 1's size, and draws only pages near the
+screen, nearest to the middle first; pages that scroll far away are freed. `console.js` loads it
+on the first PDF and falls back to a card (or the browser's own viewer) if it cannot start.
 
 **`static/files-core.js`** — The file manager's decisions without the DOM
 (`tests/js/files_check.js`): what a click / ctrl- or shift-click / dragged rectangle /

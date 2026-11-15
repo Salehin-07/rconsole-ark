@@ -137,6 +137,35 @@ class FrontEndTests(Base):
         self.assertTrue(all(rapp.MEDIA_TYPES[e].startswith("audio/") for e in exts("AUDIO_EXTS")))
         self.assertEqual({rapp.MEDIA_TYPES[e] for e in exts("PDF_EXTS")}, {"application/pdf"})
 
+    def test_pdf_supports_range_requests_and_is_never_gzipped(self):
+        """The viewer fetches byte ranges (start of the file first, then only the visible pages)."""
+        self.login()
+        p = os.path.join(os.environ["RCONSOLE_DATA_DIR"], "range.pdf")
+        with open(p, "wb") as f:
+            f.write(b"%PDF-1.4\n" + b"x" * 5000 + b"\n%%EOF\n")
+        r = self.c.get("/api/media", query_string={"path": p}, headers={"Range": "bytes=0-99", "Accept-Encoding": "gzip"})
+        self.assertEqual(r.status_code, 206)
+        self.assertEqual(len(r.data), 100)
+        self.assertEqual(r.headers.get("Accept-Ranges"), "bytes")
+        self.assertNotIn("Content-Encoding", r.headers)
+        r2 = self.c.get("/api/media", query_string={"path": p}, headers={"Range": "bytes=-20"})
+        self.assertEqual(r2.status_code, 206)
+        self.assertTrue(r2.data.endswith(b"%%EOF\n"))
+
+    def test_pdf_engine_files_are_served_and_wired_in(self):
+        self.login()
+        for name in ("pdf-viewer.js", "vendor/pdfjs/pdf.min.js", "vendor/pdfjs/pdf.worker.min.js"):
+            r = self.c.get("/static/" + name)
+            self.assertEqual(r.status_code, 200, name)
+            self.assertGreater(len(r.get_data()), 1000, name)
+        self.assertEqual(self.c.get("/static/vendor/pdfjs/standard_fonts/FoxitFixed.pfb").status_code, 200)
+        js = self.c.get("/static/console.js").get_data(as_text=True)
+        self.assertIn("RCPdf.open", js)
+        self.assertIn("/static/pdf-viewer.js", js)
+        viewer = self.c.get("/static/pdf-viewer.js").get_data(as_text=True)
+        self.assertIn("disableAutoFetch: true", viewer)       # never pull the whole file
+        self.assertIn(".pdfv", self.c.get("/static/style.css").get_data(as_text=True))
+
 
 if __name__ == "__main__":
     unittest.main()

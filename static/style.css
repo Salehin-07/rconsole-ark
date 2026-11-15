@@ -1421,3 +1421,29 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 .notice.leaving { opacity: 0; transition: opacity .4s; }
 @keyframes notice-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .notice { animation: none; } }
+
+/* PDF viewer (file browser): our own viewer with a loading state, progressive pages and zoom. */
+#viewer-stage:has(.pdfv) { flex-direction: column; align-items: stretch; justify-content: flex-start; overflow: hidden; }
+.pdfv { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pdfv-bar { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 13px; }
+.pdfv-bar button { background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; font: inherit; cursor: pointer; min-width: 32px; min-height: 30px; }
+.pdfv-bar button:active { filter: brightness(1.25); }
+.pdfv-bar .pdfv-link { background: none; border: 0; color: var(--blue); text-decoration: underline; font-size: 12px; min-width: 0; padding: 3px 4px; }
+.pdfv-page { width: 3.2em; text-align: center; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 4px; font: inherit; }
+.pdfv-total, .pdfv-zoom { color: var(--dim); white-space: nowrap; }
+.pdfv-zoom { min-width: 3em; text-align: center; }
+.pdfv-spacer { flex: 1 1 0; }
+.pdfv-progress { flex: 0 0 auto; height: 3px; background: color-mix(in srgb, var(--fg) 10%, transparent); }
+.pdfv-progress-fill { height: 100%; width: 0; background: var(--blue); transition: width .2s; }
+.pdfv-scroll { position: relative; flex: 1; min-height: 0; overflow-y: scroll; overflow-x: auto; background: color-mix(in srgb, var(--bg) 70%, #000); outline: none; -webkit-overflow-scrolling: touch; }
+.pdfv-pages { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px 0 24px; min-width: min-content; }
+.pdfv-pagebox { background: #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, .45); flex: 0 0 auto; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.pdfv-pagebox canvas { display: block; }
+.pdfv-status, .pdfv-boot, .pdfv-pagewait { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--dim); font-size: 14px; padding: 18px; }
+.pdfv-status[hidden] { display: none; }
+.pdfv-boot { flex: 1; }
+.pdfv-pagewait { color: #555; flex-wrap: wrap; text-align: center; }
+.pdfv-pagewait button { background: #eee; color: #222; border: 1px solid #bbb; border-radius: 6px; padding: 3px 10px; font: inherit; cursor: pointer; }
+.pdfv-spin { width: 18px; height: 18px; border: 2px solid color-mix(in srgb, currentColor 25%, transparent); border-top-color: currentColor; border-radius: 50%; animation: pdfv-rot .8s linear infinite; flex: 0 0 auto; }
+@keyframes pdfv-rot { to { transform: rotate(360deg); } }
+@media (max-width: 600px) { .pdfv-bar { gap: 4px; padding: 5px 6px; } .pdfv-bar .pdfv-link { display: none; } }

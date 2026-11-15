@@ -168,7 +168,86 @@ class RoundTripTests(StoreBase):
         before = len([t for t in self.tree() if t.startswith("b/")])
         (self.ws / "gone.bin").unlink()
         self.sync()
+        # the manifest switches first; the cleanup job removes the unused pieces afterwards
+        self.assertEqual(len([t for t in self.tree() if t.startswith("b/")]), before)
+        removed, _waiting = gitstore.gc(now=True)
+        self.assertGreaterEqual(removed, 1)
         self.assertLess(len([t for t in self.tree() if t.startswith("b/")]), before)
+
+    def test_stopped_upload_leaves_the_previous_file_and_cleanup_removes_the_pieces(self):
+        (self.ws / "big.bin").write_bytes(b"A" * 2_500_000)
+        self.sync()
+        old = (self.ws / "big.bin").read_bytes()
+        (self.ws / "big.bin").write_bytes(os.urandom(2_500_000))
+        self.settle()
+        gitstore._last_up.clear()
+        real = gitstore.push_commit
+        calls = []
+
+        def dying(add, remove, extra, message):
+            calls.append(bool(extra))
+            if extra:                              # the manifest push: the upload "stops" right before it
+                raise gitstore.StoreError("connection lost")
+            return real(add, remove, extra, message)
+        gitstore.push_commit = dying
+        try:
+            ok, _msg = gitstore.sync_once("test")
+        finally:
+            gitstore.push_commit = real
+        self.assertFalse(ok)
+        self.assertIn(False, calls)                # pieces were sent first
+        self.wipe_disk()                           # a reader (fresh deploy) gets the previous complete file
+        gitstore.ensure_local(str(self.ws / "big.bin"))
+        self.assertEqual((self.ws / "big.bin").read_bytes(), old)
+        # pieces of the stopped upload are in the repo but in no manifest: not removed at once, removed by cleanup
+        n = len([t for t in self.tree() if t.startswith("b/")])
+        self.assertEqual(gitstore.gc()[0], 0)
+        self.assertEqual(len([t for t in self.tree() if t.startswith("b/")]), n)
+        removed, _ = gitstore.gc(now=True)
+        self.assertGreaterEqual(removed, 1)
+        self.wipe_disk()
+        gitstore.ensure_local(str(self.ws / "big.bin"))
+        self.assertEqual((self.ws / "big.bin").read_bytes(), old)
+
+    def test_manifest_is_not_published_when_a_piece_is_missing_in_the_repo(self):
+        (self.ws / "m.bin").write_bytes(os.urandom(1_500_000))
+        self.settle()
+        real_push = gitstore.push_commit
+
+        def lossy(add, remove, extra, message):    # the repo "loses" the pieces: pushes succeed, data is not there
+            if add and not extra:
+                for src in list(add.values()):
+                    os.unlink(src)
+                return real_push({}, [], {}, message)
+            return real_push(add, remove, extra, message)
+        gitstore.push_commit = lossy
+        gitstore._last_up.clear()
+        try:
+            gitstore.sync_once("test")
+        finally:
+            gitstore.push_commit = real_push
+        self.assertNotIn("m.bin", str(gitstore.STATE["man"]))
+        gitstore._last_up.clear()
+        ok, msg = self.sync()                      # healthy again: the file gets through
+        self.assertTrue(ok, msg)
+        self.wipe_disk()
+        gitstore.ensure_local(str(self.ws / "m.bin"))
+        self.assertEqual(len((self.ws / "m.bin").read_bytes()), 1_500_000)
+
+    def test_cleanup_refuses_to_delete_when_the_file_list_is_unreadable(self):
+        (self.ws / "k.bin").write_bytes(os.urandom(300_000))
+        self.sync()
+        n = len([t for t in self.tree() if t.startswith("b/")])
+        with gitstore.Reader() as rd:
+            name = (gitstore.STATE["store"] or {}).get("manifest")
+            self.assertIsNotNone(rd.read(name))
+        real = gitstore.Reader.read
+        gitstore.Reader.read = lambda self_, path: None if path.startswith("manifest") else real(self_, path)
+        try:
+            self.assertEqual(gitstore.gc(now=True), (0, 0))
+        finally:
+            gitstore.Reader.read = real
+        self.assertEqual(len([t for t in self.tree() if t.startswith("b/")]), n)
 
     def test_identical_data_is_stored_once(self):
         blob = os.urandom(200_000)

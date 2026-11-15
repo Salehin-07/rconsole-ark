@@ -3,6 +3,34 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.2 — 2026-11-15
+
+### Changed
+- **Repo storage publishes a file only when it is complete and verified.** An upload now goes in three steps:
+  (1) every piece is re-read from disk and checked against its id (hash, or MAC + decryption), (2) the pieces are
+  pushed first, in their own commits, and the repository is read back to confirm that every piece the new file needs
+  is really there, (3) only then is the manifest (the file list) pushed in one small commit. If the upload stops
+  anywhere before step 3 (connection lost, server restart, a failed check), nothing refers to the new pieces, so a
+  reader or a fresh deploy gets the **previous complete file**, never a half-written one. A file whose pieces did not
+  arrive is left out of the manifest and retried by the next sync.
+- **Unused pieces are cleaned up by a separate job** instead of in the same push that switches the manifest. A piece
+  that is in no manifest entry (a stopped upload, a replaced or deleted file) is removed once it has been unused for
+  6 hours; the cleanup runs every 6 hours after a sync. It refuses to delete anything when the stored file list
+  cannot be read.
+
+### Added
+- `sudo storage gc [--now]`: run the cleanup right away (`--now` skips the 6-hour wait). `storage` status shows how
+  many unused pieces are waiting.
+- **A PDF viewer that works on very big files.** The file browser's PDF viewer used to show a blank page until the
+  whole file had loaded. The new one (bundled pdf.js, no external requests) shows "Opening PDF…" with the download
+  progress at once, fetches **byte ranges only** (the start of the file first, then just what the visible pages
+  need), draws the pages on screen and the ones next to them (nearest to the middle first), frees pages far away,
+  and has a page box (jump to any page, which is fetched first), previous / next page and zoom. A password-protected or
+  damaged PDF shows an explanation with "Open in a new tab" / "Download" instead of a blank area.
+
+### Fixed
+- A big PDF showed nothing while loading.
+
 ## 1.5.1 — 2026-11-13
 
 ### Changed

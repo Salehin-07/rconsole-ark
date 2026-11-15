@@ -124,7 +124,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.5.1` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.5.2` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -524,6 +524,7 @@ storage                    # where your files live, how full the cache is, last 
 storage get <path>...      # bring placeholder files (or whole folders) back to this disk now
 storage pin <path>...      # keep files on this disk for good;  storage unpin <path>  undoes it
 sudo storage sync          # upload changes right now
+sudo storage gc            # remove pieces no file uses (left by stopped uploads); --now skips the 6 h wait
 sudo storage mode github   # or: host  (files back on this disk)
 sudo storage encrypt on    # or: off  [--rewrite converts the files already stored]
 ```
@@ -532,7 +533,8 @@ Stored: the workspace (the host shell's home) and each system's `/home`, `/srv` 
 placeholder; the file manager (open, edit, download, preview, compress) and any command that names the file fetch
 it back by themselves. A program that opens a file you did not name on the command line sees the placeholder
 text: run `storage get` first, or `storage pin` the file. If the repo is not set up, nothing changes: files stay on
-the host.
+the host. A file is published only once all its pieces are in the repo and verified, so an upload that stops
+halfway never replaces the previous file.
 
 ### `backup`
 🔒 Encrypted snapshots of everything that matters, pushed to a **private git repo** (or a folder), restored

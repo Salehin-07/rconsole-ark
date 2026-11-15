@@ -7,6 +7,7 @@
     storage pin <path>...       keep files on this disk for good (never turned into placeholders)
     storage unpin <path>...
     storage sync                upload changes now                                   (admin)
+    storage gc [--now]          remove pieces no file uses (left by stopped uploads) (admin)
     storage mode host|github    choose where files live                              (admin)
     storage encrypt on|off      encrypt files in the repo (new files; see --rewrite)  (admin)
 
@@ -82,7 +83,7 @@ def cmd_storage(ctx, args):
         except (gitstore.StoreError, sandbox.SandboxError, OSError) as e:
             out.append(f"storage: {e}")
         return "\n".join(out)
-    if sub in ("sync", "mode", "encrypt"):
+    if sub in ("sync", "mode", "encrypt", "gc"):
         if not admin:
             return f"storage {sub}: only admins can do that."
         import settings
@@ -91,6 +92,15 @@ def cmd_storage(ctx, args):
                 return "storage: repo storage is off or not set up.\n" + _summary()
             ok, msg = gitstore.sync_once("command", force=True)
             return ("synced: " if ok else "sync failed: ") + msg
+        if sub == "gc":
+            if not gitstore.active():
+                return "storage: repo storage is off or not set up.\n" + _summary()
+            try:
+                removed, waiting = gitstore.gc(now="--now" in rest)
+            except gitstore.StoreError as e:
+                return f"storage gc: {e}"
+            return (f"cleanup: {removed} unused piece(s) removed" +
+                    (f", {waiting} more will go after the waiting period (use --now to skip it)" if waiting else ""))
         if sub == "mode":
             if not rest or rest[0] not in ("host", "github"):
                 return "usage: storage mode host|github"
@@ -104,4 +114,4 @@ def cmd_storage(ctx, args):
             ok2, m2 = gitstore.reencode()
             return f"encryption {rest[0]}: {m2}"
         return msg if not ok else f"encryption {rest[0]} for new files (add --rewrite to convert the stored ones)"
-    return "usage: storage [status | get <path> | pin <path> | unpin <path> | sync | mode host|github | encrypt on|off]"
+    return "usage: storage [status | get <path> | pin <path> | unpin <path> | sync | gc [--now] | mode host|github | encrypt on|off]"

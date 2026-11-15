@@ -17,6 +17,12 @@ in the dashboard (**Repo storage**) or with `RCONSOLE_STORAGE`.
   GitHub rejects files over 100 MB. The pieces are joined again when you open the file. There is no limit on the
   number of pieces, so any file size works. Each piece is stored once under its content hash: identical data is not
   duplicated, and appending to a log re-sends only its last piece.
+* **An upload that stops halfway.** A file is published in three steps: the pieces are checked on disk, then pushed
+  first (nothing refers to them yet), then read back from the repo to confirm every piece is there, and only then is
+  the file list (manifest) switched in one small commit. Whatever stops the upload before that last step leaves
+  readers, and any fresh deploy, with the **previous complete file**. Pieces that never made it into a manifest are
+  removed by a cleanup job once they have been unused for 6 hours (`sudo storage gc` runs it now, `--now` skips the
+  wait). The cleanup deletes nothing when the stored file list cannot be read.
 * **What triggers a sync.** The upload button (files and folders), the editor, the file manager actions and any
   command that changes a file. Changes are picked up within `RCONSOLE_STORAGE_INTERVAL` seconds (20 by default) and
   again at shutdown.
