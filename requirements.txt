@@ -8,10 +8,8 @@ cffi==2.1.1 ; platform_python_implementation != 'PyPy'
     # via cryptography
 charset-normalizer==3.5.2
     # via requests
-click==8.5.0
+click==8.5.1
     # via flask
-colorama==0.4.6 ; sys_platform == 'win32'
-    # via click
 cryptography==50.0.2
     # via rconsole
 flask==3.1.3
@@ -37,7 +35,7 @@ markupsafe==3.0.4
     #   werkzeug
 pycparser==3.12 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
     # via cffi
-pywinpty==3.1.0 ; sys_platform == 'win32'
+pywinpty==3.1.2 ; sys_platform == 'win32'
     # via rconsole
 requests==2.34.2
     # via rconsole

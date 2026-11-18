@@ -52,6 +52,8 @@ jobs:
           cd tests/js
           npm install --no-save jsdom
           node ui_check.js
+          node dashboard_check.js
+          node pdf_viewer_check.js
 
       - name: Test
         run: uv run python -m unittest discover -s tests -v

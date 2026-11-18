@@ -3,6 +3,19 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.4 — 2026-11-18
+
+### Added
+- **CI now runs every browser-side check on each push.** Until now only `ui_check.js` ran in CI; the dashboard
+  (`dashboard_check.js`) and PDF viewer (`pdf_viewer_check.js`) checks were run by hand, which is how the collapsed
+  stat cards in 1.5.3 got through. All five `tests/js` checks now run in the "UI checks (jsdom)" step.
+
+### Changed
+- **Dependencies refreshed (patch/minor, no behaviour change):** certifi 2026.10.23, urllib3 2.8.0, werkzeug 3.1.9,
+  idna 3.20, charset-normalizer 3.5.2, click 8.5.1, markupsafe 3.0.4, markdown 3.11.3, pywinpty 3.1.2 (Windows only).
+  `uv.lock` and `requirements.txt` were out of step with each other; both are regenerated from the same resolution
+  now. gunicorn stays on 26.x on purpose (the single-worker shutdown behaviour is tuned to it).
+
 ## 1.5.3 — 2026-11-15
 
 ### Fixed
