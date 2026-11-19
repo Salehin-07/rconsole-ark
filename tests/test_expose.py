@@ -211,7 +211,14 @@ class CommandTests(Base):
         self.assertIn("anyone, no login", out)
         self.assertNotIn("re-run with --rewrite", out)
         e = exposure.get("pub")
-        self.assertTrue(e["public"] and e["rewrite"])
+        self.assertTrue(e["public"] and exposure.rewrites(e))
+
+    def test_rewrite_is_the_default_and_contradicting_flags_are_refused(self):
+        self.run_cmd(self.alice(), f"expose {self.port} dflt")
+        self.assertTrue(exposure.rewrites(exposure.get("dflt")))
+        out = self.run_cmd(self.alice(), f"expose {self.port} dflt2 --rewrite --no-rewrite")
+        self.assertIn("contradict", out)
+        self.assertIsNone(exposure.get("dflt2"))
 
 
 class ProxyTests(Base):
@@ -258,11 +265,8 @@ class ProxyTests(Base):
         self.assertTrue(c.get("/myapp/redir").headers["Location"].endswith("/myapp/login"))
         self.assertTrue(c.get("/myapp/abs").headers["Location"].endswith("/myapp/dash"))
 
-    def test_rewrite_fixes_root_relative_links_only_when_asked(self):
-        c = self.expose()
-        plain = c.get("/myapp/page").get_data(as_text=True)
-        self.assertIn('href="/static/a.css"', plain)                           # untouched by default
-        c.post("/api/run", json={"cmd": f"expose {self.port} myapp --rewrite", "tab": "main"})
+    def test_rewrite_is_automatic_and_no_rewrite_opts_out(self):
+        c = self.expose()                                                      # plain `expose`: no flag
         html = c.get("/myapp/page").get_data(as_text=True)
         self.assertIn('href="/myapp/static/a.css"', html)
         self.assertIn('<a href="/myapp/">home</a>', html)
@@ -276,6 +280,24 @@ class ProxyTests(Base):
         self.assertIn("url(/myapp/img/bg.png)", css)
         self.assertIn("url('/myapp/x.png')", css)
         self.assertIn('"/not/rewritten"', c.get("/myapp/data").get_data(as_text=True))   # JSON untouched
+
+    def test_no_rewrite_leaves_links_alone_and_old_flag_still_works(self):
+        c = self.expose()
+        c.post("/api/run", json={"cmd": f"expose {self.port} myapp --no-rewrite", "tab": "main"})
+        self.assertIn('href="/static/a.css"', c.get("/myapp/page").get_data(as_text=True))
+        self.assertIn("-> :", c.post("/api/run", json={"cmd": "expose list", "tab": "main"}).get_data(as_text=True))
+        c.post("/api/run", json={"cmd": f"expose {self.port} myapp --rewrite", "tab": "main"})   # old habit
+        self.assertIn('href="/myapp/static/a.css"', c.get("/myapp/page").get_data(as_text=True))
+
+    def test_exposures_saved_by_older_versions_get_rewriting_too(self):
+        self.expose()
+        data = exposure._read()
+        data["myapp"].pop("no_rewrite", None)
+        data["myapp"]["rewrite"] = False                                       # how <=1.5.4 stored a plain expose
+        exposure._save(data)
+        exposure._cache.update(sig=None, data={})
+        c = self.alice()
+        self.assertIn('href="/myapp/static/a.css"', c.get("/myapp/page").get_data(as_text=True))
 
     def test_public_exposure_needs_no_login_but_stays_cookie_clean(self):
         self.expose("pub", user="ark", flags="--public")

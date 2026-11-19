@@ -10,7 +10,7 @@
 
 Options for ``add``:  ``--vm <name>`` run inside that VM  ·  ``--host`` on the server
 itself (admins)  ·  ``--cwd <dir>``  ·  ``--env KEY=VALUE`` (repeatable)  ·
-``--expose PORT:NAME`` publish the app at /NAME/  ·  ``--no-autostart``.
+``--expose PORT:NAME`` publish the app at /NAME/ (links fixed automatically; ``--no-rewrite`` opts out)  ·  ``--no-autostart``.
 
 Examples::
 
@@ -27,7 +27,7 @@ import sandbox
 import services
 
 USAGE = """\
-service add <name> [--vm n | --host] [--cwd dir] [--env K=V]... [--expose PORT:NAME] [--no-autostart] <command…>
+service add <name> [--vm n | --host] [--cwd dir] [--env K=V]... [--expose PORT:NAME [--no-rewrite]] [--no-autostart] <command…>
 service list                          services and their state
 service start|stop|restart <name|all>
 service logs <name> [lines]           recent output
@@ -36,7 +36,7 @@ service rm <name>                     stop and delete
 Example:  service add tgbot --vm debian --cwd /root/bot python bot.py"""
 
 _VALUE_OPTS = {"--vm", "--cwd", "--env", "--expose"}
-_FLAG_OPTS = {"--host", "--no-autostart"}
+_FLAG_OPTS = {"--host", "--no-autostart", "--no-rewrite"}
 
 
 def _after(raw, pos, token):
@@ -188,6 +188,7 @@ def cmd_service(ctx, args):
             expose = (int(port_s), ename.lower())
         ok, msg = services.add(opts["name"], user, opts["cmd"], target, cwd=opts.get("cwd", ""),
                                env=opts["env"], expose=expose,
+                               rewrite=not opts.get("no_rewrite"),
                                enabled=not opts.get("no_autostart"))
         if not ok:
             return f"service: {msg}"
@@ -195,7 +196,9 @@ def cmd_service(ctx, args):
         out = [f"Service '{opts['name'].lower()}' {msg} ({target}); "
                + ("starting now." if not opts.get("no_autostart") else "not started (--no-autostart).")]
         if expose:
-            out.append(f"Exposed at /{expose[1]}/ (port {expose[0]}).")
+            out.append(f"Exposed at /{expose[1]}/ (port {expose[0]}); "
+                       + ("link rewriting is off." if opts.get("no_rewrite") else
+                          "root-relative links are rewritten automatically."))
         out.append("It restarts after crashes and starts again after every reboot or redeploy.")
         out.append(f"Watch it: service logs {opts['name'].lower()}")
         return "\n".join(out)

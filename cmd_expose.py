@@ -5,14 +5,16 @@ Run your program however you like (on the host or inside a VM), then expose its 
     python main.py &                  # a web server on port 8000
     expose 8000 myapp                 # -> https://<your-domain>/myapp/
 
-    expose <port> <name> [--public] [--rewrite]
+    expose <port> <name> [--public] [--no-rewrite]
     expose list                       your exposures (admins see everyone's)
     expose rm <name>                  stop exposing (also: unexpose <name>)
     expose rm all                     remove all of yours
 
 ``--public``   anyone can open it without logging in (admins only; for webhooks/demos)
-``--rewrite``  best effort: fix root-relative links (``/static/x.css``) in HTML/CSS so
-               apps that don't know they live under ``/name/`` still load
+
+Root-relative links (``/static/x.css``) in HTML/CSS are fixed automatically so apps that
+don't know they live under ``/name/`` still load. ``--no-rewrite`` turns that off for
+apps that already handle the prefix (``--rewrite`` is still accepted and does nothing).
 
 The proxy forwards ``X-Forwarded-Prefix: /name`` (and Host/Proto), so frameworks
 that support a prefix (Django ``FORCE_SCRIPT_NAME``, Flask ``ProxyFix(x_prefix=1)``,
@@ -24,12 +26,12 @@ import commands
 import exposure
 
 USAGE = """\
-expose <port> <name> [--public] [--rewrite]   publish a local port at /<name>/
+expose <port> <name> [--public] [--no-rewrite] publish a local port at /<name>/
 expose list                                   show exposures
 expose rm <name> | all                        stop exposing  (also: unexpose <name>)
 
   --public    open to anyone, no login (admins only)
-  --rewrite   fix root-relative links in HTML/CSS (for apps unaware of /<name>/)"""
+  --no-rewrite  don't fix root-relative links in HTML/CSS (fixing is automatic)"""
 
 
 def _base_url():
@@ -53,7 +55,7 @@ def _listening(port):
 
 
 def _fmt(e, base):
-    flags = " ".join(f for f, on in (("public", e["public"]), ("rewrite", e["rewrite"])) if on)
+    flags = " ".join(f for f, on in (("public", e["public"]), ("no-rewrite", not exposure.rewrites(e))) if on)
     up = "up" if _listening(e["port"]) else "down"
     return (f"/{e['name']}/ -> :{e['port']} [{up}] by {e['owner']}"
             + (f" ({flags})" if flags else "") + f"\n    {base}/{e['name']}/")
@@ -94,11 +96,11 @@ def cmd_expose(ctx, args):
 
     flags = {a for a in args if a.startswith("--")}
     pos = [a for a in args if not a.startswith("--")]
-    unknown = flags - {"--public", "--rewrite"}
+    unknown = flags - {"--public", "--rewrite", "--no-rewrite"}
     if unknown:
         return f"expose: unknown option {', '.join(sorted(unknown))}\n\n{USAGE}"
     if len(pos) != 2:
-        return f"usage: expose <port> <name> [--public] [--rewrite]\n(got {len(pos)} argument(s))"
+        return f"usage: expose <port> <name> [--public] [--no-rewrite]\n(got {len(pos)} argument(s))"
     try:
         port = int(pos[0])
     except ValueError:
@@ -107,7 +109,10 @@ def cmd_expose(ctx, args):
     public = "--public" in flags
     if public and not ctx["is_admin"]:
         return "expose: --public is for admins only (it removes the login requirement)."
-    ok, msg = exposure.add(name, port, ctx["username"], public=public, rewrite="--rewrite" in flags)
+    if "--rewrite" in flags and "--no-rewrite" in flags:
+        return "expose: --rewrite and --no-rewrite contradict each other; pick one."
+    ok, msg = exposure.add(name, port, ctx["username"], public=public,
+                           rewrite="--no-rewrite" not in flags)
     if not ok:
         return f"expose: {msg}"
     base = _base_url()
@@ -117,8 +122,8 @@ def cmd_expose(ctx, args):
         lines.append(f"Heads-up: nothing is listening on port {port} yet. Start your app "
                      "(e.g. `python main.py &`); the link works as soon as it is up.")
     lines.append(f"Your app is served under the prefix /{name}; it receives X-Forwarded-Prefix"
-                 + ("." if "--rewrite" in flags else
-                    ". If its CSS/JS links break, re-run with --rewrite."))
+                 + (" (link rewriting is off)." if "--no-rewrite" in flags else
+                    ", and its root-relative HTML/CSS links are fixed automatically."))
     return "\n".join(lines)
 
 

@@ -124,7 +124,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.5.4` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.5.5` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -428,7 +428,7 @@ Publishes a server you already started — on the host or in any VM — at `http
 ```text
 python main.py &                  # a web server on port 8000
 expose 8000 myapp                 # -> https://your-domain/myapp/
-expose 8000 myapp --rewrite       # also fix /static/… links inside HTML/CSS
+expose 8000 myapp --no-rewrite    # leave /static/… links alone (they are fixed by default)
 expose 8000 hook --public         # no login needed (admins only)
 expose list                       # your exposures (admins see all)
 expose rm myapp                   # stop exposing
@@ -440,7 +440,10 @@ expose rm myapp                   # stop exposing
 * The app is served under the prefix `/<name>`. rconsole sends `X-Forwarded-Prefix`, `X-Forwarded-Host` and
   `X-Forwarded-Proto`, and rewrites redirects (`Location`) back into the prefix. Frameworks that support a prefix
   (Django `FORCE_SCRIPT_NAME`, Flask `ProxyFix(x_prefix=1)`, Vite `--base`) can serve natively.
-  `--rewrite` is a best-effort fix for root-relative links in HTML and CSS (not JavaScript).
+  Root-relative links in HTML and CSS (`/static/x.css`, `url(/img/a.png)`) are rewritten into the prefix
+  automatically, best effort (not JavaScript). `--no-rewrite` opts out; the old `--rewrite` is still accepted and
+  does nothing. `service add … --expose PORT:NAME` behaves the same and also takes `--no-rewrite`. Exposures saved
+  by older versions get rewriting too.
 * `--public` (admins only) removes the login requirement for that name — handy for webhooks and demos.
 * Not supported: WebSockets through the proxy. Requests are buffered (not streamed) and time out after 30 s.
 * The console's own session cookie is never forwarded to your app.

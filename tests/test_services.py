@@ -277,8 +277,17 @@ class CommandTests(Base):
         self.assertIn("Exposed at /mysite/", out)
         self.assertEqual(exposure.get("mysite")["owner"], "alice")
         self.assertIn("→ /mysite/", self.run_cmd(u, "service list"))
+        self.assertTrue(exposure.rewrites(exposure.get("mysite")))              # links fixed automatically
         self.run_cmd(u, "service rm site")
         self.assertIsNone(exposure.get("mysite"))
+
+    def test_expose_option_can_opt_out_of_rewriting(self):
+        u = self.user()
+        out = self.run_cmd(u, "service add site2 --vm debian --no-autostart --expose 8126:mysite2 --no-rewrite sleep 5")
+        self.assertIn("Exposed at /mysite2/", out)
+        self.assertFalse(exposure.rewrites(exposure.get("mysite2")))
+        self.assertEqual(self.run_cmd(u, "service add site3 --vm debian --no-autostart --expose 8127:mysite3 sleep 5").count("rewritten automatically"), 1)
+        self.assertTrue(exposure.rewrites(exposure.get("mysite3")))
 
     def test_start_stop_all(self):
         c = self.admin()

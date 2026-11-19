@@ -11,7 +11,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.5.4** · MIT licensed
+**Version 1.5.5** · MIT licensed
 
 ## Why this exists
 
@@ -521,8 +521,8 @@ $ expose 8000 myapp             # -> https://<your-domain>/myapp/
 $ expose list                   # [up]/[down] status
 $ expose rm myapp
 ```
-Apps that don't know they live under a path prefix can use `expose 8000 myapp --rewrite` (fixes root-relative
-links in HTML/CSS). The proxy sends `X-Forwarded-Prefix`, so prefix-aware frameworks work natively. Details and
+Apps that don't know they live under a path prefix just work: root-relative links in HTML/CSS (`/static/x.css`) are
+fixed automatically, no flag needed (`--no-rewrite` turns that off for prefix-aware apps). The proxy sends `X-Forwarded-Prefix`, so prefix-aware frameworks work natively. Details and
 limits (no WebSockets) are in [COMMANDS.md](COMMANDS.md#expose).
 
 **`service` — Rconsole starts and keeps the app running** (this replaces `sudo serve` / `sudo gunicorn`,

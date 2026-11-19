@@ -117,7 +117,7 @@ def validate_name(name):
 
 
 # ---------------------------------------------------------------- mutations
-def add(name, owner, cmd, target, cwd="", env=None, expose=None, enabled=True):
+def add(name, owner, cmd, target, cwd="", env=None, expose=None, enabled=True, rewrite=True):
     """Create (or replace, if you own it) a service. Returns ``(ok, message)``."""
     name = (name or "").lower()
     err = validate_name(name)
@@ -138,7 +138,7 @@ def add(name, owner, cmd, target, cwd="", env=None, expose=None, enabled=True):
         if not old and sum(1 for v in data.values() if v["owner"] == owner) >= MAX_PER_USER:
             return False, f"you already have {MAX_PER_USER} services; remove one first"
         if expose:
-            ok, msg = exposure.add(expose[1], expose[0], owner)
+            ok, msg = exposure.add(expose[1], expose[0], owner, rewrite=rewrite)
             if not ok:
                 return False, f"--expose: {msg}"
         data[name] = {"owner": owner, "cmd": cmd.strip(), "target": target, "cwd": cwd or "",

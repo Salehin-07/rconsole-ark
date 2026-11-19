@@ -721,7 +721,7 @@ def _named_proxy(name, rest=""):
     e = exposure.get(name)
     if not e:
         abort(404)
-    return _proxy_to(e["port"], rest, name, f"/{name}", rewrite=e["rewrite"])
+    return _proxy_to(e["port"], rest, name, f"/{name}", rewrite=exposure.rewrites(e))
 
 
 def _named_bare(name):

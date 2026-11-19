@@ -112,9 +112,9 @@ vm shell
   exit
 service add app --vm debian --cwd /root/app --expose 8000:app gunicorn -b 127.0.0.1:8000 app:app
 ```
-It starts at boot, restarts if it crashes, and lives at `/app/`. For apps that build absolute links (`/static/...`)
-add `--rewrite` to a manual `expose 8000 app --rewrite`, or configure the framework's prefix
-(`X-Forwarded-Prefix` is sent). See [COMMANDS.md](COMMANDS.md#expose).
+It starts at boot, restarts if it crashes, and lives at `/app/`. Apps that build absolute links (`/static/...`)
+are fixed automatically (add `--no-rewrite` to `--expose` or `expose` to opt out, e.g. if the framework already
+handles the prefix; `X-Forwarded-Prefix` is sent). See [COMMANDS.md](COMMANDS.md#expose).
 
 ### A Telegram or Discord bot
 ```text

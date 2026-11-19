@@ -3,6 +3,21 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.5 — 2026-11-19
+
+### Added
+- **`--no-rewrite` option** for `expose` and for `service add ... --expose`, for apps that already handle the
+  `/name/` prefix themselves and don't want their HTML/CSS touched. `expose list` shows `(no-rewrite)` for those.
+
+### Changed
+- **`expose` rewrites root-relative links automatically.** Before, an app that did not know it lived under `/name/`
+  needed `expose 8000 name --rewrite` or its CSS/JS links broke. Now root-relative links in HTML and CSS
+  (the `href`, `src`, `action` and `poster` attributes, and CSS `url()` values) are fixed for every exposure, no flag needed.
+  `--rewrite` is still accepted (it does nothing) so old commands and notes keep working; passing both flags is
+  refused. Exposures saved by older versions get rewriting too.
+- **`service add ... --expose PORT:NAME` rewrites automatically as well.** It used to create the exposure with
+  rewriting off, with no way to turn it on. It now behaves exactly like `expose`.
+
 ## 1.5.4 — 2026-11-18
 
 ### Added

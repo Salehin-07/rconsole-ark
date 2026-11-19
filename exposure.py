@@ -136,8 +136,10 @@ def validate_port(port):
 
 
 # --------------------------------------------------------------- mutations
-def add(name, port, owner, public=False, rewrite=False):
-    """Create or update an exposure. Returns ``(ok, message)``."""
+def add(name, port, owner, public=False, rewrite=True):
+    """Create or update an exposure. Returns ``(ok, message)``.
+
+    Link rewriting is ON by default (``rewrite=False`` is the opt-out, ``--no-rewrite``)."""
     name = (name or "").lower()
     err = validate_name(name) or validate_port(port)
     if err:
@@ -151,9 +153,18 @@ def add(name, port, owner, public=False, rewrite=False):
             return False, f"you already have {MAX_PER_USER} exposures; remove one first"
         data[name] = {"port": port, "owner": owner, "public": bool(public),
                       "rewrite": bool(rewrite),
+                      "no_rewrite": not rewrite,
                       "created": existing["created"] if existing else int(time.time())}
         _save(data)
         return True, ("updated" if existing else "created")
+
+
+def rewrites(e):
+    """Does this exposure get its root-relative links fixed? Yes unless it opted out.
+
+    Entries saved before v1.5.5 have no ``no_rewrite`` key and used to default to off,
+    so they are treated as on too."""
+    return not e.get("no_rewrite", False)
 
 
 def remove(name, requester, is_admin=False):
