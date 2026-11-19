@@ -479,7 +479,7 @@ Options for `add` (put them **before** the command; `--` ends the options):
 |---|---|
 | `--vm <name>` | run inside that VM (default: your current system) |
 | `--host` | run on the server itself (**admins only**) |
-| `--cwd <dir>` | working directory (default: `/home` in a VM, `/home/rconsole` on the host) |
+| `--cwd <dir>` | working directory (default: the directory you are in when you run `service add`; if you target a different system than the one you are in, `/home` in a VM or `/home/rconsole` on the host). A relative path is taken from where you are |
 | `--env KEY=VALUE` | environment variable (repeatable) — good for bot tokens |
 | `--expose PORT:NAME` | publish the app at `/NAME/` (like [`expose`](#expose)) |
 | `--no-autostart` | create it stopped; start with `service start` |

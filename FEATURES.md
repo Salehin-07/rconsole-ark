@@ -124,7 +124,7 @@ persistent `/root`. You are `root` inside and can install anything; no host priv
 | **`expose list` / `expose rm` / `unexpose`** | List with `[up]`/`[down]`, remove one, several, or `all`. |
 | **Reverse proxy** | Pooled; sends `X-Forwarded-Prefix/Host/Proto`, rewrites redirects into the prefix, passes multiple `Set-Cookie` through, never forwards rconsole's own session cookie; requests are buffered with a 30 s timeout (no WebSockets through it). |
 | **`service`** | Named commands rconsole **keeps running**: start at boot, restart on crash with 2 s → 60 s back-off (reset after a minute of stability), live in a VM or on the host, are restored after a redeploy (definitions are in the backups; processes are stopped and started again once the VM is rebuilt). "Boot" means Rconsole's own startup. `service add\|list\|start\|stop\|restart\|logs\|rm\|help`. |
-| **`service add` options** | `--vm`, `--host` (admins), `--cwd`, `--env KEY=VALUE` (repeatable; good for bot tokens), `--expose PORT:NAME` (also publishes it), `--no-autostart`. Up to 10 per user. |
+| **`service add` options** | `--vm`, `--host` (admins), `--cwd` (defaults to the directory you are in), `--env KEY=VALUE` (repeatable; good for bot tokens), `--expose PORT:NAME` (also publishes it), `--no-autostart`. Up to 10 per user. |
 | **`kprocess`** | 🔒 Kill a process by PID, or everything the session hosts. Refuses to kill rconsole itself. |
 | **Everything together** | `service add app --vm debian --cwd /root/app --expose 8000:app gunicorn -b 127.0.0.1:8000 app:app` starts it, restarts it, logs it and publishes it. |
 

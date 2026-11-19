@@ -17,6 +17,10 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
   refused. Exposures saved by older versions get rewriting too.
 - **`service add ... --expose PORT:NAME` rewrites automatically as well.** It used to create the exposure with
   rewriting off, with no way to turn it on. It now behaves exactly like `expose`.
+- **`service add` starts in the directory you are in.** Without `--cwd`, the service now uses your current directory
+  (the one the prompt shows) instead of the fixed default, and the confirmation says which one it picked. An explicit
+  `--cwd` still wins, and a relative `--cwd` is taken from where you are. If you target a different system than the
+  one you are in (for example `--vm debian` while in the host shell), the old default for that system is used.
 
 ## 1.5.4 — 2026-11-18
 

@@ -9,7 +9,7 @@
     service rm <name>
 
 Options for ``add``:  ``--vm <name>`` run inside that VM  ·  ``--host`` on the server
-itself (admins)  ·  ``--cwd <dir>``  ·  ``--env KEY=VALUE`` (repeatable)  ·
+itself (admins)  ·  ``--cwd <dir>`` (default: the directory you are in now)  ·  ``--env KEY=VALUE`` (repeatable)  ·
 ``--expose PORT:NAME`` publish the app at /NAME/ (links fixed automatically; ``--no-rewrite`` opts out)  ·  ``--no-autostart``.
 
 Examples::
@@ -21,13 +21,15 @@ Examples::
 Definitions persist (and are backed up); services start again after every reboot,
 redeploy or restore. See COMMANDS.md.
 """
+import posixpath
+
 import commands
 import distros
 import sandbox
 import services
 
 USAGE = """\
-service add <name> [--vm n | --host] [--cwd dir] [--env K=V]... [--expose PORT:NAME [--no-rewrite]] [--no-autostart] <command…>
+service add <name> [--vm n | --host] [--cwd dir (default: where you are)] [--env K=V]... [--expose PORT:NAME [--no-rewrite]] [--no-autostart] <command…>
 service list                          services and their state
 service start|stop|restart <name|all>
 service logs <name> [lines]           recent output
@@ -186,14 +188,22 @@ def cmd_service(ctx, args):
             if not port_s.isdigit() or not ename:
                 return "service: --expose needs PORT:NAME, e.g. --expose 8000:site"
             expose = (int(port_s), ename.lower())
-        ok, msg = services.add(opts["name"], user, opts["cmd"], target, cwd=opts.get("cwd", ""),
+        cwd = opts.get("cwd", "")
+        if target == sandbox.current_target(ctx["sid"]):
+            here = (ctx.get("tab") or {}).get("cwd") or ""
+            if here and not cwd:
+                cwd = here                                  # no --cwd: start where you are now
+            elif here and not cwd.startswith("/"):
+                cwd = posixpath.normpath(posixpath.join(here, cwd))   # relative --cwd
+        ok, msg = services.add(opts["name"], user, opts["cmd"], target, cwd=cwd,
                                env=opts["env"], expose=expose,
                                rewrite=not opts.get("no_rewrite"),
                                enabled=not opts.get("no_autostart"))
         if not ok:
             return f"service: {msg}"
         services.tick()                                   # start it right away
-        out = [f"Service '{opts['name'].lower()}' {msg} ({target}); "
+        out = [f"Service '{opts['name'].lower()}' {msg} ({target}"
+               + (f", in {cwd}" if cwd else "") + "); "
                + ("starting now." if not opts.get("no_autostart") else "not started (--no-autostart).")]
         if expose:
             out.append(f"Exposed at /{expose[1]}/ (port {expose[0]}); "

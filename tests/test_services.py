@@ -217,7 +217,8 @@ class CommandTests(Base):
     def test_add_list_logs_stop_start_restart_rm(self):
         c = self.admin()
         out = self.run_cmd(c, "service add bot --host --env TOKEN=abc echo token=$TOKEN; sleep 30")
-        self.assertIn("Service 'bot' created (host); starting now", out)
+        self.assertIn("Service 'bot' created (host", out)
+        self.assertIn("starting now", out)
         self.assertEqual(services.get("bot")["cmd"], "echo token=$TOKEN; sleep 30")      # raw text kept
         self.assertEqual(services.get("bot")["env"], {"TOKEN": "abc"})
         time.sleep(0.5)
@@ -239,6 +240,19 @@ class CommandTests(Base):
         self.assertEqual(services.get("q2")["cmd"], "--weird-program --flag")
         self.run_cmd(c, 'service add q3 --host --no-autostart --cwd "/tmp" python app.py')
         self.assertEqual((services.get("q3")["cwd"], services.get("q3")["cmd"]), ("/tmp", "python app.py"))
+
+    def test_cwd_defaults_to_the_directory_you_are_in(self):
+        c = self.admin()
+        self.run_cmd(c, "cd /tmp")
+        here = c.post("/api/run", json={"cmd": "pwd", "tab": "main"}).get_json()["cwd"]
+        out = self.run_cmd(c, "service add w1 --host --no-autostart sleep 9")
+        self.assertEqual(services.get("w1")["cwd"], here)                      # no --cwd: where you are
+        self.assertIn(f"in {here}", out)
+        self.run_cmd(c, "service add w2 --host --no-autostart --cwd /var sleep 9")
+        self.assertEqual(services.get("w2")["cwd"], "/var")                    # explicit --cwd wins
+        self.run_cmd(c, "service add w3 --host --no-autostart --cwd sub sleep 9")
+        self.assertEqual(services.get("w3")["cwd"], here.rstrip("/") + "/sub")  # relative --cwd
+        self.run_cmd(c, f"cd {state.default_cwd()}")                           # don't leak the tab's cwd into other tests
 
     def test_errors_are_explained(self):
         c = self.admin()
