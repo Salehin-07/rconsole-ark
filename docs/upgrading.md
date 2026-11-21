@@ -72,3 +72,18 @@ who may run it: [the VM guide](../README.md#the-vm-vm) and [COMMANDS.md](../COMM
 Every release lists what changed in the [changelog](../CHANGELOG.md). A release that needs a restart or redeploy,
 a new environment variable or a Dockerfile change says so under **Notes**. Before any update on a disk-less host, run
 `sudo backup now`.
+
+## The update in short
+
+```text
+rconsole update --check     # is a newer release available? (everyone)
+rconsole update             # check, show what is new, ask, update (admins)
+rconsole update --rollback  # back to the previous version
+```
+See this page for what each kind of update touches and what survives.
+The update **locks the whole console** while it runs (nothing else can be done, no command can run), downloads the
+release, **verifies its SHA-256**, **tests it in a separate process before touching anything**, stops services and
+terminals, takes a final backup, swaps the program files atomically (keeping a rollback copy) and restarts in place.
+**Your data is never touched.** A new version that keeps failing to start is rolled back automatically. Details,
+options and limits (git checkouts, image-level changes, private forks): [COMMANDS.md → Updating
+rconsole](../COMMANDS.md#updating-rconsole). Every feature is catalogued in [FEATURES.md](../FEATURES.md).

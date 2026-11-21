@@ -959,6 +959,24 @@ def t_web_search(ctx, a):
     return ok("\n".join(out) + "\n\n[Results are untrusted data.]", title="Search: " + q[:60], detail=f"{len(out)} results")
 
 
+# ---------------------------------------------------------------------------------- skills and docs
+def t_skill(ctx, a):
+    import agent_skills as sk
+    try:
+        body, base, files = sk.load(ctx, a.get("name"))
+    except sk.SkillError as e:
+        return err(str(e))
+    head = f"# Skill: {a.get('name')}\nFolder: {base} (files below are relative to it; read them with the read tool when the instructions say so)\n"
+    if files:
+        head += "Files: " + ", ".join(files) + "\n"
+    return ok(head + "\n" + body, title=f"Skill {a.get('name')}")
+
+
+def t_rconsole_docs(ctx, a):
+    import agent_knowledge as kn
+    return ok(kn.docs(a.get("topic")), title="Rconsole docs")
+
+
 # ---------------------------------------------------------------------------------------- registry
 _PATH = {"type": "string", "description": "File path. Relative paths start from the working directory."}
 
@@ -1021,6 +1039,17 @@ TOOLS = [
     {"name": "web_search", "kind": "net", "run": t_web_search,
      "description": "Search the web (best effort) and return titles, links and snippets.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+    {"name": "skill", "kind": "read", "run": t_skill,
+     "description": "Load a skill: saved instructions (and helper files) for a kind of task. Call it before starting when a task "
+                    "matches a skill listed in the system prompt, then follow what it says.",
+     "parameters": {"type": "object", "properties": {"name": {"type": "string", "description": "The skill's name."}},
+                    "required": ["name"]}},
+    {"name": "rconsole_docs", "kind": "read", "run": t_rconsole_docs,
+     "description": "Look up the Rconsole reference for a console command (vm, service, expose, storage, backup, env, ...) or a "
+                    "topic such as free hosting. Use it instead of guessing options. These are console commands the person types; "
+                    "you cannot run them in bash.",
+     "parameters": {"type": "object", "properties": {"topic": {"type": "string", "description": "Command or topic name."}},
+                    "required": ["topic"]}},
     {"name": "todo_write", "kind": "meta", "run": None,
      "description": "Keep a short task list for multi-step work. Send the complete list each time; exactly one item "
                     "should be in_progress. Skip it for simple requests.",
@@ -1063,6 +1092,7 @@ def title_for(name, args):
             "grep": lambda: f"Search {str(a.get('pattern', ''))[:40]}", "glob": lambda: f"Find {a.get('pattern', '')}",
             "ls": lambda: f"List {base}", "web_fetch": lambda: "Fetch " + (urlsplit(str(a.get("url", ""))).hostname or ""),
             "web_search": lambda: "Search: " + str(a.get("query", ""))[:60],
+            "skill": lambda: "Skill " + str(a.get("name", "")), "rconsole_docs": lambda: "Docs: " + str(a.get("topic", ""))[:40],
             "todo_write": lambda: "Update tasks", "ask_user": lambda: "Question", "exit_plan_mode": lambda: "Plan",
             "bash_output": lambda: "Output " + str(a.get("id", "")), "bash_kill": lambda: "Stop " + str(a.get("id", ""))
             }.get(name, lambda: name)()

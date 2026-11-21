@@ -179,7 +179,7 @@ class DockerShimTests(unittest.TestCase):
         self.assertIn(f"udocker=={devsetup.UDOCKER_VERSION}", dockerfile)
         self.assertIn("/usr/local/bin/docker", dockerfile)
         self.assertIn("/usr/local/bin/drun", dockerfile)
-        for doc in ("COMMANDS.md", "README.md"):
+        for doc in ("COMMANDS.md", "docs/vm.md"):          # the README keeps only a pointer; the Docker section moved to docs/vm.md
             self.assertIn("udocker", (ROOT / doc).read_text(), doc)
 
 

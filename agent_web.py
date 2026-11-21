@@ -327,19 +327,31 @@ def api_export(sid):
     return resp
 
 
-@bp.get("/api/agent/models")
+@bp.route("/api/agent/models", methods=["GET", "POST"])
 def api_models():
+    """Model ids of one provider. POST may carry an address / key typed in the dashboard but not saved yet."""
     u, e = _who()
     if e:
         return e
-    cfg = providers.resolve(u, request.args.get("provider") or None)
-    if not cfg or (request.args.get("provider") and cfg["id"] != request.args["provider"]):
-        return jsonify(error="that provider is not set up"), 400
+    d = (request.get_json(silent=True) or {}) if request.method == "POST" else {}
+    pid = str(d.get("provider") or request.args.get("provider") or "").strip()
+    if not pid:
+        cfg0 = providers.resolve(u)
+        pid = cfg0["id"] if cfg0 else ""
     try:
+        cfg = providers.browse_config(u, pid, d.get("base") or "", d.get("api_key") or "")
+    except ValueError as ex:
+        return jsonify(models=[], error=str(ex), provider=pid), 400
+    if not cfg:
+        return jsonify(models=[], error="that provider does not exist", provider=pid), 400
+    try:
+        if d.get("refresh") or request.args.get("refresh"):
+            providers.forget_models(cfg)
         ids = providers.list_models(cfg)
     except providers.ProviderError as ex:
-        return jsonify(models=[], error=str(ex), provider=cfg["id"], current=cfg["model"])
-    return jsonify(models=ids[:1500], provider=cfg["id"], current=cfg["model"])
+        hint = " Add the API key first." if ex.status in (401, 403) and not cfg.get("api_key") else ""
+        return jsonify(models=[], error=str(ex) + hint, provider=cfg["id"], current=cfg["model"])
+    return jsonify(models=ids[:2000], total=len(ids), provider=cfg["id"], current=cfg["model"])
 
 
 @bp.get("/api/agent/files")

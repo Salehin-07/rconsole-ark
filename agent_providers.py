@@ -222,6 +222,28 @@ def config_for(pid, username=""):
     return None
 
 
+def browse_config(username, pid, base="", api_key=""):
+    """Config used to list a provider's models: that exact provider (usable or not), optionally with an address
+    or key typed in the dashboard but not saved yet. Returns ``None`` for an unknown provider; raises ``ValueError``
+    for a bad address."""
+    row = next((r for r in provider_table(username) if r["id"] == pid), None)
+    if row is None:
+        return None
+    cfg = dict(row)
+    key = cfg.pop("_key", "") or ""
+    base = (base or "").strip().rstrip("/")
+    if base:
+        if not re.match(r"^https?://[^\s]+$", base):
+            raise ValueError("the server address must start with http:// or https://")
+        cfg["base"] = base
+    if not cfg.get("base"):
+        raise ValueError("this provider has no server address yet")
+    if (api_key or "").strip():
+        key = api_key.strip()
+    cfg["api_key"] = key
+    return cfg
+
+
 def context_window(cfg):
     if cfg.get("context"):
         return int(cfg["context"])
@@ -714,6 +736,13 @@ def list_models(cfg, ttl=600):
     with _lock:
         _models_cache[ck] = (now, ids)
     return ids
+
+
+def forget_models(cfg):
+    """Drop the cached model list of this provider so the next listing asks the server again."""
+    ck = (cfg["base"], hashlib.sha1((cfg.get("api_key") or "").encode()).hexdigest()[:10])
+    with _lock:
+        _models_cache.pop(ck, None)
 
 
 def test(cfg):

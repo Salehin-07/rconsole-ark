@@ -43,7 +43,6 @@ def blocks():
 
 
 TARGETS = {
-    "README.md": ["env-reference"],
     "docs/configuration.md": ["env-reference"],
     "FEATURES.md": ["env-names"],
 }
@@ -80,13 +79,14 @@ def stale_files():
 PAGES = [
     ("index", "Overview", "Start here", "docs/index.md", "What Rconsole is, and what it is not."),
     ("quick-start", "Quick start", "Start here", "docs/quick-start.md", "Running in five minutes."),
+    ("about", "Why and what", "Start here", "docs/about.md", "Why Rconsole exists, and everything it does."),
     ("free-hosting", "Free hosting (Render)", "Start here", "FREE_HOSTING.md",
      "Bots, sites and workers on a free tier."),
     ("deploy", "Deploy anywhere", "Guides", "DEPLOY.md", "Render, Railway, Fly.io, VPS, Kubernetes and more."),
-    ("vm", "Linux systems (VM)", "Guides", ("README.md", "## The VM"), "Debian, Ubuntu, Kali, Arch and Alpine per user."),
-    ("hosting-apps", "Hosting apps", "Guides", ("README.md", "## Hosting web apps"), "expose and service."),
-    ("console", "Using the console", "Guides", ("README.md", "## Using the console"), "Line mode and real programs."),
-    ("ai-agent", "AI agent", "Guides", ("README.md", "## AI agent"), "sudo agent."),
+    ("vm", "Linux systems (VM)", "Guides", "docs/vm.md", "Debian, Ubuntu, Kali, Arch and Alpine per user."),
+    ("hosting-apps", "Hosting apps", "Guides", "docs/hosting-apps.md", "expose and service."),
+    ("console", "Using the console", "Guides", "docs/console.md", "Line mode and real programs."),
+    ("ai-agent", "AI agent and skills", "Guides", "docs/ai-agent.md", "sudo agent, providers, skills."),
     ("backup", "Backups and restore", "Guides", "docs/backup.md", "What is saved, what is not, and the limits."),
     ("repo-storage", "Repo storage", "Guides", "docs/repo-storage.md", "Keep your files in GitHub; the disk only caches."),
     ("upgrading", "Updating and rollback", "Guides", "docs/upgrading.md", "rconsole update, vm update, redeploys."),
@@ -96,14 +96,17 @@ PAGES = [
     ("security", "Security model", "Reference", "docs/security.md", "Trust model, isolation and what is not covered."),
     ("architecture", "Architecture", "Reference", "docs/architecture.md", "Processes, state and the VM lifecycle."),
     ("compatibility", "Compatibility", "Reference", "docs/compatibility.md", "Python, OS, CPUs and PRoot."),
-    ("troubleshooting", "Troubleshooting", "Reference", ("README.md", "## Troubleshooting"), "Common problems."),
+    ("troubleshooting", "Troubleshooting", "Reference", "docs/troubleshooting.md", "Common problems."),
     ("file-reference", "File reference", "Reference", "structure.md", "What each source file does."),
+    ("testing", "Testing", "Reference", "docs/testing.md", "Run the test suite."),
     ("changelog", "Changelog", "Reference", "CHANGELOG.md", "Release history."),
 ]
 SOURCE_FILES = {"README.md": "index", "FREE_HOSTING.md": "free-hosting", "DEPLOY.md": "deploy",
                 "COMMANDS.md": "commands", "FEATURES.md": "features", "CHANGELOG.md": "changelog",
                 "structure.md": "file-reference", "SECURITY.md": "security",
-                "docs/index.md": "index", "docs/quick-start.md": "quick-start", "docs/backup.md": "backup", "docs/repo-storage.md": "repo-storage",
+                "docs/index.md": "index", "docs/quick-start.md": "quick-start", "docs/about.md": "about", "docs/vm.md": "vm",
+                "docs/console.md": "console", "docs/hosting-apps.md": "hosting-apps", "docs/ai-agent.md": "ai-agent",
+                "docs/troubleshooting.md": "troubleshooting", "docs/testing.md": "testing", "docs/backup.md": "backup", "docs/repo-storage.md": "repo-storage",
                 "docs/upgrading.md": "upgrading", "docs/configuration.md": "configuration",
                 "docs/security.md": "security", "docs/architecture.md": "architecture",
                 "docs/compatibility.md": "compatibility"}

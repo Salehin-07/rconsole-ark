@@ -654,35 +654,63 @@
   }
   function modelSheet() {
     openSheet(function (card) {
-      sheetHead(card, "Model");
+      sheetHead(card, "Choose a model");
       var provs = S.info.providers || [], cur = S.meta.provider || S.info.default;
       if (!provs.length) { card.appendChild(el("div", "note", "No provider is set up yet.")); var a = el("a", "btn primary", "Open Dashboard › AI agent"); a.href = "/dashboard#agent"; a.style.textAlign = "center"; a.style.textDecoration = "none"; card.appendChild(a); return; }
-      var sel = el("div", "list");
+      card.classList.add("mpick");
+      // providers: one horizontal row of chips (never pushes the list off the screen)
+      var chips = el("div", "pchips"); chips.setAttribute("role", "tablist");
       provs.forEach(function (p) {
-        var o = el("div", "opt" + (p.id === cur ? " on" : "")); var l = el("div", "l"); l.appendChild(el("b", null, p.name)); l.appendChild(el("span", null, p.model)); o.appendChild(l);
-        o.addEventListener("click", function () { cur = p.id; paintP(); loadModels(); }); sel.appendChild(o);
+        var c = el("button", "pchip" + (p.id === cur ? " on" : ""), p.name); c.type = "button"; c.setAttribute("role", "tab"); c.dataset.id = p.id;
+        c.addEventListener("click", function () { if (cur === p.id) return; cur = p.id; s.value = ""; paintP(); loadModels(false); }); chips.appendChild(c);
       });
-      sel.style.maxHeight = "28vh"; card.appendChild(sel);
-      function paintP() { Array.prototype.forEach.call(sel.children, function (c, i) { c.classList.toggle("on", provs[i].id === cur); }); }
-      var s = el("input", "s"); s.placeholder = "Search or type a model id"; card.appendChild(s);
-      var list = el("div", "list"); list.style.minHeight = "120px"; card.appendChild(list);
-      var all = [];
+      card.appendChild(chips);
+      function paintP() { Array.prototype.forEach.call(chips.children, function (c) { var on = c.dataset.id === cur; c.classList.toggle("on", on); c.setAttribute("aria-selected", on ? "true" : "false"); }); }
+      var bar = el("div", "mbar");
+      var s = el("input", "s"); s.type = "search"; s.placeholder = "Search, or type a model id"; s.setAttribute("autocomplete", "off"); s.setAttribute("autocapitalize", "none"); s.setAttribute("spellcheck", "false"); s.setAttribute("enterkeyhint", "go");
+      var rl = el("button", "mreload", "↻"); rl.type = "button"; rl.title = "Load the list again"; rl.setAttribute("aria-label", "Load the list again"); rl.addEventListener("click", function () { loadModels(true); });
+      bar.appendChild(s); bar.appendChild(rl); card.appendChild(bar);
+      var info = el("div", "minfo"); card.appendChild(info);
+      var list = el("div", "list mlist"); card.appendChild(list);
+      var all = [], rows = [], act = -1, busy = true, ticket = 0;
+      function curModel() { var p = provs.filter(function (x) { return x.id === cur; })[0]; return cur === S.meta.provider ? (S.meta.model || (p && p.model) || "") : ((p && p.model) || ""); }
+      function mk(id, sub, typed) {
+        var o = el("div", "opt" + (id === curModel() && !typed ? " on" : "")); o.setAttribute("role", "option");
+        var l = el("div", "l"); l.appendChild(el("b", null, id)); if (sub) l.appendChild(el("span", null, sub)); o.appendChild(l);
+        if (id === curModel() && !typed) o.appendChild(el("span", "tag", "current"));
+        o.addEventListener("click", function () { pick(id); }); return o;
+      }
+      function setAct(i) { rows.forEach(function (r, n) { r.classList.toggle("act", n === i); }); act = i; if (rows[i] && rows[i].scrollIntoView) rows[i].scrollIntoView({ block: "nearest" }); }
       function paintM() {
-        list.textContent = ""; var q = s.value.trim().toLowerCase();
-        var shown = all.filter(function (m) { return !q || m.toLowerCase().indexOf(q) >= 0; }).slice(0, 120);
-        if (q && all.indexOf(s.value.trim()) < 0) { var u = el("div", "opt"); var ul = el("div", "l"); ul.appendChild(el("b", null, "Use “" + s.value.trim() + "”")); ul.appendChild(el("span", null, "custom model id")); u.appendChild(ul); u.addEventListener("click", function () { pick(s.value.trim()); }); list.appendChild(u); }
-        shown.forEach(function (m) { var o = el("div", "opt" + (m === S.meta.model && cur === S.meta.provider ? " on" : "")); var l = el("div", "l"); l.appendChild(el("b", null, m)); o.appendChild(l); o.addEventListener("click", function () { pick(m); }); list.appendChild(o); });
-        if (!shown.length && !q) list.appendChild(el("div", "note", "No model list from this provider: type a model id above."));
+        list.textContent = ""; rows = []; var t = s.value.trim(), q = t.toLowerCase();
+        var hits = all.filter(function (m) { return !q || m.toLowerCase().indexOf(q) >= 0; }), shown = hits.slice(0, 120);
+        if (t && all.indexOf(t) < 0) rows.push(mk(t, "use this id as typed", true));
+        shown.forEach(function (m) { rows.push(mk(m)); });
+        rows.forEach(function (r) { list.appendChild(r); });
+        info.textContent = hits.length > shown.length ? "Showing " + shown.length + " of " + hits.length + ". Type to narrow it down." : (all.length ? hits.length + " of " + all.length + " models" : "");
+        setAct(rows.length ? 0 : -1);
       }
       function pick(m) { setMeta({ provider: cur, model: m }).then(function (ok) { if (ok) closeSheet(); }); }
-      function loadModels() {
-        list.textContent = ""; list.appendChild(el("div", "note", "Loading models...")); all = [];
-        api("/api/agent/models?provider=" + encodeURIComponent(cur)).then(function (d) {
-          all = d.models || []; if (d.error) { list.textContent = ""; list.appendChild(el("div", "note err", d.error)); return; } paintM();
-        });
+      function loadModels(fresh) {
+        var my = ++ticket; busy = true; all = []; rows = []; rl.disabled = true; info.textContent = "Loading models…"; list.textContent = "";
+        api("/api/agent/models", { body: { provider: cur, refresh: !!fresh } }).then(function (d) {
+          if (my !== ticket) return;                                  // another provider was chosen meanwhile
+          busy = false; rl.disabled = false;
+          if (d.error) { info.textContent = ""; list.textContent = ""; var e = el("div", "note err", d.error); list.appendChild(e); list.appendChild(el("div", "note", "You can still type the model id above and press Enter.")); return; }
+          all = d.models || [];
+          if (!all.length) { info.textContent = ""; list.appendChild(el("div", "note", "This provider did not list any models. Type the model id above and press Enter.")); return; }
+          paintM();
+        }).catch(function () { if (my !== ticket) return; busy = false; rl.disabled = false; info.textContent = ""; list.textContent = ""; list.appendChild(el("div", "note err", "Could not reach the server.")); });
       }
-      s.addEventListener("input", paintM); s.addEventListener("keydown", function (e) { if (e.key === "Enter" && s.value.trim()) pick(s.value.trim()); });
-      loadModels(); setTimeout(function () { s.focus(); }, 50);
+      s.addEventListener("input", function () { if (!busy) paintM(); });
+      s.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowDown") { e.preventDefault(); setAct(Math.min(rows.length - 1, act + 1)); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); setAct(Math.max(0, act - 1)); }
+        else if (e.key === "Enter") { e.preventDefault(); if (rows[act]) rows[act].click(); else if (s.value.trim()) pick(s.value.trim()); }
+      });
+      loadModels(false);
+      // no auto-focus on touch screens: the keyboard would cover the list
+      if (!(window.matchMedia && matchMedia("(pointer: coarse)").matches)) setTimeout(function () { s.focus(); }, 50);
     });
   }
   function cwdSheet() {
@@ -722,6 +750,10 @@
 
   /* ================= wiring ================= */
   $("title").addEventListener("click", startRename);
+  $("side-back").addEventListener("click", function (e) {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
+    try { var r = document.referrer ? new URL(document.referrer) : null; if (r && r.origin === location.origin && r.pathname.replace(/\/+$/, "") === "/console" && history.length > 1) { e.preventDefault(); history.back(); } } catch (x) { /* plain link */ }
+  });
   $("chip-model").addEventListener("click", modelSheet); $("chip-mode").addEventListener("click", modeSheet); $("chip-cwd").addEventListener("click", cwdSheet);
   $("menu").addEventListener("click", menuSheet); $("newchat").addEventListener("click", function () { newChat().then(function () { document.body.classList.remove("side-open"); }); });
   $("burger").addEventListener("click", function () { document.body.classList.add("side-open"); loadSessions(); });

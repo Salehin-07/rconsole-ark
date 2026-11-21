@@ -85,6 +85,17 @@
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.className = ""; }, bad ? 6000 : 3800);
   }
 
+  // "Back to the console": when you came from the console, step back in history so it comes back instantly, exactly as
+  // you left it (tabs, scroll, running programs). Opened directly or in a new tab: a normal link to /console.
+  function backToConsole(e) {
+    if (e && (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1)) return;
+    try {
+      const ref = document.referrer ? new URL(document.referrer) : null;
+      if (ref && ref.origin === location.origin && ref.pathname.replace(/\/+$/, "") === "/console" && history.length > 1) { e.preventDefault(); history.back(); }
+    } catch (_) { /* fall through to the link */ }
+  }
+  document.getElementById("dh-back").addEventListener("click", backToConsole);
+
   // A dialog that resolves with whatever the chosen action returns (null on Esc / backdrop). On phones it is a
   // bottom sheet. Focus moves into it and is restored afterwards; Tab stays inside.
   function dialog({ ico = "info", title, body, danger = false, field = null, actions, content = null }) {
@@ -128,6 +139,67 @@
     const r = await dialog({ ico: "lock", title, body, field: { type, placeholder, label: title },
       actions: [{ label: "Cancel", value: null, cls: "ghost" }, { label: ok, value: "$input", cls: "solid" }] });
     return r;
+  }
+
+  // A searchable model list in a dialog (no native <datalist>: it does not work on phones). Resolves with the chosen
+  // model id, or null. `src` = { id, name, base, apiKey, current } so a key typed but not saved yet can be used.
+  function pickModel(src) {
+    return dialog({ ico: "search", title: "Choose a model", body: src.name, actions: [{ label: "Cancel", value: null, cls: "ghost" }],
+      content: (close) => {
+        let all = [], active = -1, rows = [], busy = true;
+        const touch = window.matchMedia && matchMedia("(pointer: coarse)").matches;
+        const q = h("input", { type: "search", class: "mp-q", placeholder: "Search, or type a model id", autocomplete: "off", spellcheck: "false", autocapitalize: "none", enterkeyhint: "go", "aria-label": "Search models" });
+        const info = h("div", { class: "mp-info", role: "status" }, "Loading models…");
+        const list = h("div", { class: "mp-list", role: "listbox", "aria-label": "Models", tabindex: "-1" });
+        const reload = h("button", { type: "button", class: "b mp-reload", title: "Load the list again", "aria-label": "Load the list again", onclick: () => load(true) }, icon("refresh", "sm"));
+        function setActive(i) {
+          rows.forEach((r, n) => r.classList.toggle("act", n === i));
+          active = i; if (rows[i]) rows[i].scrollIntoView({ block: "nearest" });
+        }
+        function row(id, sub, extra) {
+          const r = h("div", { class: "mp-row" + (id === src.current && !extra ? " on" : ""), role: "option", tabindex: "-1", "aria-selected": id === src.current ? "true" : "false", onclick: () => close(id) },
+            h("div", { class: "mp-t" }, h("b", {}, id), sub ? h("span", {}, sub) : null), id === src.current && !extra ? icon("check", "sm") : null);
+          return r;
+        }
+        function paint() {
+          const term = q.value.trim(), low = term.toLowerCase();
+          const hits = all.filter((m) => !low || m.toLowerCase().includes(low));
+          const shown = hits.slice(0, 150);
+          list.replaceChildren(); rows = [];
+          if (term && !all.includes(term)) rows.push(row(term, "use this id as typed", true));
+          shown.forEach((m) => rows.push(row(m)));
+          rows.forEach((r) => list.append(r));
+          if (busy) return;
+          if (!all.length) return;
+          info.textContent = hits.length > shown.length ? `Showing ${shown.length} of ${hits.length}. Type to narrow it down.` : `${hits.length} of ${all.length} models`;
+          if (!hits.length && !term) info.textContent = "No models";
+          setActive(rows.length ? 0 : -1);
+        }
+        async function load(fresh) {
+          busy = true; info.textContent = "Loading models…"; list.replaceChildren(); reload.disabled = true;
+          let d = {};
+          try {
+            const r = await api("/api/agent/models", { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ provider: src.id, base: src.base || "", api_key: src.apiKey || "", refresh: !!fresh }) });
+            d = await r.json();
+          } catch (e) { d = { error: "could not reach the server" }; }
+          busy = false; reload.disabled = false;
+          if (d.error) { all = []; info.textContent = ""; list.replaceChildren(h("div", { class: "mp-empty err" }, d.error, h("div", {}, "You can still type the model id yourself and press Enter."))); paint0(); return; }
+          all = d.models || [];
+          if (!all.length) { info.textContent = ""; list.replaceChildren(h("div", { class: "mp-empty" }, "This provider did not list any models. Type the model id yourself and press Enter.")); paint0(); return; }
+          paint();
+        }
+        function paint0() { rows = []; active = -1; }
+        q.addEventListener("input", () => { if (!busy) paint(); });
+        q.addEventListener("keydown", (e) => {
+          if (e.key === "ArrowDown") { e.preventDefault(); setActive(Math.min(rows.length - 1, active + 1)); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setActive(Math.max(0, active - 1)); }
+          else if (e.key === "Enter") { e.preventDefault(); const t = q.value.trim(); if (rows[active]) rows[active].click(); else if (t) close(t); }
+        });
+        load(false);
+        if (!touch) setTimeout(() => q.focus(), 30);
+        return h("div", { class: "mp" }, h("div", { class: "mp-bar" }, q, reload), info, list);
+      } });
   }
 
   async function api(url, opts) {
@@ -517,8 +589,7 @@
       const provCard = (p) => {
         const key = mk("password", "", p.has_key ? (p.key_source === "dashboard" ? "Saved. Type to replace" : `Using ${p.key_env} from the ${p.key_source}. Type to override`) : (p.needs_key ? "Paste your API key" : "No key needed"));
         const base = mk("text", p.base, "https://api.example.com/v1");
-        const model = mk("text", p.model, "model id"); const listId = "ml-" + p.id; model.setAttribute("list", listId);
-        const dl = h("datalist", { id: listId });
+        const model = mk("text", p.model, "model id");
         const ctxIn = mk("number", p.context || "", "automatic"); const maxIn = mk("number", p.max_tokens || "", "provider default");
         const hdr = area(Object.keys(p.headers || {}).length ? JSON.stringify(p.headers, null, 1) : "", '{"X-Header": "value"}');
         const body = area(Object.keys(p.extra_body || {}).length ? JSON.stringify(p.extra_body, null, 1) : "", '{"provider": {"order": ["Together"]}}');
@@ -531,14 +602,8 @@
           return act(b);
         };
         const browse = async () => {
-          try {
-            const q = encodeURIComponent(p.id);
-            const r = await (await api("/api/agent/models?provider=" + q)).json();
-            if (r.error) { toast(r.error, true); return; }
-            dl.replaceChildren(...r.models.map((m) => h("option", { value: m })));
-            toast(r.models.length + " models loaded: start typing in the model box", false);
-            model.focus();
-          } catch (e) { toast("could not load models", true); }
+          const m = await pickModel({ id: p.id, name: p.name, base: base.value.trim() !== p.base ? base.value.trim() : "", apiKey: key.value.trim(), current: model.value.trim() });
+          if (m) { model.value = m; model.dispatchEvent(new Event("input", { bubbles: true })); toast("Model set to " + m + ". Press Save to keep it.", false); }
         };
         const advanced = h("details", { class: "adv" }, h("summary", {}, "Advanced"),
           lab("Context window (tokens)", ctxIn, "Used to decide when to summarise a long chat. Leave empty to guess from the model name."),
@@ -549,7 +614,6 @@
         const actions = h("div", { class: "prov-actions" },
           h("button", { type: "button", class: "b solid", onclick: save }, "Save"),
           h("button", { type: "button", class: "b", onclick: async () => { if (key.value.trim() || base.value.trim() !== p.base || model.value.trim() !== p.model) { if (!(await save())) return; } act({ action: "agent.test", id: p.id }, { refresh: false }); } }, "Test"),
-          h("button", { type: "button", class: "b", onclick: browse }, "Browse models"),
           p.usable && p.id !== d.default ? h("button", { type: "button", class: "b", onclick: () => act({ action: "agent.default", id: p.id }) }, "Make default") : null,
           p.has_key && p.key_source === "dashboard" ? h("button", { type: "button", class: "link danger", onclick: () => act({ action: "agent.save", id: p.id, clear_key: true }, { confirm: { title: "Remove the saved key?", body: "The agent stops using " + p.name + " until a key is added again.", ok: "Remove" } }) }, "Remove key") : null,
           p.saved ? h("button", { type: "button", class: "link danger", onclick: () => act({ action: "agent.remove", id: p.id }, { confirm: { title: "Remove " + p.name + "?", body: p.custom ? "This provider is deleted." : "Its saved key and settings are deleted. The built-in entry stays.", ok: "Remove" } }) }, p.custom ? "Delete" : "Reset") : null);
@@ -560,7 +624,7 @@
           lab("API key", key, p.needs_key ? "Stored on this server. It is never shown again and never sent to your browser." : "Only needed if the server asks for one.",
             p.has_key ? h("span", { class: "chip ok" }, icon("check"), p.key_source === "dashboard" ? "Saved" : "From " + p.key_source) : h("span", { class: "chip" }, "Not set")),
           lab("Server address", base, "The OpenAI-compatible base URL (it ends in /v1 for most providers)."),
-          lab("Model", h("div", {}, model, dl), "Pick one from Browse models, or type any model id the provider offers."),
+          lab("Model", h("div", { class: "mp-field" }, model, h("button", { type: "button", class: "b", onclick: browse }, icon("search", "sm"), "Browse")), "Pick from the provider's list with Browse, or type any model id it offers."),
           advanced, envs, actions);
       };
 
@@ -912,9 +976,9 @@
     const go = (id) => { close(); select(id); };
     const nav = h("nav", { class: "drawer", role: "dialog", "aria-modal": "true", "aria-label": "Dashboard menu" },
       h("div", { class: "drawer-head" }, h("span", { class: "drawer-title" }, "Dashboard"), h("button", { type: "button", class: "b ghost", "aria-label": "Close menu", onclick: close }, icon("x"))),
+      h("a", { class: "drawer-back", href: "/console", onclick: backToConsole }, icon("back"), h("span", {}, "Back to the console"), h("small", {}, "Your terminal, as you left it")),
       h("div", { class: "drawer-list" }, TABS.map((t) => h("button", { type: "button", class: t[0] === tab ? "on" : "", "aria-current": t[0] === tab ? "page" : null, onclick: () => go(t[0]) }, icon(t[2]), t[1]))),
-      h("div", { class: "drawer-foot" }, h("a", { class: "b block", href: "/console" }, icon("back", "sm"), "Back to the console"),
-        h("p", { class: "hint" }, `${window.RCONSOLE_USER || ""}`)));
+      h("div", { class: "drawer-foot" }, h("p", { class: "hint" }, `Signed in as ${window.RCONSOLE_USER || ""}`)));
     bg.append(nav);
     bg.addEventListener("mousedown", (e) => { if (e.target === bg) close(); });
     bg.addEventListener("keydown", (e) => {

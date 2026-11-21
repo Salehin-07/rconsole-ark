@@ -45,7 +45,9 @@ rconsole/
 ├── editor.py               # In-console editor + file manager (edit, fm)
 ├── agent.py                # `sudo agent`: opens the agent page, `-p` one-shot, `--cli` line-mode session
 ├── agent_core.py           # Agent engine: a turn per thread, event log, loop, context trimming/summaries, permissions, slash commands
+├── agent_knowledge.py      # What the agent knows about Rconsole: compact manual, workspace rules, `rconsole_docs` lookup
 ├── agent_providers.py      # Provider catalogue (OpenRouter, Hugging Face, OpenAI, Anthropic, ...), key storage, streaming transports
+├── agent_skills.py         # Skills (SKILL.md folders): discovery, catalogue, loading, GitHub install, create/remove
 ├── agent_store.py          # Chats on disk: append-only JSONL, index, checkpoints for /undo, export
 ├── agent_tools.py          # Agent tools: bash, read, write, edit, grep, glob, ls, web fetch/search, safe-command detection
 ├── agent_web.py            # /agent page, /api/agent/* JSON API and the server-sent event stream
@@ -246,6 +248,10 @@ ticks, approvals become prompts).
 dashboard's `data/agent/providers.json` (0600, write-only in the dashboard) and environment keys; `resolve()` picks the
 provider to use; `stream_chat()` speaks OpenAI-style or Anthropic streaming (retries with `Retry-After`, prompt caching,
 usage); `list_models()`, `test()`, `options()`.
+
+**`agent_knowledge.py`** — The agent's built-in knowledge of the place it runs in: `MANUAL` (console commands versus shell commands, host versus VM, expose/service, free-hosting limits), `WORKSPACE_RULES` (work in a project folder, create one for something new), `cwd_summary()` (what the working directory looks like) and `docs()`, the lookup behind the `rconsole_docs` tool. A test checks every console command is named in the manual.
+
+**`agent_skills.py`** — Skills in the OpenCode / Claude Code format. `discover()` walks `.rconsole/skills`, `.claude/skills`, `.agents/skills` and `.opencode/skills` up from the working directory and in the home directory; `catalog()` gives the prompt its name-and-description list; `load()` backs the `skill` tool; `install()` downloads from github.com (zip archive, size caps, unsafe paths refused, atomic replace).
 
 **`agent_store.py`** — Chats: `sessions/<id>.jsonl` (one line per message, never rewritten), `index.json`, `checkpoints/`
 for `/undo`; an LRU of a few loaded chats; fork, delete, Markdown export.

@@ -124,7 +124,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.5.6` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.5.7` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -708,8 +708,10 @@ sudo agent help
 ```
 Inside a chat (page or `--cli`): `/help` `/new` `/sessions` `/model [id]` `/provider [id]` `/mode [plan|ask|edit|auto]` `/plan`
 `/compact [focus]` `/context` `/undo` `/cwd <path>` `/rename <title>` `/fork` `/init` `/todos` `/export` `/memory` `/cost`
-`/clear`, plus custom commands from `.rconsole/commands/*.md`. On the host, obviously destructive shell commands are
-refused; inside a VM they are allowed. See the README for modes, tools and safety.
+`/skills [add <owner/repo> [names] | new <name> | remove <name>]` `/clear`, plus every installed skill as `/<name>` and custom
+commands from `.rconsole/commands/*.md`. On the host, obviously destructive shell commands are refused; inside a VM they
+are allowed. The agent knows it runs inside Rconsole and where (host or VM, working directory); see
+[docs/ai-agent.md](docs/ai-agent.md) for modes, tools, skills and safety.
 
 ### `opencode`
 🔒 Launches the **OpenCode** terminal AI. If it isn't installed it starts `npm install opencode-ai` as a job and tells

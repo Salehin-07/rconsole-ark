@@ -3,6 +3,42 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.7 — 2026-11-21
+
+### Added
+- **Agent skills.** Folders with a `SKILL.md`, in the same format OpenCode and Claude Code use. They live in
+  `~/.rconsole/skills` or `<project>/.rconsole/skills` (`.claude/skills`, `.agents/skills` and `.opencode/skills` are read
+  too). The prompt carries only each skill's name and description; the new `skill` tool loads the full text when a task
+  matches, and `/<name>` runs one by hand. `/skills`, `/skills add <owner/repo | github link> [names] [--project]`,
+  `/skills new <name>` and `/skills remove <name>` manage them. Installs only download from github.com, refuse unsafe
+  paths and oversized archives, and never leave a half-installed skill.
+- **The agent knows it runs inside Rconsole.** The system prompt now carries a compact manual (console commands versus shell
+  commands, host versus VM, `expose` / `service` / `keepalive` / `storage` / `backup`, free-hosting limits), the live
+  environment (Rconsole version, host or VM and which Linux, package manager, working directory and its contents) and
+  the name of its maker. The new `rconsole_docs` tool looks up the shipped reference (COMMANDS.md and friends) instead of
+  guessing. A test fails when a console command is missing from the manual.
+- **Sensible project folders.** In a project folder the agent works right there; from the general landing folder it creates
+  a named folder for a new website, bot or app and builds inside it, then reports the path, how to run it and the `expose`
+  line.
+
+### Fixed
+- **Model browser, dashboard.** "Browse models" used a native `<datalist>`, which phones do not show and which only listed
+  matches for what was already typed. It is now a searchable list in a dialog (touch friendly, keyboard navigable, reload
+  button, "use this id as typed"). It works with a key or address you typed but have not saved yet.
+- **Model browser, agent page.** Providers are a swipeable row of chips instead of a tall list that pushed the models off
+  the screen, the keyboard no longer pops up over the list on phones, switching provider while a list loads can no longer
+  show the wrong list, and errors say what to do.
+- **`/api/agent/models` answered for the wrong provider.** Asking for a provider that was not ready silently listed the
+  default provider's models or failed with an unhelpful error. It now lists exactly the provider asked for.
+- **"Back to the console".** A proper pill button with an icon (a round arrow on phones, a full-width row at the top of
+  the menu) that steps back in history when you came from the console, so it returns instantly exactly as you left it,
+  and is a normal link otherwise. The agent page's back link got the same treatment.
+
+### Changed
+- **The README is a front page again** (730 lines down to about 70). Nothing was deleted: the long sections moved word for
+  word to `docs/` (`about`, `vm`, `console`, `hosting-apps`, `ai-agent`, `troubleshooting`, `testing`) and the documentation
+  website builds from those files.
+
 ## 1.5.6 — 2026-11-21
 
 ### Changed

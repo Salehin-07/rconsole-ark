@@ -9,10 +9,11 @@
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <meta name="theme-color" content="#0d1117">
   <meta name="robots" content="noindex">
+  <link rel="prefetch" href="/console">
 </head>
 <body class="dash">
   <header id="dh">
-    <a class="dh-back" href="/console" title="Back to the console">&larr; Console</a>
+    <a class="dh-back" id="dh-back" href="/console" title="Back to the console" aria-label="Back to the console"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg><span>Console</span></a>
     <span class="dh-title">{{ "Dashboard" if is_admin else "My dashboard" }}</span>
     <span class="dh-spacer"></span>
     <span id="dh-live" class="dh-live" title="Refreshes automatically">live</span>
