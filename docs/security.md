@@ -36,6 +36,20 @@ lists and their environments. Leave it off unless you trust every account.
 The AI agent's destructive-command guard is switched off for commands run *inside* a user's own system, because those
 are the user's own files. That is a convenience, not a statement that PRoot isolates the host.
 
+### The AI agent
+
+* **Admins only** (`sudo agent` and the `/agent` page and API). It runs on the target the admin is using: the host, or
+  a VM, in which case its file tools and commands are confined to that VM like every other tool.
+* **Provider keys** live in `data/agent/providers.json` (mode 0600). The dashboard only ever shows "saved" or where a
+  key comes from; keys are never sent to a browser, never logged, and scrubbed from tool output and error messages.
+* **Off-limits files.** The agent's file tools refuse `secret.key`, `pepper.key`, `users.json`, `settings.json`, the
+  per-user state (stored environments) and the provider file. `bash` is a real shell, so on the host an admin who sets
+  **Auto** mode lets the model run anything an admin could; **Ask** (the default) shows every command and edit first.
+* **Untrusted content.** Text from web pages and files is data, never instructions; `web_fetch` refuses cloud-metadata
+  and link-local addresses. A prompt-injected page can still *ask* the model for things, which is why approvals exist.
+* **Limits.** A bounded number of chats may run at once, each turn has a step limit, repeated identical calls stop the
+  turn, and tool output is size-capped.
+
 ## Authentication and web
 
 * Passwords: PBKDF2-HMAC-SHA256 (210,000 rounds) with a per-user salt and a persisted random pepper. Old hashes are

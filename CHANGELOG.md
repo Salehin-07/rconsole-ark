@@ -3,6 +3,52 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.6 — 2026-11-21
+
+### Changed
+- **The built-in AI agent is rebuilt from scratch.** The first version (one 800-line file driven by one HTTP request per
+  step, with a conversation that lived in the tab) is gone. `sudo agent` now opens a proper agent page (`/agent`):
+  - **Streaming and a modern UI.** Text appears as it is written; tool calls are cards with status, timing and live
+    command output; edits show a coloured diff with a `+/-` count; markdown, tables and highlighted code blocks with a
+    Copy button; a task list, a context meter, a model picker, a mode picker, `/` command and `@file` completion. It works
+    on phones (drawer for chats, bottom sheets).
+  - **Sessions and history like Claude Code, OpenCode and Codex.** Every chat is saved and listed by day with search;
+    continue (`sudo agent -c`), resume (`-r <id>`), rename, branch, delete, export as Markdown. A turn keeps running on the
+    server if the connection drops and the page picks it up again from where it stopped (also after a reload).
+  - **Better tools.** `read` (ranges, binary-safe), `edit` (exact replace, uniqueness check, "closest text" hint, multi-edit,
+    CRLF kept, refuses stale files), `write`, `grep`, `glob`, `ls`, `bash` (persistent `cd`, live output, timeouts, background
+    jobs with `bash_output` / `bash_kill`), `web_fetch`, `web_search`, `todo_write`, `ask_user`, and `exit_plan_mode`.
+  - **Permission modes.** Plan (read-only, then you approve the plan), Ask, Edit, Auto. Read-only commands never ask;
+    "Always allow" remembers a command for the chat. `/undo` restores the files the last turn changed.
+  - **Project awareness.** `AGENTS.md` / `CLAUDE.md` are loaded automatically, `/init` writes one, custom slash commands
+    come from `.rconsole/commands/*.md`, standing instructions can be set in the dashboard.
+  - **Optimised for tiny machines.** File tools touch the filesystem directly (no shell per read or search), one streaming
+    request per step, parallel read-only calls (max 4 threads), append-only transcripts, an on-disk chat index, only a few
+    chats in memory, size-capped tool results, two-stage context management (stub old output in rare batches so provider
+    prompt caches stay valid, then summarise), prompt caching on Anthropic, a limit on chats running at once.
+- `sudo agent -p <task>` runs one task in the console and prints the answer; `sudo agent --cli` keeps a plain line-by-line
+  session (built on the same engine).
+
+### Added
+- **Dashboard → AI agent**: connect providers without touching the environment. Built in: OpenCode Zen, Anthropic, OpenAI,
+  **OpenRouter**, **Hugging Face**, Groq, Google Gemini, DeepSeek, Mistral, xAI, Together, Cerebras, Fireworks, NVIDIA NIM,
+  Ollama, LM Studio, plus **Add your own** for any OpenAI-compatible server. Per provider: API key (stored in
+  `data/agent/providers.json`, mode 0600, write-only: never sent back to the browser), server address, model with **Browse
+  models**, **Test**, context window, max output tokens, extra headers and request body, enable/disable, default. Global
+  options: starting mode, steps per message, chats at once, summarise threshold, command time limit, standing instructions.
+- A key set the old way (`sudo env set ...` or the server environment) still works, including `OPENCODE_MODEL`,
+  `OPENAI_BASE_URL` and the like; `sudo env import` knows the new providers' variables (`HF_TOKEN`, ...).
+- An **AI agent** link in the console menu (admins).
+
+### Fixed
+- Server-sent event streams are no longer gzip-compressed by the response hook, which had to read a stream to its end
+  before sending it (nothing would have arrived until the turn finished).
+
+### Security
+- The agent's file tools refuse the server's secrets (`secret.key`, `pepper.key`, `users.json`, `settings.json`, stored
+  environments, the provider keys); known keys are scrubbed from tool output and error text; `web_fetch` refuses
+  cloud-metadata addresses and marks fetched text as untrusted.
+
 ## 1.5.5 — 2026-11-19
 
 ### Added

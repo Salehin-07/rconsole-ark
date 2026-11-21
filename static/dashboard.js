@@ -7,6 +7,7 @@
   // [id, label, icon, shown in the phone's bottom bar, short label for it]
   const ADMIN_TABS = [["overview", "Overview", "grid", 1, "Overview"], ["systems", "Systems", "server", 1, "Systems"],
                 ["repo", "Repo storage", "cloud", 1, "Repo"], ["settings", "Settings", "sliders", 1, "Settings"],
+                ["agent", "AI agent", "spark", 0],
                 ["processes", "Processes", "list", 0], ["users", "Users", "users", 0], ["apps", "Apps", "arrows", 0],
                 ["activity", "Activity", "pulse", 0], ["health", "Health", "heart", 0], ["account", "Account", "lock", 0]];
   // A normal user's dashboard: only their own account, services, apps, systems and processes.
@@ -66,6 +67,7 @@
     users: ["M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2", "M9 11a4 4 0 100-8 4 4 0 000 8z", "M23 21v-2a4 4 0 00-3-3.9M16 3.1a4 4 0 010 7.8"],
     arrows: ["M4 8h13M13 4l4 4-4 4", "M20 16H7M11 12l-4 4 4 4"], pulse: ["M22 12h-4l-3 9L9 3l-3 9H2"],
     heart: ["M20.8 4.6a5.5 5.5 0 00-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 00-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 000-7.8z"],
+    spark: ["M12 3l2.1 5.4L19.5 10.5 14.1 12.6 12 18l-2.1-5.4L4.5 10.5 9.9 8.4z", "M19 3v4M17 5h4M5 17v4M3 19h4"],
     folder: ["M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"],
     box: ["M21 8l-9-5-9 5v8l9 5 9-5z", "M3 8l9 5 9-5M12 13v8"], download: ["M12 3v12m0 0l-4-4m4 4l4-4", "M4 21h16"],
     back: ["M15 18l-6-6 6-6"], menu: ["M4 6h16M4 12h16M4 18h16"], trash: ["M4 7h16M10 11v6M14 11v6", "M6 7l1 13h10l1-13M9 7V4h6v3"],
@@ -495,6 +497,109 @@
         cacheV.repo = h("div", { style: "display:flex;flex-direction:column;gap:12px" }, step1, step2, step3, maint);
       }
       return [statusBlock, cacheV.repo];
+    },
+
+    // ------------------------------------------------------------ AI agent
+    async agent(d) {
+      const sig = JSON.stringify([d.default, d.options, d.providers.map((p) => [p.id, p.usable, p.has_key, p.key_source, p.base, p.model, p.enabled, p.saved])]);
+      if (cacheV.agent && cacheV.agentSig === sig) return cacheV.agent;
+      cacheV.agentSig = sig;
+      const mk = (type, val, ph) => h("input", { type, value: val == null ? "" : String(val), placeholder: ph || "", autocomplete: type === "password" ? "new-password" : "off", spellcheck: "false", autocapitalize: "none" });
+      const area = (val, ph) => { const t = h("textarea", { rows: 3, placeholder: ph || "", spellcheck: "false" }); t.value = val || ""; return t; };
+      const lab = (label, ctl, hint, extra) => h("div", { class: "field" }, h("div", { class: "field-top" }, h("label", {}, label), extra || null), ctl, hint ? h("p", { class: "hint" }, hint) : null);
+      const ready = d.providers.filter((p) => p.usable);
+      const def = d.providers.find((p) => p.id === d.default) || ready[0];
+      const tiles = h("div", { class: "tiles" },
+        h("div", { class: "tile" }, h("div", { class: "k" }, "Providers ready"), h("div", { class: "v" }, String(ready.length)), h("div", { class: "s" }, ready.length ? ready.map((p) => p.name).slice(0, 3).join(", ") : "add a key below")),
+        h("div", { class: "tile" }, h("div", { class: "k" }, "Default model"), h("div", { class: "v", style: "font-size:16px;word-break:break-all" }, def ? def.model : "none"), h("div", { class: "s" }, def ? def.name : "no provider yet")),
+        h("div", { class: "tile" }, h("div", { class: "k" }, "Chats saved"), h("div", { class: "v" }, String(d.chats)), h("div", { class: "s" }, d.active ? d.active + " running now" : "none running")));
+
+      const provCard = (p) => {
+        const key = mk("password", "", p.has_key ? (p.key_source === "dashboard" ? "Saved. Type to replace" : `Using ${p.key_env} from the ${p.key_source}. Type to override`) : (p.needs_key ? "Paste your API key" : "No key needed"));
+        const base = mk("text", p.base, "https://api.example.com/v1");
+        const model = mk("text", p.model, "model id"); const listId = "ml-" + p.id; model.setAttribute("list", listId);
+        const dl = h("datalist", { id: listId });
+        const ctxIn = mk("number", p.context || "", "automatic"); const maxIn = mk("number", p.max_tokens || "", "provider default");
+        const hdr = area(Object.keys(p.headers || {}).length ? JSON.stringify(p.headers, null, 1) : "", '{"X-Header": "value"}');
+        const body = area(Object.keys(p.extra_body || {}).length ? JSON.stringify(p.extra_body, null, 1) : "", '{"provider": {"order": ["Together"]}}');
+        const en = h("input", { type: "checkbox", id: "en-" + p.id }); en.checked = p.enabled;
+        const status = p.id === d.default && p.usable ? h("span", { class: "chip ok" }, icon("check"), "Default") : (p.usable ? h("span", { class: "chip ok" }, "Ready") : (p.has_key && !p.enabled ? h("span", { class: "chip" }, "Off") : h("span", { class: "chip" }, p.needs_key ? "Needs a key" : "Not added")));
+        const save = () => {
+          const b = { action: "agent.save", id: p.id, base: base.value.trim(), model: model.value.trim(), enabled: en.checked, context: ctxIn.value || 0, max_tokens: maxIn.value || 0, headers: hdr.value.trim(), extra_body: body.value.trim() };
+          if (key.value.trim()) b.api_key = key.value.trim();
+          if (p.custom) { b.kind = p.kind; b.name = p.name; b.needs_key = p.needs_key; }
+          return act(b);
+        };
+        const browse = async () => {
+          try {
+            const q = encodeURIComponent(p.id);
+            const r = await (await api("/api/agent/models?provider=" + q)).json();
+            if (r.error) { toast(r.error, true); return; }
+            dl.replaceChildren(...r.models.map((m) => h("option", { value: m })));
+            toast(r.models.length + " models loaded: start typing in the model box", false);
+            model.focus();
+          } catch (e) { toast("could not load models", true); }
+        };
+        const advanced = h("details", { class: "adv" }, h("summary", {}, "Advanced"),
+          lab("Context window (tokens)", ctxIn, "Used to decide when to summarise a long chat. Leave empty to guess from the model name."),
+          lab("Max output tokens", maxIn, "Empty uses the provider's default."),
+          lab("Extra request headers", hdr, "JSON. Rarely needed (for example routing headers)."),
+          lab("Extra request body", body, "JSON merged into every request, for example OpenRouter provider routing or a reasoning setting."),
+          h("label", { class: "check", for: "en-" + p.id }, en, h("span", {}, "Enabled")));
+        const actions = h("div", { class: "prov-actions" },
+          h("button", { type: "button", class: "b solid", onclick: save }, "Save"),
+          h("button", { type: "button", class: "b", onclick: async () => { if (key.value.trim() || base.value.trim() !== p.base || model.value.trim() !== p.model) { if (!(await save())) return; } act({ action: "agent.test", id: p.id }, { refresh: false }); } }, "Test"),
+          h("button", { type: "button", class: "b", onclick: browse }, "Browse models"),
+          p.usable && p.id !== d.default ? h("button", { type: "button", class: "b", onclick: () => act({ action: "agent.default", id: p.id }) }, "Make default") : null,
+          p.has_key && p.key_source === "dashboard" ? h("button", { type: "button", class: "link danger", onclick: () => act({ action: "agent.save", id: p.id, clear_key: true }, { confirm: { title: "Remove the saved key?", body: "The agent stops using " + p.name + " until a key is added again.", ok: "Remove" } }) }, "Remove key") : null,
+          p.saved ? h("button", { type: "button", class: "link danger", onclick: () => act({ action: "agent.remove", id: p.id }, { confirm: { title: "Remove " + p.name + "?", body: p.custom ? "This provider is deleted." : "Its saved key and settings are deleted. The built-in entry stays.", ok: "Remove" } }) }, p.custom ? "Delete" : "Reset") : null);
+        const envs = p.env && p.env.length ? h("p", { class: "hint" }, "Also read from: " + p.env.join(", ") + ". Set one with ", h("code", {}, "sudo env set " + p.env[0] + "=…"), " in the console.") : null;
+        return h("details", { class: "card prov", open: p.usable ? null : (p.has_key ? "" : null) },
+          h("summary", { class: "prov-head" }, h("b", {}, p.name), status, h("span", { class: "sp" }), h("span", { class: "dim" }, p.model)),
+          p.note ? h("p", { class: "hint" }, p.note) : null,
+          lab("API key", key, p.needs_key ? "Stored on this server. It is never shown again and never sent to your browser." : "Only needed if the server asks for one.",
+            p.has_key ? h("span", { class: "chip ok" }, icon("check"), p.key_source === "dashboard" ? "Saved" : "From " + p.key_source) : h("span", { class: "chip" }, "Not set")),
+          lab("Server address", base, "The OpenAI-compatible base URL (it ends in /v1 for most providers)."),
+          lab("Model", h("div", {}, model, dl), "Pick one from Browse models, or type any model id the provider offers."),
+          advanced, envs, actions);
+      };
+
+      // add your own provider
+      const nName = mk("text", "", "My server"), nId = mk("text", "", "myserver"), nBase = mk("text", "", "https://my-server.example/v1"), nKey = mk("password", "", "API key (leave empty if none)"), nModel = mk("text", "", "model id");
+      const nKind = h("select", {}, h("option", { value: "openai" }, "OpenAI-compatible (most servers)"), h("option", { value: "anthropic" }, "Anthropic (Claude API)"));
+      const addCard = h("details", { class: "card prov" }, h("summary", { class: "prov-head" }, h("b", {}, "Add your own provider"), h("span", { class: "sp" }), h("span", { class: "dim" }, "any OpenAI-compatible server")),
+        h("p", { class: "hint" }, "vLLM, LiteLLM, a self-hosted gateway, Azure-style proxies, or any service that speaks the OpenAI chat API."),
+        lab("Name", nName), lab("Short id", nId, "Letters, digits, - and _ only."), lab("Server address", nBase), lab("API format", nKind), lab("API key", nKey), lab("Default model", nModel),
+        h("div", { class: "prov-actions" }, h("button", { type: "button", class: "b solid", onclick: () => {
+          const id = (nId.value || nName.value).toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+          const b = { action: "agent.save", id, name: nName.value.trim() || id, kind: nKind.value, base: nBase.value.trim(), model: nModel.value.trim(), needs_key: !!nKey.value.trim() };
+          if (nKey.value.trim()) b.api_key = nKey.value.trim();
+          act(b);
+        } }, "Add provider")));
+
+      // global options
+      const o = d.options;
+      const modeSel = h("select", {}, d.modes.map((m) => { const op = h("option", { value: m.id }, m.id + " — " + m.help); if (m.id === o.mode) op.selected = true; return op; }));
+      const steps = mk("number", o.max_steps), runs = mk("number", o.max_runs), comp = mk("number", o.compact_pct), tmo = mk("number", o.bash_timeout);
+      const inst = area(o.instructions, "Always answer in English. Prefer small changes. Run the tests before you finish.");
+      inst.rows = 5;
+      const optCard = h("div", { class: "card" }, h("h3", {}, "Agent behaviour"),
+        lab("Starting mode for new chats", modeSel, "Ask: asks before edits and commands. Edit: edits freely, asks before commands. Auto: never asks. Plan: read-only."),
+        lab("Steps per message", steps, "How many model calls one message may use before it stops (5 to 200)."),
+        lab("Chats running at once", runs, "Each running chat uses a thread and memory. Keep it low on a small server (1 to 8)."),
+        lab("Summarise a chat at (% of the model's window)", comp, "Older tool output is trimmed earlier. This is when the whole earlier chat is summarised (40 to 95)."),
+        lab("Command time limit (seconds)", tmo, "A command is stopped after this long unless the agent asks for more (10 to 900)."),
+        lab("Standing instructions", inst, "Added to every chat on top of a project's AGENTS.md. Up to 8,000 characters."),
+        h("div", { style: "margin-top:14px" }, h("button", { type: "button", class: "b solid lg", onclick: () => act({ action: "agent.options", mode: modeSel.value, max_steps: steps.value, max_runs: runs.value, compact_pct: comp.value, bash_timeout: tmo.value, instructions: inst.value }) }, "Save options")));
+
+      const head = h("div", { class: "page-head" }, h("h2", {}, "AI agent"),
+        h("p", {}, "Connect the AI providers the built-in agent may use. Keys stay on this server. Then open the agent from the console with ", h("code", {}, "sudo agent"), " or the button below."),
+        h("div", { style: "margin-top:8px" }, h("button", { type: "button", class: "b solid lg", onclick: () => { location.href = "/agent"; } }, "Open the agent")));
+      cacheV.agent = [h("div", { style: "display:flex;flex-direction:column;gap:12px" }, head, tiles,
+        h("div", { class: "ag-provs" }, d.providers.filter((p) => p.usable || p.has_key || p.saved).map(provCard)),
+        h("h3", { class: "ag-sub" }, "More providers"),
+        h("div", { class: "ag-provs" }, d.providers.filter((p) => !(p.usable || p.has_key || p.saved)).map(provCard)), addCard, optCard)];
+      return cacheV.agent;
     },
 
     // ------------------------------------------------------------ Settings

@@ -53,6 +53,7 @@ jobs:
           npm install --no-save jsdom
           node ui_check.js
           node dashboard_check.js
+          node agent_check.js
           node pdf_viewer_check.js
 
       - name: Test

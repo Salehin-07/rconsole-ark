@@ -437,35 +437,6 @@ function closeTab(id) {
   selectTab(activeId);
 }
 
-function openAgentPicker(p) {
-  const modal = document.getElementById("agentModal");
-  const sel = document.getElementById("agentModalSelect");
-  const title = document.getElementById("agentModalTitle");
-  if (title) title.textContent = p.action === "model" ? "Choose a model" : "Choose";
-  sel.innerHTML = "";
-  (p.models || []).forEach((m) => {
-    const o = document.createElement("option");
-    o.value = m;
-    o.textContent = m;
-    if (m === p.current) o.selected = true;
-    sel.appendChild(o);
-  });
-  modal.classList.remove("hidden");
-  elCmd.disabled = true;
-  const selectBtn = document.getElementById("agentModalSelectBtn");
-  const cancelBtn = document.getElementById("agentModalCancelBtn");
-  selectBtn.onclick = () => {
-    const v = sel.value;
-    modal.classList.add("hidden");
-    send("/model " + v);
-  };
-  cancelBtn.onclick = () => {
-    modal.classList.add("hidden");
-    // Resume the agent session to a normal prompt without changing the model.
-    send("");
-  };
-}
-
 function selectTab(id) {
   stopJobTail();
   const prev = activeTab();
@@ -717,16 +688,6 @@ function handleResponse(tabId, data) {
     return;
   }
   if (isActiveTab(t)) elCmd.disabled = false;
-
-  // The agent asked the client to show a picker (e.g. /model with no argument).
-  if (data.agent_picker) {
-    if (data.output) appendRich(t, data.output, "");
-    if (isActiveTab(t)) {
-      renderOutput();
-      openAgentPicker(data.agent_picker);
-    }
-    return;
-  }
 
   if (data.editor) {
     openCodeEditor(data.editor);

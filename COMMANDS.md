@@ -124,7 +124,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.5.5` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.5.6` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -692,16 +692,24 @@ sudo env import                # copy known provider keys from the server's envi
 ```
 
 ### `agent`
-🔒 A native AI coding agent that can run shell commands and read/write/list files in **your current target** (the
-host for admins, otherwise the VM you are in). Needs a provider key (see `env`).
+🔒 The AI coding and operations agent: opens its own page with streaming chats, tool cards, diffs, approvals and saved
+sessions; it reads, searches, edits and runs commands in **your current target** (the host for admins, or the VM you
+are in). Set up providers (OpenRouter, Hugging Face, OpenAI, Anthropic, Groq, ...) in **Dashboard → AI agent**.
 ```text
-sudo agent                     # interactive session (persists until /exit)
-sudo agent "add tests for utils.py"
-sudo agent models              # list the provider's models
+sudo agent                     # open the agent page in this directory
+sudo agent "add tests for utils.py"   # open it and start the task
+sudo agent -c                  # continue the latest chat       (--continue)
+sudo agent -r <id>             # resume a chat                  (--resume; `sudo agent ls` lists chats)
+sudo agent -p "what changed?"  # run a task here, print the answer (edits freely, asks nothing)
+sudo agent --cli [task]        # line-by-line session in this console (asks before acting)
+sudo agent models              # models of the current provider
+sudo agent providers           # which providers are ready
 sudo agent help
 ```
-Inside the session: `/help` `/clear` `/model <name>` `/provider` `/keys` `/models` `/compact` `/system`
-`/exit` (or `/quit`). On the host, obviously destructive shell commands are refused; inside a VM they are allowed.
+Inside a chat (page or `--cli`): `/help` `/new` `/sessions` `/model [id]` `/provider [id]` `/mode [plan|ask|edit|auto]` `/plan`
+`/compact [focus]` `/context` `/undo` `/cwd <path>` `/rename <title>` `/fork` `/init` `/todos` `/export` `/memory` `/cost`
+`/clear`, plus custom commands from `.rconsole/commands/*.md`. On the host, obviously destructive shell commands are
+refused; inside a VM they are allowed. See the README for modes, tools and safety.
 
 ### `opencode`
 🔒 Launches the **OpenCode** terminal AI. If it isn't installed it starts `npm install opencode-ai` as a job and tells

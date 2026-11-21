@@ -1780,5 +1780,435 @@
    }
   },
   "restart_needed": []
+ },
+ "agent": {
+  "providers": [
+   {
+    "id": "opencode",
+    "name": "OpenCode Zen",
+    "kind": "openai",
+    "base": "https://opencode.ai/zen/v1",
+    "model": "mimo-v2.5-free",
+    "env": [
+     "OPENCODE_API_KEY",
+     "ZEN_API_KEY"
+    ],
+    "needs_key": true,
+    "note": "Curated coding models, several free. Key: opencode.ai/auth",
+    "custom": false,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": false,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": false
+   },
+   {
+    "id": "anthropic",
+    "name": "Anthropic (Claude)",
+    "kind": "anthropic",
+    "base": "https://api.anthropic.com",
+    "model": "claude-sonnet-4-5",
+    "env": [
+     "ANTHROPIC_API_KEY"
+    ],
+    "needs_key": true,
+    "note": "Claude models with prompt caching. Key: console.anthropic.com",
+    "custom": false,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": false,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": false
+   },
+   {
+    "id": "openai",
+    "name": "OpenAI",
+    "kind": "openai",
+    "base": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini",
+    "env": [
+     "OPENAI_API_KEY"
+    ],
+    "needs_key": true,
+    "note": "Key: platform.openai.com/api-keys",
+    "custom": false,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": false,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": false
+   },
+   {
+    "id": "openrouter",
+    "name": "OpenRouter",
+    "kind": "openai",
+    "base": "https://openrouter.ai/api/v1",
+    "model": "anthropic/claude-sonnet-4.5",
+    "env": [
+     "OPENROUTER_API_KEY"
+    ],
+    "needs_key": true,
+    "note": "One key for hundreds of models, many free (suffix :free). Key: openrouter.ai/keys",
+    "custom": false,
+    "enabled": true,
+    "has_key": true,
+    "key_source": "dashboard",
+    "key_env": "",
+    "usable": true,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": true
+   },
+   {
+    "id": "huggingface",
+    "name": "Hugging Face",
+    "kind": "openai",
+    "base": "https://router.huggingface.co/v1",
+    "model": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "env": [
+     "HF_TOKEN",
+     "HUGGINGFACE_API_KEY",
+     "HUGGING_FACE_HUB_TOKEN",
+     "HUGGINGFACEHUB_API_TOKEN"
+    ],
+    "needs_key": true,
+    "note": "Inference Providers router. Add :fastest or :cheapest to a model id. Token: huggingface.co/settings/tokens",
+    "custom": false,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": false,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": false
+   },
+   {
+    "id": "groq",
+    "name": "Groq",
+    "kind": "openai",
+    "base": "https://api.groq.com/openai/v1",
+    "model": "llama-3.3-70b-versatile",
+    "env": [
+     "GROQ_API_KEY"
+    ],
+    "needs_key": true,
+    "note": "Very fast inference, generous free tier. Key: console.groq.com/keys",
+    "custom": false,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": false,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": false
+   },
+   {
+    "id": "gemini",
+    "name": "Google Gemini",
+    "kind": "openai",
+    "base": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "model": "gemini-2.5-flash",
+    "env": [
+     "GEMINI_API_KEY",
+     "GOOGLE_API_KEY"
+    ],
+    "needs_key": true,
+    "note": "Gemini through its OpenAI-compatible endpoint. Key: aistudio.google.com/apikey",
+    "custom": false,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": false,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": false
+   },
+   {
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "kind": "openai",
+    "base": "https://api.deepseek.com/v1",
+    "model": "deepseek-chat",
+    "env": [
+     "DEEPSEEK_API_KEY"
+    ],
+    "needs_key": true,
+    "note": "Key: platform.deepseek.com",
+    "custom": false,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": false,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": false
+   },
+   {
+    "id": "mistral",
+    "name": "Mistral",
+    "kind": "openai",
+    "base": "https://api.mistral.ai/v1",
+    "model": "mistral-medium-latest",
+    "env": [
+     "MISTRAL_API_KEY"
+    ],
+    "needs_key": true,
+    "note": "Key: console.mistral.ai",
+    "custom": false,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": false,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": false
+   },
+   {
+    "id": "xai",
+    "name": "xAI (Grok)",
+    "kind": "openai",
+    "base": "https://api.x.ai/v1",
+    "model": "grok-code-fast-1",
+    "env": [
+     "XAI_API_KEY"
+    ],
+    "needs_key": true,
+    "note": "Key: console.x.ai",
+    "custom": false,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": false,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": false
+   },
+   {
+    "id": "together",
+    "name": "Together AI",
+    "kind": "openai",
+    "base": "https://api.together.xyz/v1",
+    "model": "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+    "env": [
+     "TOGETHER_API_KEY"
+    ],
+    "needs_key": true,
+    "note": "Key: api.together.ai",
+    "custom": false,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": false,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": false
+   },
+   {
+    "id": "cerebras",
+    "name": "Cerebras",
+    "kind": "openai",
+    "base": "https://api.cerebras.ai/v1",
+    "model": "qwen-3-coder-480b",
+    "env": [
+     "CEREBRAS_API_KEY"
+    ],
+    "needs_key": true,
+    "note": "Very fast inference. Key: cloud.cerebras.ai",
+    "custom": false,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": false,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": false
+   },
+   {
+    "id": "fireworks",
+    "name": "Fireworks AI",
+    "kind": "openai",
+    "base": "https://api.fireworks.ai/inference/v1",
+    "model": "accounts/fireworks/models/qwen3-coder-480b-a35b-instruct",
+    "env": [
+     "FIREWORKS_API_KEY"
+    ],
+    "needs_key": true,
+    "note": "Key: fireworks.ai",
+    "custom": false,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": false,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": false
+   },
+   {
+    "id": "nvidia",
+    "name": "NVIDIA NIM",
+    "kind": "openai",
+    "base": "https://integrate.api.nvidia.com/v1",
+    "model": "meta/llama-3.3-70b-instruct",
+    "env": [
+     "NVIDIA_API_KEY"
+    ],
+    "needs_key": true,
+    "note": "Key: build.nvidia.com",
+    "custom": false,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": false,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": false
+   },
+   {
+    "id": "ollama",
+    "name": "Ollama (local)",
+    "kind": "openai",
+    "base": "http://localhost:11434/v1",
+    "model": "qwen2.5-coder",
+    "env": [
+     "OLLAMA_API_KEY"
+    ],
+    "needs_key": false,
+    "note": "A model server on the same machine or network. No key needed.",
+    "custom": false,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": false,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": false
+   },
+   {
+    "id": "lmstudio",
+    "name": "LM Studio (local)",
+    "kind": "openai",
+    "base": "http://localhost:1234/v1",
+    "model": "local-model",
+    "env": [
+     "LMSTUDIO_API_KEY"
+    ],
+    "needs_key": false,
+    "note": "No key needed.",
+    "custom": false,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": false,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {},
+    "extra_body": {},
+    "saved": false
+   },
+   {
+    "id": "custom1",
+    "name": "My gateway",
+    "kind": "openai",
+    "base": "http://localhost:8000/v1",
+    "model": "qwen",
+    "env": [],
+    "needs_key": false,
+    "note": "",
+    "custom": true,
+    "enabled": true,
+    "has_key": false,
+    "key_source": "",
+    "key_env": "",
+    "usable": true,
+    "context": 0,
+    "max_tokens": 0,
+    "headers": {
+     "X-Api-Token": "***",
+     "X-Team": "blue"
+    },
+    "extra_body": {},
+    "saved": true
+   }
+  ],
+  "default": "openrouter",
+  "options": {
+   "mode": "ask",
+   "max_steps": 40,
+   "max_runs": 2,
+   "compact_pct": 80,
+   "bash_timeout": 120,
+   "instructions": ""
+  },
+  "modes": [
+   {
+    "id": "plan",
+    "help": "read-only: investigate and propose a plan"
+   },
+   {
+    "id": "ask",
+    "help": "ask before edits and commands"
+   },
+   {
+    "id": "edit",
+    "help": "edit files freely, ask before commands"
+   },
+   {
+    "id": "auto",
+    "help": "do everything without asking"
+   }
+  ],
+  "chats": 0,
+  "active": 0
  }
 }

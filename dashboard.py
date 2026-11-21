@@ -13,6 +13,7 @@ what Rconsole already tracks (users, jobs, services, terminals, exposures, VMs, 
 import collections
 import json
 import os
+import re
 import platform
 import shutil
 import socket
@@ -695,6 +696,8 @@ def view(section, actor=""):
         return settings.snapshot()
     if section == "repo":
         return _repo_view()
+    if section == "agent":
+        return _agent_view(actor)
     if section == "account":
         return view_user("account", actor)
     raise ValueError(f"unknown section '{section}'")
@@ -821,6 +824,78 @@ def _threaded(fn, name):
     threading.Thread(target=fn, daemon=True, name=name).start()
 
 
+def _agent_view(actor):
+    """AI agent setup: every provider with where its key comes from (never the key), plus the global options."""
+    import agent_core
+    import agent_providers as ap
+    import agent_store
+    rows = ap.public_table(actor)
+    keep = ("id", "name", "kind", "base", "model", "env", "needs_key", "note", "custom", "enabled", "has_key",
+            "key_source", "key_env", "usable", "context", "max_tokens", "headers", "extra_body")
+    out = []
+    for r in rows:
+        d = {k: r[k] for k in keep}
+        d["headers"] = {k: ("***" if re.search(r"auth|key|token|secret|cookie", k, re.I) else v) for k, v in d["headers"].items()}
+        d["saved"] = r["id"] in ap.load()["providers"]
+        out.append(d)
+    return {"providers": out, "default": ap.load().get("default") or "", "options": ap.options(),
+            "modes": [{"id": m, "help": agent_core.MODE_HELP[m]} for m in agent_core.MODES],
+            "chats": len(agent_store.list_sessions(actor)), "active": len(agent_core.active())}
+
+
+def _perform_agent(actor, action, data):
+    """AI agent provider and option actions. Returns ``(ok, message, target)``."""
+    import agent_providers as ap
+    pid = ap._clean_id(data.get("id") or "")
+    if action == "agent.save":
+        fields = {}
+        for k in ("name", "kind", "base", "model", "enabled", "context", "max_tokens", "headers", "extra_body", "needs_key"):
+            if k in data:
+                fields[k] = data[k]
+        if data.get("clear_key"):
+            fields["api_key"] = ""
+        elif isinstance(data.get("api_key"), str) and data["api_key"].strip():
+            fields["api_key"] = data["api_key"]
+        try:
+            ap.save_provider(pid, fields)
+        except (ValueError, TypeError) as e:
+            return False, str(e), pid or "agent"
+        return True, f"saved provider '{pid}'", pid
+    if action == "agent.remove":
+        if not pid:
+            return False, "no provider chosen", "agent"
+        ap.remove_provider(pid)
+        return True, f"removed the saved settings of '{pid}'" + (" (the built-in entry stays, without a key)" if pid in ap.PRESETS else ""), pid
+    if action == "agent.default":
+        if not any(r["id"] == pid and r["usable"] for r in ap.provider_table(actor)):
+            return False, "that provider has no key yet", pid
+        ap.set_default(pid)
+        return True, f"'{pid}' is now the default provider", pid
+    if action == "agent.test":
+        cfg = ap.config_for(pid, actor)
+        if not cfg:
+            return False, "add a key (or a base URL) first", pid
+        r = ap.test(cfg)
+        if r["ok"]:
+            return True, f"{cfg['name']} works: {r['ms']} ms" + (f", {r['models']} models" if r["models"] else "") + f", reply \"{r['message']}\"", pid
+        return False, r["message"][:300], pid
+    if action == "agent.options":
+        o = {}
+        try:
+            if data.get("mode") in ("plan", "ask", "edit", "auto"):
+                o["mode"] = data["mode"]
+            for k in ("max_steps", "max_runs", "compact_pct", "bash_timeout"):
+                if k in data and data[k] not in ("", None):
+                    o[k] = int(data[k])
+        except (TypeError, ValueError):
+            return False, "numbers only, please", "agent"
+        if isinstance(data.get("instructions"), str):
+            o["instructions"] = data["instructions"][:8000]
+        ap.set_options(o)
+        return True, "agent options saved", "agent"
+    return None
+
+
 def _perform_settings(actor, action, data):
     """Settings and repo-storage actions. Returns ``(ok, message, target)`` or ``None`` if not ours."""
     import settings
@@ -911,6 +986,10 @@ def perform(actor, action, data, ip=""):
 def _perform(actor, action, data):          # noqa: C901 - a flat dispatch table reads best
     if action.startswith(("settings.", "repo.")) or action == "server.restart":
         res = _perform_settings(actor, action, data)
+        if res is not None:
+            return res
+    if action.startswith("agent."):
+        res = _perform_agent(actor, action, data)
         if res is not None:
             return res
     user = _need(data, "username") or ""

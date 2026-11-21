@@ -43,7 +43,12 @@ rconsole/
 ├── cmd_env.py              # sudo env (per-user environment variables)
 ├── cmd_tooling.py          # sudo opencode (external TUI launcher)
 ├── editor.py               # In-console editor + file manager (edit, fm)
-├── agent.py                # Native in-console AI agent (OpenAI-compatible / Anthropic, tools)
+├── agent.py                # `sudo agent`: opens the agent page, `-p` one-shot, `--cli` line-mode session
+├── agent_core.py           # Agent engine: a turn per thread, event log, loop, context trimming/summaries, permissions, slash commands
+├── agent_providers.py      # Provider catalogue (OpenRouter, Hugging Face, OpenAI, Anthropic, ...), key storage, streaming transports
+├── agent_store.py          # Chats on disk: append-only JSONL, index, checkpoints for /undo, export
+├── agent_tools.py          # Agent tools: bash, read, write, edit, grep, glob, ls, web fetch/search, safe-command detection
+├── agent_web.py            # /agent page, /api/agent/* JSON API and the server-sent event stream
 ├── fun.py                  # Fun/novelty commands (cowsay, fortune, figlet, neofetch, …)
 ├── jobs.py                 # Background jobs (`cmd &`, jobs/jobout/jobtail/fg/kill %n)
 ├── termsess.py             # Persistent PTY sessions keyed by (user, tab)
@@ -70,6 +75,7 @@ rconsole/
 │   ├── helpers.py          # Isolated temp data dir; must be imported first
 │   ├── test_auth.py        # Hashing + migration, policy, quarantine, throttle
 │   ├── test_storage.py     # Repo storage against a local bare repo; dashboard settings; the `storage` command
+│   ├── test_agent.py       # AI agent: providers (fake OpenAI/Anthropic servers), tools, chats, engine, permissions, API, dashboard actions
 │   ├── test_dashboard.py   # Dashboard: access control, sections, actions, audit trail, logout button
 │   ├── test_serve.py       # serve.py: server choice, gunicorn command, built-in fallback + shutdown
 │   ├── test_sandbox.py     # Path confinement (symlink/.. escapes), authorization
@@ -99,6 +105,8 @@ rconsole/
 │   ├── pdf-viewer.js       # File-browser PDF viewer (loading state, range requests, only visible pages drawn); loads vendor/pdfjs on first use
 │   ├── vendor/pdfjs/       # Bundled pdf.js 3.11.174 (Apache-2.0) with its worker, cmaps and standard fonts
 │   ├── files-core.js       # File-manager selection / archive-name logic (click, ctrl/shift, drag band, long-press sweep): DOM-free, unit-tested
+│   ├── agent.js            # Agent page: markdown/diff/code rendering, event stream, chats, pickers (textContent only)
+│   ├── agent.css           # Agent page styling (console theme variables)
 │   ├── dashboard.js        # Dashboard UI for admins and normal users (plain DOM + inline SVG charts, textContent only)
 │   ├── dashboard.css       # Admin dashboard styling (uses the console theme variables)
 │   ├── style.css           # Console styling + terminal layout
@@ -108,6 +116,7 @@ rconsole/
 │   └── addon-fit.js        # xterm.js FitAddon (auto-fit terminal to container)
 ├── templates/              # Jinja2 templates
 │   ├── console.html        # Main console page (loads xterm.js + console.js)
+│   ├── agent.html          # The agent page shell
 │   ├── dashboard.html      # Dashboard shell (admins and normal users)
 │   ├── login.html          # Login page
 │   └── error.html          # Themed HTTP error page
@@ -229,10 +238,28 @@ anything else to the host `kill`).
 manager (`fm`: navigate, cat/rm/mkdir/touch/mv, hand off to the browser editor).
 Path helpers (`_resolve_path`, …) also used by `fun.py`'s `rev`/`wc`.
 
-**`agent.py`** — Native in-console AI agent (OpenAI-compatible / Anthropic).
-- Tools: `bash`, `read_file`, `write_file`, `list_dir` (run inside rconsole's
-  host environment, rendered through the line console — no PTY).
-- Persistent per-tab conversation, context compaction, retries, slash commands.
+**`agent.py`** — The `sudo agent` command: no arguments opens `/agent`; `-c`/`-r` continue or resume a chat; `-p` runs
+a task and prints the answer; `--cli` is a line-by-line session built on `agent_core` (events are rendered as text
+ticks, approvals become prompts).
+
+**`agent_providers.py`** — The provider catalogue and keys. `provider_table()` merges presets, custom providers, the
+dashboard's `data/agent/providers.json` (0600, write-only in the dashboard) and environment keys; `resolve()` picks the
+provider to use; `stream_chat()` speaks OpenAI-style or Anthropic streaming (retries with `Retry-After`, prompt caching,
+usage); `list_models()`, `test()`, `options()`.
+
+**`agent_store.py`** — Chats: `sessions/<id>.jsonl` (one line per message, never rewritten), `index.json`, `checkpoints/`
+for `/undo`; an LRU of a few loaded chats; fork, delete, Markdown export.
+
+**`agent_tools.py`** — The tools and their safety: path confinement through `sandbox.fs()`, protected server files,
+read-before-edit, atomic writes, the bash runner (process group, live output, head+tail capture, cwd tracking, background
+jobs), `is_safe_bash()`, the host's destructive-command guard, `web_fetch` / `web_search`.
+
+**`agent_core.py`** — The engine. `start()` runs a turn in a thread and returns a `Run` whose event log the browser
+follows; the loop, parallel read-only calls, permission modes, `ask_user` / plan approval, `build_context()` (stubbing and
+summarising), `@file` expansion, `AGENTS.md`, slash commands and custom commands.
+
+**`agent_web.py`** — The page and API: sessions, `send`, the SSE `stream` (reconnect with `Last-Event-ID`), `cancel`,
+`answer`, `meta`, models, `@` file suggestions. Admin-only.
 
 **`fun.py`** — Fun/novelty commands (`cowsay`, `fortune`, `figlet`/`banner`,
   `lolcat`, `sl`, `matrix`, `neofetch`, `colors`, `cal`, `wc`, `rev`, `date`,
@@ -327,6 +354,10 @@ through the sandbox first and exposes `/api/props`, `/api/archive`, `/api/archiv
 CPU / memory / disk / network history from `/proc` and the cgroup; `view(section)` returns the Overview, Processes,
 Users, Systems, Apps, Activity and Health data; `perform()` runs the admin actions (shared code with the `sudo` user
 commands) and `audit()` records them in `logs/audit.jsonl`.
+
+**`static/agent.js`** (+ `agent.css`, `templates/agent.html`) — The agent page. A small markdown renderer (incremental: finished
+blocks are rendered once), a regex highlighter, diff and tool cards, permission and question cards, the event-stream client,
+chat list, pickers, `/` and `@` completion. Everything is inserted with `textContent` (`tests/js/agent_check.js`).
 
 **`static/dashboard.js`** — The dashboard UI: tabs, tables, inline SVG charts, confirm dialogs. Everything is inserted
 with `textContent` (a test forbids `innerHTML`).

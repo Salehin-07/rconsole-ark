@@ -1,819 +1,271 @@
-"""Native in-console AI agent for rconsole.
+"""``sudo agent``: open the AI agent, or run it right here in the console line by line.
 
-This is a line-mode alternative to the opencode TUI: instead of spawning a
-browser-hostile PTY TUI, it calls an OpenAI-compatible (or Anthropic) API
-directly and can run tools (bash, read/write files, list dirs) inside
-rconsole's own host environment. Everything renders through the normal line
-console, so there is no terminal-handshake breakage.
+The agent itself lives in :mod:`agent_core` (loop, tools, context), :mod:`agent_providers` (models),
+:mod:`agent_store` (chats on disk) and :mod:`agent_web` (the page and its API). This file is the console command:
 
-Provider selection (first match wins), read from `sudo env` or the process env:
-  1. OpenCode Zen  -> OPENCODE_API_KEY / ZEN_API_KEY
-                     (OpenAI-compatible gateway at https://opencode.ai/zen/v1)
-  2. Anthropic     -> ANTHROPIC_API_KEY
-  3. OpenAI        -> OPENAI_API_KEY  (+ OPENAI_BASE_URL for OpenRouter/local)
-
-Robustness features:
-  - connection pooling + automatic retry/backoff on 429/5xx (requests.Session)
-  - persistent conversation across `sudo agent` invocations (stored in the tab)
-  - automatic context compaction when the transcript grows too large
-  - token usage reporting per turn and per session
-  - a small safety guard that refuses catastrophic shell commands
-  - slash commands: /help /clear /model /provider /keys /models /compact /system
+    sudo agent                    open the agent page (new chat, working directory = this tab's)
+    sudo agent <task words>       open it and start the task
+    sudo agent -c                 continue the most recent chat      (also --continue)
+    sudo agent -r <id>            resume a chat by id                (also --resume)
+    sudo agent ls                 list chats
+    sudo agent -p <task>          run a task here and print the answer (no page; asks nothing, edits files freely)
+    sudo agent --cli [task]       a plain line-by-line session in this console (no page, asks before acting)
+    sudo agent models | providers | help
 """
-import json
-import os
-import re
-from pathlib import Path
+from urllib.parse import quote
 
-import requests
-
+import agent_core as core
+import agent_providers as providers
+import agent_store as store
 import sandbox
 
-try:
-    from urllib3.util.retry import Retry
-except Exception:  # pragma: no cover
-    from requests.packages.urllib3.util.retry import Retry
+R, DIM, BOLD = "\x1b[0m", "\x1b[2m", "\x1b[1m"
+CYAN, GREEN, YELLOW, RED = "\x1b[36m", "\x1b[32m", "\x1b[33m", "\x1b[31m"
 
-TIMEOUT = 180
-MAX_STEPS = 16
-TOOL_CLIP = 4000          # chars shown to the user for a tool result
-TOOL_KEEP = 8000          # chars of a tool result kept in the model context
-HISTORY_BUDGET = 30000    # chars of serialized transcript before compaction
-KEEP_RECENT = 8           # recent messages kept verbatim during compaction
-
-# Reusable HTTP session: connection pooling + retries on transient failures.
-_SESSION = requests.Session()
-_SESSION.mount(
-    "https://",
-    requests.adapters.HTTPAdapter(
-        max_retries=Retry(
-            total=4,
-            backoff_factor=0.6,
-            status_forcelist=(429, 500, 502, 503, 504),
-            allowed_methods=frozenset(["GET", "POST"]),
-        )
-    ),
-)
-_SESSION.mount(
-    "http://",
-    requests.adapters.HTTPAdapter(
-        max_retries=Retry(
-            total=4,
-            backoff_factor=0.6,
-            status_forcelist=(429, 500, 502, 503, 504),
-            allowed_methods=frozenset(["GET", "POST"]),
-        )
-    ),
+HELP = (
+    BOLD + "agent" + R + "  AI coding and operations agent\n"
+    "  sudo agent                 open the agent page\n"
+    "  sudo agent <task>          open it and start the task\n"
+    "  sudo agent -c              continue the latest chat\n"
+    "  sudo agent -r <id>         resume a chat      (sudo agent ls lists them)\n"
+    "  sudo agent -p <task>       run a task here, print the result (edits freely, no questions)\n"
+    "  sudo agent --cli [task]    line-by-line session in this console (asks before acting)\n"
+    "  sudo agent models          models of the current provider\n"
+    "  sudo agent providers       which providers are set up\n"
+    "Set up providers (OpenRouter, Hugging Face, OpenAI, Anthropic, Groq, ...) in Dashboard > AI agent.\n"
+    "Inside a chat: /help lists the slash commands; @file mentions a file; Esc stops a turn."
 )
 
 
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "bash",
-            "description": (
-                "Run a shell command in the current working directory and return "
-                "its combined stdout/stderr. Use for git, ls, installing packages, "
-                "running tests, moving files, etc."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string", "description": "the shell command to run"}
-                },
-                "required": ["command"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": "Read the full contents of a file (path relative to cwd).",
-            "parameters": {
-                "type": "object",
-                "properties": {"path": {"type": "string"}},
-                "required": ["path"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write_file",
-            "description": "Write text content to a file (creates/overwrites; makes parent dirs).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"},
-                },
-                "required": ["path", "content"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_dir",
-            "description": "List files in a directory (defaults to the current directory).",
-            "parameters": {
-                "type": "object",
-                "properties": {"path": {"type": "string"}},
-                "required": [],
-            },
-        },
-    },
-]
+def _setup_text():
+    return (BOLD + "No AI provider is set up yet." + R + "\nOpen Dashboard > AI agent and add an API key "
+            "(OpenRouter, Hugging Face, OpenAI, Anthropic, Groq, ...).\nA key set with `sudo env set OPENROUTER_API_KEY=...` "
+            "(or OPENAI_API_KEY, ANTHROPIC_API_KEY, HF_TOKEN, ...) also works.")
 
 
-# ANSI helpers (kept local; console.js renders these in the line console).
-R = "\x1b[0m"
-DIM = "\x1b[2m"
-CYAN = "\x1b[36m"
-GREEN = "\x1b[32m"
-YELLOW = "\x1b[33m"
-BOLD = "\x1b[1m"
-
-AGENT_HELP = (
-    BOLD + "Agent slash commands" + R + "\n"
-    "  /help            show this help\n"
-    "  /clear           forget the conversation (keep provider/model)\n"
-    "  /model <name>    switch the model for this session\n"
-    "  /provider        show the current provider / model / base url\n"
-    "  /keys            list configured API keys (masked)\n"
-    "  /models          list models available from the current provider\n"
-    "  /compact         summarise older context now\n"
-    "  /system          print the system prompt\n"
-    "  /exit, /quit     leave the agent\n"
-    "\n"
-    "Tips:\n"
-    "  - Run `sudo agent` with no args for an interactive session; the chat\n"
-    "    persists across commands until you /clear or /exit.\n"
-    "  - `sudo agent \"do something\"` runs a single task then stays open.\n"
-    "  - `sudo agent models` / `sudo agent help` print without opening a session.\n"
-    "  - Tools: bash, read_file, write_file, list_dir."
-)
-
-
-def _clip(text, n=TOOL_CLIP):
-    text = text or ""
-    if len(text) > n:
-        return text[:n] + f"\n... ({len(text) - n} more chars clipped)"
-    return text
-
-
-def _resolve(ctx, target):
-    """Map a model-supplied path to a real host path, confined to the user's
-    view (the whole host for admins in host mode, the VM root otherwise)."""
-    try:
-        view = sandbox.fs(ctx["sid"])
-        p = view.host((target or "").strip(), ctx["tab"]["cwd"])
-        return p.resolve() if view.unrestricted else p
-    except (OSError, sandbox.SandboxError):
-        return Path(os.devnull) / "invalid"
-
-
-# Language guess from a filename, for syntax-highlighted code boxes in the UI.
-_LANG_EXT = {
-    "py": "python", "pyw": "python", "js": "javascript", "mjs": "javascript",
-    "cjs": "javascript", "ts": "typescript", "tsx": "typescript", "jsx": "javascript",
-    "json": "json", "html": "html", "htm": "html", "xml": "xml", "vue": "html",
-    "css": "css", "scss": "css", "less": "css", "yaml": "yaml", "yml": "yaml",
-    "md": "markdown", "sh": "bash", "bash": "bash", "zsh": "bash", "txt": "text",
-    "csv": "text", "ini": "ini", "conf": "ini", "rb": "ruby", "go": "go",
-    "rs": "rust", "java": "java", "c": "c", "h": "c", "cpp": "cpp", "cxx": "cpp",
-    "hpp": "cpp", "sql": "sql", "r": "r", "php": "php", "lua": "lua",
-}
-
-
-def _lang_from_ext(path):
-    ext = (path.split(".")[-1] if "." in path else "").lower()
-    return _LANG_EXT.get(ext, "")
-
-
-def _fence(lang, text, n=2000):
-    """Wrap text in a markdown code fence so the frontend renders a code box."""
-    text = (text or "").rstrip("\n")
-    if len(text) > n:
-        text = text[:n] + f"\n... ({len(text) - n} more chars clipped)"
-    return "```" + (lang or "") + "\n" + text + "\n```"
-
-
-def _is_long(text, lines=10, chars=1200):
-    t = text or ""
-    return (len(t.splitlines()) > lines) or (len(t) > chars)
-
-
-def _tool_tick(name, args, result):
-    """Format a tool result as a live tick: file content in a code box, and long
-    shell/dir output in a scrollable 'bash' box."""
-    if name in ("read_file", "write_file"):
-        path = args.get("path", "")
-        lang = _lang_from_ext(path)
-        head = CYAN + "→ " + name + "(" + json.dumps(path, ensure_ascii=False)[:160] + ")" + R
-        return head + "\n" + _fence(lang, result)
-    call_desc = name + "(" + json.dumps(args, ensure_ascii=False)[:160] + ")"
-    head = CYAN + "→ " + call_desc + R
-    if _is_long(result):
-        # Long output -> a scrollable, ANSI-stripped "bash" box.
-        return head + "\n" + _fence("log", result, n=TOOL_CLIP)
-    return head + "\n" + _clip(result, 2000)
-
-
-_BASH_GUARD = [
-    re.compile(r"rm\s+-rf\s+/\s*$"),
-    re.compile(r"rm\s+-rf\s+/\*"),
-    re.compile(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"),
-    re.compile(r"\bmkfs\b"),
-    re.compile(r"dd\s+if=/dev/"),
-    re.compile(r">\s*/dev/sd"),
-    re.compile(r"chmod\s+-R\s+777\s+/"),
-    re.compile(r"\bshutdown\b|\breboot\b|\bhalt\b"),
-]
-
-
-def _guard_bash(cmd):
-    for pat in _BASH_GUARD:
-        if pat.search(cmd or ""):
-            return (
-                "refused: that command looks destructive or system-breaking. "
-                "If you really mean to run it, do so directly in the console "
-                "(not via the agent tool)."
-            )
-    return None
-
-
-def _config(username):
-    """Resolve provider + key from the user's `sudo env` store, falling back to
-    the process environment (so Render dashboard vars work too)."""
-    import state
-
-    env = dict(os.environ)
-    for k, v in (state.get_env(username) or {}).items():
-        env[k] = v
-
-    # OpenCode Zen — an OpenAI-compatible gateway (https://opencode.ai/zen/v1).
-    # Keyed by OPENCODE_API_KEY (alias ZEN_API_KEY); model via OPENCODE_MODEL /
-    # ZEN_MODEL. The broad catalog (deepseek, glm, kimi, minimax, nemotron-free,
-    # mimo-free, ...) speaks /v1/chat/completions. GPT-5.x on Zen needs the
-    # separate /v1/responses API (see chat_once fallback note).
-    zen_key = env.get("OPENCODE_API_KEY") or env.get("ZEN_API_KEY")
-    if zen_key:
-        return "openai", {
-            "api_key": zen_key,
-            "model": (
-                env.get("OPENCODE_MODEL")
-                or env.get("ZEN_MODEL")
-                or "mimo-v2.5-free"
-            ),
-            "base": (
-                env.get("OPENCODE_BASE_URL")
-                or env.get("ZEN_BASE_URL")
-                or "https://opencode.ai/zen/v1"
-            ),
-            "is_zen": True,
-        }
-    if env.get("ANTHROPIC_API_KEY"):
-        return "anthropic", {
-            "api_key": env["ANTHROPIC_API_KEY"],
-            "model": env.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
-            "base": env.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
-        }
-    if env.get("OPENAI_API_KEY"):
-        return "openai", {
-            "api_key": env["OPENAI_API_KEY"],
-            "model": env.get("OPENAI_MODEL", "gpt-4o-mini"),
-            "base": env.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-        }
-    return None, {}
-
-
-def _build_system(ctx):
-    cwd = ctx["tab"]["cwd"]
-    plat = os.name
-    return (
-        "You are an autonomous coding agent running inside 'rconsole', a "
-        "simulated Linux console in the browser. You help the user by using tools.\n"
-        "Environment:\n"
-        f"  cwd: {cwd}\n"
-        f"  platform: {plat}\n"
-        "Tools available:\n"
-        "  - bash(command): run shell commands in cwd (git, ls, npm, python, pip, ...)\n"
-        "  - read_file(path): read a file\n"
-        "  - write_file(path, content): write/create a file\n"
-        "  - list_dir(path?): list a directory\n"
-        "Safety & style:\n"
-        "  - Prefer bash for anything a shell does well; prefer read/write for files.\n"
-        "  - Do NOT run destructive/system-breaking commands (rm -rf /, mkfs, dd on "
-        "disks, shutdown, ...); the bash tool will refuse them.\n"
-        "  - Keep tool outputs concise; you will see full results.\n"
-        "  - When you create or modify a file, include its final content in a fenced "
-        "code block (e.g. ```python\\n...\\n```) so the user can review it in a styled "
-        "viewer.\n"
-        "  - When you have a final answer, reply with clear prose (no tool call).\n"
-    )
-
-
-# ---------------------------------------------------------------------- providers
-def _post(url, headers, body):
-    r = _SESSION.post(url, headers=headers, json=body, timeout=TIMEOUT)
-    r.raise_for_status()
-    return r.json()
-
-
-def _openai_once(cfg, messages):
-    url = cfg["base"].rstrip("/") + "/chat/completions"
-    headers = {
-        "Authorization": "Bearer " + cfg["api_key"],
-        "Content-Type": "application/json",
-    }
-    body = {
-        "model": cfg["model"],
-        "messages": messages,
-        "tools": TOOLS,
-        "tool_choice": "auto",
-    }
-    data = _post(url, headers, body)
-    msg = data["choices"][0]["message"]
-    content = msg.get("content") or ""
-    tool_calls = [
-        {
-            "id": tc["id"],
-            "type": "function",
-            "function": {
-                "name": tc["function"]["name"],
-                "arguments": tc["function"]["arguments"],
-            },
-        }
-        for tc in (msg.get("tool_calls") or [])
-    ]
-    usage = data.get("usage", {}) or {}
-    return {
-        "content": content,
-        "tool_calls": tool_calls,
-        "usage": usage,
-    }
-
-
-def _to_anthropic(messages, tools):
-    system = None
-    conv = []
-    for m in messages:
-        role = m["role"]
-        if role == "system":
-            system = m["content"]
+def _providers_text(user):
+    rows = providers.public_table(user)
+    out = []
+    for r in rows:
+        if not (r["usable"] or r["has_key"] or r["custom"]):
             continue
-        if role == "tool":
-            conv.append({
-                "role": "user",
-                "content": [{
-                    "type": "tool_result",
-                    "tool_use_id": m["tool_call_id"],
-                    "content": m["content"],
-                }],
-            })
-            continue
-        if role == "assistant":
-            blocks = []
-            if m.get("content"):
-                blocks.append({"type": "text", "text": m["content"]})
-            for tc in (m.get("tool_calls") or []):
-                blocks.append({
-                    "type": "tool_use",
-                    "id": tc["id"],
-                    "name": tc["function"]["name"],
-                    "input": json.loads(tc["function"]["arguments"] or "{}"),
-                })
-            conv.append({"role": "assistant", "content": blocks})
-        else:
-            content = m["content"]
-            conv.append({
-                "role": "user",
-                "content": [{"type": "text", "text": content}]
-                if isinstance(content, str) else content,
-            })
-    anth_tools = [
-        {
-            "name": t["function"]["name"],
-            "description": t["function"]["description"],
-            "input_schema": t["function"]["parameters"],
-        }
-        for t in tools
-    ]
-    return system, conv, anth_tools
+        state = (GREEN + "ready" + R) if r["usable"] else (YELLOW + "off" + R)
+        src = f" ({r['key_source']})" if r["has_key"] else ""
+        out.append(f"  {r['id']:<12} {state}  {r['model']}{DIM}{src}{R}")
+    return "AI providers\n" + ("\n".join(out) if out else "  none set up yet - Dashboard > AI agent")
 
 
-def _anthropic_once(cfg, messages):
-    system, conv, anth_tools = _to_anthropic(messages, TOOLS)
-    url = cfg["base"].rstrip("/") + "/v1/messages"
-    headers = {
-        "x-api-key": cfg["api_key"],
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
-    body = {
-        "model": cfg["model"],
-        "max_tokens": 4096,
-        "messages": conv,
-        "tools": anth_tools,
-    }
-    if system:
-        body["system"] = system
-    data = _post(url, headers, body)
-    blocks = data.get("content", [])
-    text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
-    tool_calls = []
-    for b in blocks:
-        if b.get("type") == "tool_use":
-            tool_calls.append({
-                "id": b["id"],
-                "type": "function",
-                "function": {
-                    "name": b["name"],
-                    "arguments": json.dumps(b.get("input", {})),
-                },
-            })
-    usage = data.get("usage", {}) or {}
-    return {
-        "content": text,
-        "tool_calls": tool_calls,
-        "usage": usage,
-    }
+def _list_text(user):
+    rows = store.list_sessions(user)[:20]
+    if not rows:
+        return "No chats yet. Run `sudo agent` to start one."
+    import time
+    out = []
+    for r in rows:
+        when = time.strftime("%b %d %H:%M", time.localtime(r["updated"]))
+        out.append(f"  {r['id']}  {DIM}{when}{R}  {r['title'][:50]}  {DIM}{r['model']}{R}")
+    return "Recent chats (open with `sudo agent -r <id>`)\n" + "\n".join(out)
 
 
-def chat_once(provider, cfg, messages):
-    if provider == "openai":
-        try:
-            return _openai_once(cfg, messages)
-        except requests.HTTPError as e:
-            if cfg.get("is_zen"):
-                raise RuntimeError(
-                    "%s\n"
-                    "If you selected a GPT-5.x Zen model it requires the separate "
-                    "/v1/responses API (not yet supported here). Use a Zen model that "
-                    "speaks /v1/chat/completions instead, e.g. mimo-v2.5-free, "
-                    "deepseek-v4-flash, glm-5.2, kimi-k3, nemotron-3.5-lightning-free "
-                    "(set OPENCODE_MODEL)." % e
-                )
-            raise
-    return _anthropic_once(cfg, messages)
-
-
-# --------------------------------------------------------------- context mgmt
-def _maybe_compact(messages, cfg, provider, force=False):
-    """Keep the transcript within HISTORY_BUDGET by summarising older turns.
-
-    The transcript is trimmed at a clean 'user' boundary so the model context
-    stays valid for both OpenAI and Anthropic schemas.
-    """
-    if len(messages) <= 1:
-        return messages
-    ser = json.dumps(messages[1:], ensure_ascii=False)
-    if not force and len(ser) <= HISTORY_BUDGET:
-        return messages
-
-    system = messages[0]
-    rest = messages[1:]
-    if len(rest) <= KEEP_RECENT + 1:
-        return messages
-
-    split = max(0, len(rest) - KEEP_RECENT)
-    # Snap to a 'user' message so we never split an assistant/tool pair.
-    while split < len(rest) and rest[split].get("role") != "user":
-        split += 1
-    head = rest[:split]
-    tail = rest[split:]
-    if not head:
-        return messages
-
-    summary_prompt = [{
-        "role": "user",
-        "content": (
-            "Summarise the prior conversation below into a concise briefing: key "
-            "facts, decisions, file paths, commands run, and any open tasks. Keep it "
-            "under 250 words. Reply with only the summary."
-        ),
-    }]
-    try:
-        res = chat_once(provider, cfg, [system] + head + summary_prompt)
-        summary = res.get("content") or ""
-    except Exception:
-        summary = "(earlier conversation was compacted; detailed history unavailable)"
-    if not summary.strip():
-        summary = "(earlier conversation was compacted)"
-    return [system, {"role": "user", "content": "[Earlier conversation summary]\n" + summary}] + tail
-
-
-def _model_ids(provider, cfg):
-    """Return the list of model ids from the provider, or None on failure."""
-    if provider == "anthropic":
-        url = cfg["base"].rstrip("/") + "/v1/models"
-        headers = {
-            "x-api-key": cfg["api_key"],
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        }
-    else:
-        url = cfg["base"].rstrip("/") + "/models"
-        headers = {
-            "Authorization": "Bearer " + cfg["api_key"],
-            "Content-Type": "application/json",
-        }
-    try:
-        r = _SESSION.get(url, headers=headers, timeout=TIMEOUT)
-        r.raise_for_status()
-        data = r.json()
-    except Exception:
-        return None
-    ids = [m.get("id") or m.get("name") for m in data.get("data", [])]
-    return [i for i in ids if i] or None
-
-
-def _list_models(provider, cfg):
-    ids = _model_ids(provider, cfg)
-    if not ids:
-        return YELLOW + "Could not list models (or none returned by the endpoint)." + R
-    head = "\n".join("  " + i for i in ids[:80])
-    more = "" if len(ids) <= 80 else f"\n  ... and {len(ids) - 80} more"
-    return f"Available models ({len(ids)}):\n{head}{more}"
-
-
-def run_tool(name, args, ctx):
-    import interp
-
-    if name == "bash":
-        # The destructive-command guard only matters on the real host; inside
-        # the user's VM they are free to break (and `vm reset`) their own box.
-        if sandbox.effective_mode(ctx["sid"]) == sandbox.HOST:
-            refusal = _guard_bash(args.get("command", ""))
-            if refusal:
-                return refusal
-        out = interp._passthrough(ctx, args.get("command", ""))
-        return out or "(no output)"
-    if name == "read_file":
-        p = _resolve(ctx, args.get("path", ""))
-        try:
-            return p.read_text(encoding="utf-8", errors="replace")
-        except Exception as e:
-            return f"error: {e}"
-    if name == "write_file":
-        p = _resolve(ctx, args.get("path", ""))
-        try:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            content = args.get("content", "")
-            p.write_text(content, encoding="utf-8")
-            # Return the written content so the UI can show it in a code box
-            # (clipped for live display; the model context keeps more).
-            return content
-        except Exception as e:
-            return f"error: {e}"
-    if name == "list_dir":
-        target = args.get("path") or ctx["tab"]["cwd"]
-        p = _resolve(ctx, target)
-        try:
-            entries = sorted(
-                os.listdir(p),
-                key=lambda s: (not os.path.isdir(os.path.join(p, s)), s.lower()),
-            )
-        except Exception as e:
-            return f"error: {e}"
-        return "\n".join(
-            ("[D] " + e if os.path.isdir(os.path.join(p, e)) else e) for e in entries
-        )
-    return f"unknown tool: {name}"
-
-
-def _mask(val):
-    if not val:
-        return "—"
-    if len(val) > 8:
-        return val[:4] + "…" + val[-2:]
-    return "***"
-
-
-def _configured_keys(username):
-    import state
-
-    env = dict(os.environ)
-    for k, v in (state.get_env(username) or {}).items():
-        env[k] = v
-    keys = ["OPENCODE_API_KEY", "ZEN_API_KEY", "ANTHROPIC_API_KEY",
-            "OPENAI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY", "GROQ_API_KEY",
-            "OPENROUTER_API_KEY", "DEEPSEEK_API_KEY", "MISTRAL_API_KEY"]
-    return [(k, env.get(k)) for k in keys if env.get(k)]
-
-
-# --------------------------------------------------------------- interactive loop
-def agent_routine(ctx, initial=None):
-    username = ctx["sid"]
-    store = ctx["tab"].setdefault("_agent_session", {})
-    provider, cfg = _config(username)
-    if not provider:
-        yield {
-            "prompt": "agent> ",
-            "clear": True,
-            "output": (
-                BOLD + "Agent not configured." + R + "\n"
-                "Set an API key with `sudo env`, then run `sudo agent` again:\n"
-                "  sudo env set OPENCODE_API_KEY=...      (OpenCode Zen — https://opencode.ai/auth)\n"
-                "  sudo env set OPENCODE_MODEL=hy3-free   (any Zen chat/completions model)\n"
-                "  sudo env set OPENAI_API_KEY=sk-...     (or OpenAI / OpenRouter)\n"
-                "  sudo env set ANTHROPIC_API_KEY=...     (Claude)\n"
-                "OpenRouter / local models: also set OPENAI_BASE_URL."
-            ),
-        }
-        return {"output": "agent exited."}
-
-    messages = store.get("messages")
-    if messages is None:
-        messages = [{"role": "system", "content": _build_system(ctx)}]
-    store["provider"] = provider
-    store["model"] = cfg["model"]
-    store["messages"] = messages
-
-    resumed = len(messages) > 1
-    banner = (
-        BOLD + "Agent ready" + R + DIM + " (%s / %s)" % (provider, cfg["model"]) + R
-        + ("  " + GREEN + "[resumed session]" + R if resumed else "")
-        + "\nType a task, or '/help' for commands. 'exit'/'quit' to leave."
-    )
-    total_tokens = int(store.get("total_tokens") or 0)
-    first_yield = True
-    line = initial
-    while True:
-        if line is None:
-            out_block = banner if first_yield else ""
-            first_yield = False
-            line = yield {"prompt": "agent> ", "output": out_block}
-            continue
-        cmd = (line or "").strip()
-        if cmd in ("exit", "quit", "q"):
-            store.clear()
-            return {"output": "agent session ended."}
-        if cmd.startswith("/"):
-            r = _slash(cmd, ctx, provider, cfg, store)
-            first_yield = False
-            line = yield r
-            continue
-        if not cmd:
-            line = None
-            continue
-
-        # Refresh cwd in the system prompt each turn.
-        messages[0] = {"role": "system", "content": _build_system(ctx)}
-        messages.append({"role": "user", "content": cmd})
-        out = []
-        steps = 0
-        turn_tokens = 0
-        # Surface the "ready" banner as a live tick for a one-shot initial prompt
-        # (so the user sees something immediately instead of a blank wait).
-        if first_yield and cmd:
-            first_yield = False
-            yield {"_tick": True, "output": banner}
-        while steps < MAX_STEPS:
-            steps += 1
-            messages = _maybe_compact(messages, cfg, provider)
-            store["messages"] = messages
-            # Live "thinking" indicator so the console isn't silent during a call.
-            yield {"_tick": True, "output": DIM + "… thinking (" + cfg["model"] + ")" + R}
-            try:
-                res = chat_once(provider, cfg, messages)
-            except Exception as e:
-                out.append(YELLOW + f"agent error: {e}" + R)
-                break
-            content = res["content"]
-            tool_calls = res["tool_calls"]
-            u = res.get("usage") or {}
-            turn_tokens += u.get("total_tokens") or (
-                u.get("input_tokens", 0) + u.get("output_tokens", 0)
-            )
-            if tool_calls:
-                asst = {"role": "assistant", "content": content}
-                if provider == "openai":
-                    asst["tool_calls"] = [
-                        {
-                            "id": tc["id"],
-                            "type": "function",
-                            "function": {
-                                "name": tc["function"]["name"],
-                                "arguments": tc["function"]["arguments"],
-                            },
-                        }
-                        for tc in tool_calls
-                    ]
-                messages.append(asst)
-                store["messages"] = messages
-                block = []
-                for tc in tool_calls:
-                    name = tc["function"]["name"]
-                    try:
-                        args = json.loads(tc["function"]["arguments"] or "{}")
-                    except Exception:
-                        args = {}
-                    result = run_tool(name, args, ctx)
-                    block.append(_tool_tick(name, args, result))
-                    if provider == "openai":
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc.get("id"),
-                            "content": _clip(result, TOOL_KEEP),
-                        })
-                    else:
-                        messages.append({
-                            "role": "user",
-                            "content": [{
-                                "type": "tool_result",
-                                "tool_use_id": tc.get("id"),
-                                "content": _clip(result, TOOL_KEEP),
-                            }],
-                        })
-                store["messages"] = messages
-                yield {"_tick": True, "output": "\n".join(block)}
-                continue
-            else:
-                messages.append({"role": "assistant", "content": content})
-                store["messages"] = messages
-                if content:
-                    out.append(content)
-                break
-        else:
-            out.append(YELLOW + f"agent stopped after {MAX_STEPS} steps "
-                       f"(use /clear to reset context)." + R)
-
-        total_tokens += turn_tokens
-        store["total_tokens"] = total_tokens
-        foot = DIM + (f"\n— {steps} step(s), ~{turn_tokens} tokens this turn "
-                      f"(session ~{total_tokens}) —" + R)
-        out_block = "\n".join(out) + foot
-        first_yield = False
-        line = yield {"prompt": "agent> ", "output": out_block}
-
-
-def _slash(cmd, ctx, provider, cfg, store):
-    parts = cmd.split(None, 1)
-    name = parts[0].lower()
-    arg = parts[1].strip() if len(parts) > 1 else ""
-
-    if name in ("/help", "/?"):
-        return {"prompt": "agent> ", "output": AGENT_HELP}
-    if name in ("/clear", "/reset"):
-        store["messages"] = [{"role": "system", "content": _build_system(ctx)}]
-        store["total_tokens"] = 0
-        return {"prompt": "agent> ", "output": GREEN + "Conversation cleared." + R}
-    if name == "/model":
-        if not arg:
-            ids = _model_ids(provider, cfg)
-            if ids:
-                # The frontend shows a dropdown picker; selecting one sends
-                # `/model <name>` back into this session.
-                return {
-                    "agent_picker": {
-                        "action": "model",
-                        "models": ids,
-                        "current": cfg["model"],
-                    },
-                    "output": DIM + "Choose a model:" + R,
-                }
-            return {"prompt": "agent> ",
-                    "output": YELLOW + "Could not fetch the model list; use /model <name>." + R}
-        cfg["model"] = arg
-        store["model"] = arg
-        return {"prompt": "agent> ", "output": GREEN + f"Model set to {arg} (this session)." + R}
-    if name == "/provider":
-        return {"prompt": "agent> ", "output":
-                f"provider : {provider}\nmodel    : {cfg['model']}\nbase url : {cfg['base']}"}
-    if name == "/keys":
-        rows = [f"  {k}={_mask(v)}" for k, v in _configured_keys(ctx['sid'])]
-        return {"prompt": "agent> ", "output":
-                ("Configured keys (masked):\n" + "\n".join(rows)
-                 if rows else "No provider keys configured.")}
-    if name == "/models":
-        out = _list_models(provider, cfg)
-        return {"prompt": "agent> ", "output": out}
-    if name == "/compact":
-        store["messages"] = _maybe_compact(store["messages"], cfg, provider, force=True)
-        return {"prompt": "agent> ", "output": GREEN + "Conversation compacted." + R}
-    if name == "/system":
-        return {"prompt": "agent> ", "output": _build_system(ctx)}
-    if name in ("/exit", "/quit"):
-        store.clear()
-        return {"prompt": "agent> ", "output": "agent session ended."}
-    return {"prompt": "agent> ",
-            "output": YELLOW + f"unknown agent command: {name}  (try /help)" + R}
+def _new_session(user, cwd):
+    cfg = providers.resolve(user)
+    return store.create(user, cwd, provider=cfg["id"] if cfg else "", model=cfg["model"] if cfg else "",
+                        mode=providers.options()["mode"], target=sandbox.current_target(user) or "")
 
 
 def cmd_agent(ctx, args):
-    if args and args[0] in ("models", "model"):
-        provider, cfg = _config(ctx["sid"])
-        if not provider:
-            return {"output": "agent not configured (set a key via `sudo env`)."}
-        return {"output": _list_models(provider, cfg)}
-    if args and args[0] in ("help", "?", "h"):
-        return {"output": AGENT_HELP}
+    user = ctx["sid"]
+    args = list(args or [])
     try:
-        sandbox.fs(ctx["sid"])          # which system will the agent work in?
+        sandbox.fs(user)
     except sandbox.SandboxError as e:
         return {"output": f"agent: {e}"}
-    return agent_routine(ctx, " ".join(args) if args else None)
+    if args and args[0] in ("help", "-h", "--help", "?"):
+        return {"output": HELP}
+    if args and args[0] in ("providers", "provider"):
+        return {"output": _providers_text(user)}
+    if args and args[0] in ("ls", "list", "sessions"):
+        return {"output": _list_text(user)}
+    if args and args[0] in ("models", "model"):
+        cfg = providers.resolve(user)
+        if not cfg:
+            return {"output": _setup_text()}
+        try:
+            ids = providers.list_models(cfg)
+        except providers.ProviderError as e:
+            return {"output": YELLOW + str(e) + R}
+        return {"output": f"{cfg['name']}: {len(ids)} models (current: {cfg['model']})\n" + "\n".join("  " + i for i in ids[:80]) +
+                          (f"\n  ... and {len(ids) - 80} more" if len(ids) > 80 else "")}
+    cwd = ctx["tab"]["cwd"]
+    if args and args[0] in ("-c", "--continue"):
+        rows = store.list_sessions(user)
+        if not rows:
+            return {"output": "No chats yet. Run `sudo agent` to start one."}
+        return {"redirect": "/agent?s=" + rows[0]["id"]}
+    if args and args[0] in ("-r", "--resume"):
+        if len(args) < 2 or not store.valid_id(args[1]) or store.get(user, args[1]) is None:
+            return {"output": "No such chat. " + _list_text(user)}
+        return {"redirect": "/agent?s=" + args[1]}
+    if args and args[0] in ("-p", "--print"):
+        task = " ".join(args[1:]).strip()
+        if not task:
+            return {"output": "usage: sudo agent -p <task>"}
+        if not providers.resolve(user):
+            return {"output": _setup_text()}
+        return _headless(user, cwd, task)
+    if args and args[0] == "--cli":
+        if not providers.resolve(user):
+            return {"output": _setup_text()}
+        return _cli_routine(user, cwd, " ".join(args[1:]).strip() or None)
+    q = " ".join(args).strip()
+    return {"redirect": "/agent?cwd=" + quote(cwd, safe="/") + (("&q=" + quote(q)) if q else "")}
+
+
+# ------------------------------------------------------------------------------ rendering events
+def _render(ev, out, state):
+    """Turn one run event into console text appended to ``out`` (a list of strings)."""
+    t = ev.get("t")
+    if t == "text":
+        state["text"] = state.get("text", "") + ev["d"]
+    elif t == "tool":
+        _flush_text(out, state)
+        out.append(CYAN + "→ " + ev["title"] + R)
+    elif t == "tool_end":
+        ui = ev.get("ui") or {}
+        mark = GREEN + "  ✓" + R if ev.get("ok") else RED + "  ✗ " + str(ui.get("error", "failed"))[:80] + R
+        body = ui.get("out") or ui.get("diff") or ""
+        lines = [ln for ln in body.split("\n")][:12]
+        out.append(mark + (DIM + f" {ui.get('detail', '')}" + R if ui.get("detail") and ev.get("ok") else ""))
+        if lines and (ui.get("cmd") or ui.get("diff")):
+            out.append(DIM + "\n".join("    " + ln for ln in lines) + R)
+    elif t == "notice":
+        out.append(YELLOW + ev["m"] + R)
+    elif t == "error":
+        out.append(RED + "error: " + ev["m"] + R)
+    elif t == "compacted":
+        out.append(DIM + ev["m"] + R)
+    elif t == "done":
+        _flush_text(out, state)
+        out.append(DIM + f"— {ev.get('steps', 0)} step(s), {ev.get('secs', 0)}s, {ev.get('in', 0) + ev.get('out', 0)} tokens —" + R)
+
+
+def _flush_text(out, state):
+    if state.get("text"):
+        out.append(state["text"].strip("\n"))
+        state["text"] = ""
+
+
+def _headless(user, cwd, task):
+    sess = _new_session(user, cwd)
+    sess.set_meta(mode="auto")
+    try:
+        run = core.start(user, sess, task)
+    except core.Busy as e:
+        return {"output": str(e)}
+    seq, out, st = 0, [], {}
+    import time
+    end = time.time() + 55          # a console request must answer in time; the chat carries on in the page
+    while time.time() < end:
+        evs, done, _r = run.follow(seq, 2.0)
+        for ev in evs:
+            seq = ev["seq"]
+            _render(ev, out, st)
+        if done:
+            break
+    else:
+        _flush_text(out, st)
+        out.append(YELLOW + f"Still working. Follow it with `sudo agent -r {sess.id}`." + R)
+    _flush_text(out, st)
+    return {"output": "\n".join(out)}
+
+
+def _cli_routine(user, cwd, initial):
+    """Generator the console steps through: prompt, run a turn, show events as they come."""
+    sess = _new_session(user, cwd)
+    cfg = providers.resolve(user)
+    banner = (BOLD + "Agent" + R + DIM + f" ({cfg['name']} / {cfg['model']}, mode {sess.meta['mode']})" + R +
+              "\nType a task, /help for commands, 'exit' to leave. The full page: `sudo agent`.")
+    line = initial
+    first = True
+    while True:
+        if line is None:
+            line = yield {"prompt": "agent> ", "output": banner if first else ""}
+            first = False
+            continue
+        text = (line or "").strip()
+        line = None
+        if not text:
+            continue
+        if text in ("exit", "quit", "q", "/exit", "/quit"):
+            return {"output": f"chat saved: sudo agent -r {sess.id}"}
+        prompt = None
+        cmd = core.handle_command(user, sess, text)
+        if cmd is not None:
+            if cmd.get("notice"):
+                yield {"_tick": True, "output": cmd["notice"]}
+            if cmd.get("action") == "pick-model":
+                cfgx = providers.resolve(user, sess.meta.get("provider"), sess.meta.get("model"))
+                try:
+                    ids = providers.list_models(cfgx) if cfgx else []
+                except providers.ProviderError as e:
+                    ids = []
+                    yield {"_tick": True, "output": YELLOW + str(e) + R}
+                yield {"_tick": True, "output": f"Current: {cfgx['name']} / {cfgx['model']}\n" + "\n".join("  " + i for i in ids[:40]) +
+                       "\nSet one with /model <id>"}
+                continue
+            if cmd.get("action") == "pick-mode":
+                yield {"_tick": True, "output": "\n".join(f"  {m}  {core.MODE_HELP[m]}" for m in core.MODES) + "\nSet one with /mode <name>"}
+                continue
+            if cmd.get("action") == "sessions":
+                yield {"_tick": True, "output": _list_text(user)}
+                continue
+            if cmd.get("action") in ("new", "open"):
+                sess = _new_session(user, cwd) if cmd["action"] == "new" else store.get(user, cmd["id"])
+                yield {"_tick": True, "output": GREEN + "New chat." + R}
+                continue
+            if not cmd.get("prompt") and cmd.get("start") != "compact":
+                continue
+            prompt = cmd.get("prompt")
+        try:
+            run = core.start(user, sess, text, prompt=prompt, job="compact" if (cmd or {}).get("start") == "compact" else "turn")
+        except core.Busy as e:
+            yield {"_tick": True, "output": YELLOW + str(e) + R}
+            continue
+        seq, st = 0, {}
+        while True:
+            evs, done, _r = run.follow(seq, 1.5)
+            out = []
+            ask = None
+            for ev in evs:
+                seq = ev["seq"]
+                if ev.get("t") == "ask":
+                    ask = ev
+                    continue
+                _render(ev, out, st)
+            if ask:
+                _flush_text(out, st)
+                head = YELLOW + "? " + ask["title"] + R
+                det = ask.get("detail") or ""
+                if det:
+                    head += "\n" + DIM + "\n".join("  " + ln for ln in det.split("\n")[:15]) + R
+                opts = ask.get("options") or []
+                tag = "  ".join(f"[{i + 1}] {o}" for i, o in enumerate(opts))
+                ans = yield {"prompt": "choose> " if opts else "answer> ", "output": "\n".join(out + [head, tag])}
+                pick = (ans or "").strip()
+                if pick.isdigit() and 1 <= int(pick) <= len(opts):
+                    pick = opts[int(pick) - 1]
+                if ask["kind"] == "permission" and pick.lower() in ("y", "yes"):
+                    pick = "Allow once"
+                if ask["kind"] == "permission" and pick.lower() in ("a", "always"):
+                    pick = "Always allow"
+                if ask["kind"] == "permission" and pick.lower() in ("n", "no", ""):
+                    pick = "Deny"
+                core.answer(user, sess.id, ask["id"], pick)
+                continue
+            if done:
+                yield {"prompt": "agent> ", "output": "\n".join(out)}
+                break
+            if out:
+                yield {"_tick": True, "output": "\n".join(out)}
+            else:
+                yield {"_tick": True, "output": ""}

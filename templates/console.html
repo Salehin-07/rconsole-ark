@@ -34,6 +34,7 @@
       <div class="sm-row" id="sm-target-row"><span class="sm-label">System</span><span id="sm-target-slot"></span></div>
       <div class="sm-row" id="sm-logout-row"><span class="sm-label">Account</span><span id="sm-logout-slot"></span></div>
       <div class="sm-row sm-admin" id="sm-dash-row"><a id="dashlink" href="/dashboard" class="sm-link"><span class="sm-ico" aria-hidden="true">&#9638;</span><span class="sm-linktext"><b>Dashboard</b><small>{% if is_admin %}Monitor and manage{% else %}Your account, services and apps{% endif %}</small></span><span class="sm-arrow" aria-hidden="true">&rarr;</span></a></div>
+      {% if is_admin %}<div class="sm-row sm-admin" id="sm-agent-row"><a id="agentlink" href="/agent" class="sm-link"><span class="sm-ico" aria-hidden="true">&#10022;</span><span class="sm-linktext"><b>AI agent</b><small>Chats that read, edit and run things</small></span><span class="sm-arrow" aria-hidden="true">&rarr;</span></a></div>{% endif %}
     </div>
     <div id="screen">
       <div id="output"></div>
@@ -174,16 +175,6 @@
           <button type="button" data-key="ArrowDown" title="Down">&#8595;</button>
           <button type="button" data-key="ArrowLeft" title="Left">&#8592;</button>
           <button type="button" data-key="ArrowRight" title="Right">&#8594;</button>
-        </div>
-      </div>
-    </div>
-    <div id="agentModal" class="modal hidden">
-      <div class="modal-box">
-        <div id="agentModalTitle" class="modal-title">Choose a model</div>
-        <select id="agentModalSelect" class="modal-select"></select>
-        <div class="modal-actions">
-          <button id="agentModalSelectBtn" type="button" class="btn">Select</button>
-          <button id="agentModalCancelBtn" type="button" class="btn btn-ghost">Cancel</button>
         </div>
       </div>
     </div>

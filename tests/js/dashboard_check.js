@@ -30,7 +30,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(150);
 
   const dlgBtn = (i) => { const b = d.querySelectorAll(".dlg .d-actions button"); return b[i < 0 ? b.length + i : i]; };
-  check("all ten admin tabs exist, and the header has a menu button for phones", d.querySelectorAll("#dtabs [data-tab]").length === 10 && !!d.querySelector("#dh .dh-menu"));
+  check("all eleven admin tabs exist, and the header has a menu button for phones", d.querySelectorAll("#dtabs [data-tab]").length === 11 && !!d.querySelector("#dh .dh-menu"));
   check("overview shows meters and charts", /CPU/.test(text()) && /Memory/.test(text()) && d.querySelectorAll("svg.chart").length >= 6);
   check("overview charts draw lines", d.querySelectorAll("svg.chart path").length > 0);
 
@@ -39,7 +39,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const chartSvg = d.querySelector(".chartbox svg.chart");
   chartSvg.dispatchEvent(new w.MouseEvent("pointermove", { clientX: 10, bubbles: true }));
   check("overview: hovering a chart shows a readout", d.querySelector(".chartbox .ctip") && !d.querySelector(".chartbox .ctip").hidden);
-  check("tabs have icons and labels", d.querySelectorAll("#dtabs [data-tab] .ti svg").length === 10 && d.querySelectorAll("#dtabs [data-tab] .tl").length === 10);
+  check("tabs have icons and labels", d.querySelectorAll("#dtabs [data-tab] .ti svg").length === 11 && d.querySelectorAll("#dtabs [data-tab] .tl").length === 11);
 
   await go("processes");
   check("tables label every cell (used by the phone layout)", d.querySelectorAll("#dmain table td[data-label]").length > 5);
@@ -118,7 +118,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // ---- phone menu drawer, and Esc on dialogs
   const menu = d.querySelector("#dh .dh-menu"); menu.click(); await sleep(30);
-  check("menu: the button opens a drawer listing every page (admin: ten)", menu.getAttribute("aria-expanded") === "true" && d.querySelectorAll(".drawer .drawer-list button").length === 10);
+  check("menu: the button opens a drawer listing every page (admin: eleven)", menu.getAttribute("aria-expanded") === "true" && d.querySelectorAll(".drawer .drawer-list button").length === 11);
   check("menu: the current page is marked", !!d.querySelector(".drawer .drawer-list button.on[aria-current=page]"));
   d.querySelector(".drawer-bg").dispatchEvent(new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await sleep(250);
   check("menu: Esc closes it", !d.querySelector(".drawer-bg") && menu.getAttribute("aria-expanded") === "false");
@@ -128,6 +128,34 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const dlgTest = [...d.querySelectorAll("#dmain button")].find((b) => b.textContent === "Delete");
   if (dlgTest) { dlgTest.click(); await sleep(40); d.querySelector(".dlg").dispatchEvent(new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await sleep(30); }
   check("dialogs close with Esc", !d.querySelector(".dlg"));
+  // ---- AI agent page
+  await go("agent");
+  const prov = d.querySelectorAll("#dmain details.prov");
+  check("agent: a card per provider plus the add-your-own card", prov.length >= 17, String(prov.length));
+  check("agent: OpenRouter and Hugging Face are offered", /OpenRouter/.test(text()) && /Hugging Face/.test(text()));
+  check("agent: the saved key is never in the page, the secret header is masked", !/or-key-1234567/.test(d.getElementById("dmain").innerHTML) && !/s3cret/.test(d.getElementById("dmain").innerHTML));
+  check("agent: the default provider is marked and a ready one says so", /Default/.test(text()) && /Ready/.test(text()));
+  check("agent: the env variable names are listed", /HF_TOKEN/.test(text()) && /OPENROUTER_API_KEY/.test(text()));
+  const hf = Array.from(prov).find((c) => /Hugging Face/.test(c.querySelector("summary").textContent));
+  const keyBox = hf.querySelector("input[type=password]");
+  keyBox.value = "hf_abc123"; keyBox.dispatchEvent(new w.Event("input"));
+  const saveBtn = Array.from(hf.querySelectorAll(".prov-actions button")).find((b) => b.textContent === "Save");
+  posts.length = 0; saveBtn.click(); await sleep(60);
+  check("agent: Save posts the key and settings to the agent.save action", posts.some((p) => p.action === "agent.save" && p.id === "huggingface" && p.api_key === "hf_abc123" && /router\.huggingface\.co/.test(p.base)), JSON.stringify(posts[0] || {}));
+  const orCard = Array.from(d.querySelectorAll("#dmain details.prov")).find((c) => /OpenRouter/.test(c.querySelector("summary").textContent));
+  posts.length = 0; Array.from(orCard.querySelectorAll(".prov-actions button")).find((b) => b.textContent === "Test").click(); await sleep(60);
+  check("agent: Test posts agent.test for that provider", posts.some((p) => p.action === "agent.test" && p.id === "openrouter"));
+  const customCard = Array.from(d.querySelectorAll("#dmain details.prov")).find((c) => /My gateway/.test(c.querySelector("summary").textContent));
+  check("agent: a custom provider shows its address and a Delete button", customCard && customCard.querySelector("input[value='http://localhost:8000/v1']") && Array.from(customCard.querySelectorAll("button")).some((b) => b.textContent === "Delete"));
+  const addCard = Array.from(d.querySelectorAll("#dmain details.prov")).find((c) => /Add your own provider/.test(c.textContent));
+  const ins = addCard.querySelectorAll("input");
+  ins[0].value = "Mine"; ins[1].value = ""; ins[2].value = "https://x.example/v1"; ins[3].value = "k-123"; ins[4].value = "m1";
+  posts.length = 0; Array.from(addCard.querySelectorAll("button")).find((b) => b.textContent === "Add provider").click(); await sleep(60);
+  check("agent: adding a provider derives its id and posts the key", posts.some((p) => p.action === "agent.save" && p.id === "mine" && p.api_key === "k-123" && p.base === "https://x.example/v1"), JSON.stringify(posts[0] || {}));
+  const optBtn = Array.from(d.querySelectorAll("#dmain button")).find((b) => b.textContent === "Save options");
+  posts.length = 0; optBtn.click(); await sleep(60);
+  check("agent: options save posts every number", posts.some((p) => p.action === "agent.options" && p.max_steps === "40" && p.mode === "ask"), JSON.stringify(posts[0] || {}));
+
   check("no JS errors", errors.length === 0, errors.join("; "));
   process.exit(failures ? 1 : 0);
 })();

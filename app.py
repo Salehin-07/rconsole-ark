@@ -31,6 +31,7 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import bootstrap  # noqa: F401  (must be first: restores a backup before secrets are created)
+import agent_web
 import auth
 import backup
 import config
@@ -129,6 +130,9 @@ def optimize_response(resp):
         return resp
 
     ctype = resp.headers.get("Content-Type", "") or ""
+    if ctype.startswith("text/event-stream"):
+        return resp          # a live stream: compressing means reading it to the end first, so nothing would arrive
+
     if not any(t in ctype for t in _GZIP_TYPES):
         return resp
 
@@ -490,6 +494,9 @@ def _dash_admin():
     """The logged-in admin's name, or ``None`` (the caller then answers 404 / 403)."""
     who = _dash_who()
     return who if who and auth.is_admin(who) else None
+
+
+app.register_blueprint(agent_web.bp)
 
 
 @app.get("/dashboard")

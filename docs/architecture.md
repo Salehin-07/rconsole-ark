@@ -13,6 +13,7 @@ Flask app (app.py)   ── before_request: Origin/CSRF check → auth guard
    ├── /ws       → ptyhost.py → termsess.py (persistent PTY)
    ├── /api/file|dir|fs  (editor + file manager)
    ├── /api/update/status (progress of `rconsole update`; the console is locked while it runs)
+   ├── /agent + /api/agent/*  → agent_web.py → agent_core.py (a turn = a thread; the page follows its event log over SSE)
    └── /<name>/…  → reverse proxy → hosted app process
                 │
    every launch and every file access goes through
@@ -41,6 +42,7 @@ Flask app (app.py)   ── before_request: Origin/CSRF check → auth guard
 | Saved tabs, history, aliases, user environment | `<data>/state/` | Yes (same rule) |
 | Host shell's persistent folder | `<data>/workspace`, linked to `/home/rconsole` in the Docker image | Yes (same rule) |
 | Linux systems | `<data>/vm/<user>/<system>/{rootfs,home}`; `home` is that system's `/root` | `home` is backed up; `rootfs` is downloaded again |
+| AI agent chats, provider keys and options | `<data>/agent/users/<user>/` (append-only `sessions/*.jsonl`, `index.json`, `checkpoints/`), `<data>/agent/providers.json` (0600) | Yes (same rule) |
 | Services and exposures | `<data>/services.json`, `exposed.json` | Definitions yes; processes no |
 | Update files | `<data>/update/` | Verified releases yes; scratch no |
 | Terminals, jobs, running apps | Process memory and child processes | **No** |

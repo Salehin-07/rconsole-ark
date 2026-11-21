@@ -11,7 +11,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.5.5** · MIT licensed
+**Version 1.5.6** · MIT licensed
 
 ## Why this exists
 
@@ -102,7 +102,7 @@ Commands run on one of two **targets**:
   why and offers the download instead, so a save can never corrupt them.
 - Accounts with admin/non-admin roles, brute-force protection, a warning in the dashboard while the factory
   password is in use, session timeout, and factory reset.
-- Native **AI agent** (`sudo agent`) with file and shell tools.
+- Native **AI agent** (`sudo agent`): streaming chats with tools, diffs, approvals and saved sessions; OpenRouter, Hugging Face, OpenAI, Anthropic, Groq and more, set up in the dashboard.
 
 ---
 
@@ -486,7 +486,7 @@ calling the terminal websocket or the file APIs directly.
 | `sudo suser` / `auser <u>` / `nauser <u>` | List users / grant / revoke admin. |
 | `sudo rboot` | Factory reset: kill apps, wipe state and VMs, reset users. |
 | `sudo kprocess [pid]` | Kill a process (or everything this session hosts). Refuses to kill the server itself. |
-| `sudo env …`, `sudo agent`, `sudo opencode` | Per-user env vars, AI agent, opencode launcher. |
+| `sudo env …`, `sudo agent`, `sudo opencode` | Per-user env vars, AI agent (page, sessions, providers), opencode launcher. |
 
 Commands prefixed with `sudo` require an **admin** account; a non-admin who types
 `sudo anything` is refused.
@@ -542,70 +542,66 @@ $ service logs app
 
 ---
 
-## AI agent (`sudo agent`) — in-console, no PTY
+## AI agent (`sudo agent`)
 
-Rconsole ships a **native, line-mode AI coding agent** so you get tool-using
-AI assistance without fighting a browser-hostile PTY TUI. It calls an
-OpenAI-compatible (or Anthropic) API directly and can run tools **inside
-your current target (host or VM — see `vm mode`)** — `bash`, `read_file`, `write_file`,
-`list_dir` — all rendered through the normal line console.
-
-### Providers (first match wins)
-
-| Provider       | Key(s)                                  | Base URL (default)                    |
-|----------------|-----------------------------------------|---------------------------------------|
-| **OpenCode Zen** | `OPENCODE_API_KEY` (alias `ZEN_API_KEY`) | `https://opencode.ai/zen/v1`        |
-| Anthropic      | `ANTHROPIC_API_KEY`                     | `https://api.anthropic.com`           |
-| OpenAI         | `OPENAI_API_KEY`                        | `https://api.openai.com/v1`           |
-
-Keys are read from your **`sudo env` store** (persisted per user, injected into
-every session) or the server process environment. Setting them needs no
-redeploy:
+A native coding and operations agent with its own page: chats that stream as they are written, tool cards, colour
+diffs, approval prompts, and saved sessions you can continue, branch and export. It reads, searches, edits and runs
+things **inside your current target (host or VM, see `vm mode`)**, the way Claude Code, OpenCode or Codex do, but
+built for a 512 MB / 0.1 CPU box. Admins only (it can run commands, like `sudo`).
 
 ```bash
-sudo env set OPENCODE_API_KEY=oc-...        # from https://opencode.ai/auth
-sudo env set OPENCODE_MODEL=hy3-free        # any Zen /v1/chat/completions model
-sudo agent
+sudo agent                       # open the agent page (new chat, this tab's directory)
+sudo agent "add tests for utils.py"   # open it and start the task
+sudo agent -c                    # continue the latest chat        (-r <id> resumes one, `agent ls` lists them)
+sudo agent -p "what changed?"    # run a task right here and print the answer (edits freely, asks nothing)
+sudo agent --cli                 # a plain line-by-line session in this console, if you do not want the page
 ```
 
-OpenRouter / local OpenAI-compatible servers work by setting `OPENAI_BASE_URL`
-(and `OPENAI_MODEL`). **OpenCode Zen note:** the GPT-5.x family on Zen requires
-the separate `/v1/responses` API (not yet wrapped here); use a chat/completions
-model such as `hy3-free`, `deepseek-v4-flash`, `glm-5.2`, `kimi-k3`, or
-`nemotron-3.5-lightning-free`.
+The console menu and **Dashboard → AI agent** open the page too.
 
-### Usage
+### Providers: set them up in the dashboard
 
-```bash
-sudo agent                       # interactive session (chat persists across commands)
-sudo agent "write a flask app and run it"   # one-shot task, then stays open
-sudo agent models                # list models from the current provider
-sudo agent help                  # show agent slash commands
-```
+**Dashboard → AI agent** lists every provider with its key status. Paste a key, optionally change the address or
+model, **Test** it, **Browse models**, and make one the default. Keys are stored on the server (`data/agent/providers.json`,
+mode 0600), shown as "Saved" and never sent back to the browser. Built in:
 
-Inside a session, slash commands are available:
+OpenCode Zen · Anthropic (Claude, with prompt caching) · OpenAI · **OpenRouter** · **Hugging Face** (Inference Providers
+router) · Groq · Google Gemini · DeepSeek · Mistral · xAI · Together · Cerebras · Fireworks · NVIDIA NIM · Ollama and
+LM Studio (local, no key). **Add your own** covers any OpenAI-compatible server (vLLM, LiteLLM, a gateway, ...). Advanced
+fields per provider: context window, max output tokens, extra headers and extra request body (for example OpenRouter
+routing). A key set the old way (`sudo env set OPENROUTER_API_KEY=...`, `HF_TOKEN`, `OPENAI_API_KEY`, ...) or in the
+server environment works as well; `<PROVIDER>_MODEL` and `<PROVIDER>_BASE_URL` still override the defaults.
 
-```
-/help        show help            /clear      forget the conversation
-/model <n>   switch model         /provider   show provider/model/base
-/keys        list keys (masked)   /models     list provider models
-/compact     summarise context    /system     print system prompt
-/exit        leave the agent
-```
+### In a chat
 
-### Robustness
+| | |
+|---|---|
+| **Tools** | `read`, `edit` (exact replace, multi-edit, CRLF-safe), `write`, `grep`, `glob`, `ls`, `bash` (persistent `cd`, live output, timeout, background jobs), `web_fetch`, `web_search`, `todo_write`, `ask_user` |
+| **Modes** | **Plan** (read-only, then asks you to approve a plan), **Ask** (asks before edits and commands), **Edit** (edits freely), **Auto** (never asks). Read-only commands such as `git status` never ask; "Always allow" remembers a command per chat |
+| **Sessions** | every chat is saved (append-only), listed by day with search; rename, branch, delete, export as Markdown; a turn keeps running if your phone drops the connection and the page picks it up again |
+| **Slash commands** | `/help /new /sessions /model /provider /mode /plan /compact /context /undo /cwd /rename /fork /init /todos /export /memory /cost`, plus your own from `.rconsole/commands/*.md` (`$ARGUMENTS` is replaced) |
+| **Context** | `@path` inlines a file; `AGENTS.md` / `CLAUDE.md` in the project (and the dashboard's standing instructions) are read automatically; `/undo` restores the files the last turn changed |
 
-- **Automatic retry/backoff** on `429`/`5xx` and connection errors (pooled
-  `requests.Session`).
-- **Persistent conversation** across `sudo agent` invocations (stored per tab;
-  cleared on `/clear` or `/exit`).
-- **Context compaction** — older turns are summarised automatically when the
-  transcript grows large, to cap token usage and cost.
-- **Token usage report** per turn and per session.
-- **Safety guard** — on the *host*, the `bash` tool refuses obviously destructive
-  commands (`rm -rf /`, `mkfs`, `dd` on disks, `shutdown`, …); run those directly
-  in the console if you truly intend them. Inside your **VM** the guard is off
-  because those are your own files (not because PRoot isolates the host), and `vm reset` rebuilds the system.
+### Built for small machines
+
+- File tools work on the filesystem directly (no shell start-up per read or search); only `bash` spawns a process.
+- One streaming HTTP request per model step; read-only tool calls of one step run in parallel (at most 4 threads).
+- The transcript is appended one short line per message, only the last few chats stay in memory, and the chat list
+  never opens a transcript.
+- Context is managed in two cheap stages: old tool output is replaced by a stub in rare batches (so provider prompt
+  caches stay valid), and only above the dashboard's threshold is the earlier chat summarised with one extra call.
+  Every tool result the model sees is size-capped (head and tail kept).
+- At most *N* chats run at once (dashboard, default 2); a turn stops after a number of steps (default 40) or when the
+  model repeats itself.
+
+### Safety
+
+- Admins only. File tools refuse the server's own secrets (`secret.key`, `users.json`, `settings.json`, every user's
+  stored environment and the provider keys), and known keys are scrubbed from tool output and error text.
+- On the *host* the `bash` tool refuses obviously destructive commands (`rm -rf /`, `mkfs`, `dd` onto disks,
+  `shutdown`, ...); inside your **VM** the guard is off because those are your own files (`vm reset` rebuilds it).
+- A page or file the agent reads is treated as data, never as instructions; `web_fetch` refuses cloud-metadata addresses.
+- **Auto** mode runs commands without asking, so use it for work you would run yourself.
 
 ---
 

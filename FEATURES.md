@@ -1,6 +1,6 @@
 # Rconsole features
 
-Every feature of Rconsole 1.5.5, by area. This is the **map**; the details live in
+Every feature of Rconsole 1.5.6, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.
@@ -210,7 +210,7 @@ Output is a rolling buffer; kills take the whole process tree.
 | Feature | What you get |
 |---|---|
 | **`env`** | 🔒 Per-user environment variables exported into every command and VM (values masked when listed): `sudo env`, `set K=V`, `unset K`, `import` (copy known provider keys from the server). |
-| **`agent`** | 🔒 Native AI coding agent: runs shell commands and reads/writes/lists files in your current target; persistent per-tab conversation, context compaction, retries; OpenAI-compatible or Anthropic providers (first key found wins). Slash commands `/help /clear /model /provider /keys /models /compact /system /exit`; obviously destructive host commands are refused. |
+| **`agent`** | 🔒 AI coding and operations agent with its own page: streaming chat, tool cards, colour diffs, approval modes (plan / ask / edit / auto), `@file` mentions, `AGENTS.md`, slash commands, `/undo`, saved sessions (continue, branch, export), reconnects after a dropped connection. Providers set up in **Dashboard → AI agent**: OpenRouter, Hugging Face, OpenAI, Anthropic, Groq, Gemini, DeepSeek, Mistral, xAI, Together, Cerebras, Fireworks, NVIDIA, Ollama, LM Studio or any OpenAI-compatible server. `sudo agent -p "task"` for one-shot, `--cli` for a plain console session. |
 | **`opencode`** | 🔒 Launches the OpenCode terminal AI; installs it as a background job on first use; `sudo opencode run "prompt"` for one prompt. |
 
 ---

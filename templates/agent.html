@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>Agent — Rconsole</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=cache_v) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='agent.css', v=cache_v) }}">
+  <link rel="icon" href="/static/favicon.ico" sizes="any">
+  <meta name="theme-color" content="#0d1117">
+  <meta name="robots" content="noindex">
+</head>
+<body class="ag">
+  <div id="app">
+    <aside id="side" aria-label="Chats">
+      <div class="side-head">
+        <a class="side-back" href="/console" title="Back to the console">&larr; Console</a>
+        <button id="newchat" class="btn primary" type="button">New chat</button>
+      </div>
+      <input id="sq" type="search" placeholder="Search chats" autocomplete="off" aria-label="Search chats">
+      <div id="slist" role="list"></div>
+      <div class="side-foot"><a href="/dashboard" id="setup-link">Providers &amp; settings</a><span>v{{ version }}</span></div>
+    </aside>
+    <div id="scrim"></div>
+    <main id="chat">
+      <header id="bar">
+        <button id="burger" class="icon-btn" type="button" aria-label="Chats">&#9776;</button>
+        <div id="title" class="title" title="Click to rename">New chat</div>
+        <div class="chips">
+          <button id="chip-model" class="chip" type="button" title="Model"></button>
+          <button id="chip-mode" class="chip" type="button" title="What it may do on its own"></button>
+        </div>
+        <button id="menu" class="icon-btn" type="button" aria-label="More">&#8943;</button>
+      </header>
+      <div id="meter" title="Context used"><i></i></div>
+      <div id="feed" role="log" aria-live="polite"></div>
+      <button id="jump" class="jump" type="button" hidden>&darr; Latest</button>
+      <div id="todos" hidden></div>
+      <footer id="composer">
+        <div id="pop" hidden></div>
+        <div class="cmeta"><button id="chip-cwd" class="chip ghost" type="button" title="Working directory"></button><span id="status"></span></div>
+        <div class="cbox">
+          <textarea id="input" rows="1" placeholder="Ask the agent...   / commands   @ files" enterkeyhint="send" autocomplete="off" autocapitalize="sentences"></textarea>
+          <button id="send" class="send" type="button" aria-label="Send">&#10148;</button>
+        </div>
+      </footer>
+    </main>
+  </div>
+  <div id="sheet" hidden></div>
+  <div id="toast" role="status"></div>
+  <script>window.RCONSOLE_USER = "{{ username }}";</script>
+  <script src="{{ url_for('static', filename='agent.js', v=cache_v) }}" defer></script>
+</body>
+</html>
