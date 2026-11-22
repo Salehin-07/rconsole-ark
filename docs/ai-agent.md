@@ -90,3 +90,5 @@ A skill is text the agent will follow, so install only skills you trust. The mod
 - **Auto** mode runs commands without asking, so use it for work you would run yourself.
 
 **Built-in skills.** `find-skills` ships with Rconsole (folder `bundled_skills/`) and is always listed by `/skills` as `[built-in]`. It helps you find skills and prints the `/skills add` command to run; the agent never installs one itself. A skill of your own with the same name takes priority; built-in skills cannot be removed.
+
+**Context window.** The agent finds a model's window by itself: the number you set for the provider wins, then what the provider reports in its own model list (OpenRouter, Groq, Together, Hugging Face, vLLM, Anthropic and others do; looked up once per ten minutes), then a table of well-known models, and only then a 32k default. Set "context window" on the provider if yours reports nothing and the default is wrong.

@@ -199,3 +199,32 @@ class BundledSkillTests(unittest.TestCase):
             meta, body = agent_skills.parse(fh.read())
         self.assertEqual(meta["name"], "find-skills")
         self.assertIn("/skills add", body)
+
+
+class ContextDetectionTests(unittest.TestCase):
+    def setUp(self):
+        providers._ctx_meta.clear(); providers._ctx_tried.clear(); providers._models_cache.clear()
+
+    def test_reads_every_known_field_name(self):
+        f = providers._ctx_from_item
+        self.assertEqual(f({"id": "a", "context_length": 1000000}), 1000000)           # OpenRouter, Together
+        self.assertEqual(f({"id": "a", "context_window": 131072}), 131072)             # Groq
+        self.assertEqual(f({"id": "a", "max_model_len": 262144}), 262144)              # vLLM
+        self.assertEqual(f({"id": "a", "max_input_tokens": 200000}), 200000)           # Anthropic
+        self.assertEqual(f({"id": "a", "providers": [{"context_length": 8192}, {"context_length": 500000}]}), 500000)
+        self.assertEqual(f({"id": "a", "top_provider": {"context_length": 64000}}), 64000)
+        self.assertEqual(f({"id": "a"}), 0)
+
+    def test_model_list_sets_the_window_and_override_wins(self):
+        cfg = {"id": "x", "base": "https://x.example/v1", "kind": "openai", "name": "X", "model": "Big/Model-1", "api_key": "k"}
+        class R:
+            status_code = 200
+            def json(self): return {"data": [{"id": "Big/Model-1", "context_length": 1000000}, {"id": "other"}]}
+        with mock.patch.object(providers.requests, "get", return_value=R()):
+            self.assertEqual(providers.context_window(cfg), 1000000)
+            self.assertEqual(providers.context_window({**cfg, "context": 500000}), 500000)
+        self.assertEqual(providers.context_window(cfg, fetch=False), 1000000)
+
+    def test_table_and_default(self):
+        self.assertEqual(providers.context_window({"model": "openai/gpt-oss-120b"}, fetch=False), 131072)
+        self.assertEqual(providers.context_window({"model": "mystery"}, fetch=False), providers.DEFAULT_CTX)

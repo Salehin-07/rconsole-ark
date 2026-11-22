@@ -82,7 +82,8 @@ ORDER = [p[0] for p in _P]
 _CTX = [   # (regex on the model id, context window in tokens): a hint for compaction; the dashboard can override
     (r"claude", 200000), (r"gemini", 1000000), (r"gpt-5", 400000), (r"gpt-4\.1", 1000000), (r"gpt-4o|o\d", 128000),
     (r"qwen3-coder", 256000), (r"deepseek", 128000), (r"llama-?3\.[123]|llama-?4", 128000), (r"kimi|glm|minimax", 128000),
-    (r"mistral|codestral", 128000), (r"grok", 256000),
+    (r"mistral|codestral", 128000), (r"grok", 256000), (r"gpt-oss", 131072), (r"qwen", 131072), (r"gemma", 131072),
+    (r"command-r", 128000), (r"phi-?[34]", 128000),
 ]
 DEFAULT_CTX = 32768
 
@@ -244,10 +245,55 @@ def browse_config(username, pid, base="", api_key=""):
     return cfg
 
 
-def context_window(cfg):
+_CTX_KEYS = ("context_length", "context_window", "max_context_length", "max_model_len", "max_input_tokens", "inputTokenLimit",
+             "context_size", "n_ctx", "max_context")
+_ctx_meta = {}                   # (base, model id) -> window the provider itself reported in its model list
+_ctx_tried = {}                  # base/key -> time of the last model-list lookup made for context sizes
+
+
+def _ctx_from_item(m):
+    """The context window a model-list entry reports (providers name the field differently), or 0."""
+    best = 0
+    def walk(o, depth=0):
+        nonlocal best
+        if isinstance(o, dict) and depth < 3:
+            for k, v in o.items():
+                if k in _CTX_KEYS and isinstance(v, (int, float)) and not isinstance(v, bool) and 1024 <= v <= 100_000_000:
+                    best = max(best, int(v))
+                elif isinstance(v, (dict, list)) and k in ("top_provider", "providers", "architecture", "limits", "meta"):
+                    walk(v, depth + 1)
+        elif isinstance(o, list) and depth < 3:
+            for v in o[:50]:
+                walk(v, depth + 1)
+    walk(m)
+    return best
+
+
+def context_window(cfg, fetch=True):
+    """Tokens the model can hold. Order: the number set in the dashboard, what the provider reports in its own model
+    list (looked up once per ten minutes), a table of well-known models, then a safe default."""
     if cfg.get("context"):
         return int(cfg["context"])
     m = (cfg.get("model") or "").lower()
+    base = (cfg.get("base") or "").rstrip("/")
+    hit = _ctx_meta.get((base, m))
+    if hit:
+        return hit
+    if fetch and base and m:
+        tk = (base, hashlib.sha1((cfg.get("api_key") or "").encode()).hexdigest()[:10])
+        now = time.time()
+        with _lock:
+            due = now - _ctx_tried.get(tk, 0) > 600
+            if due:
+                _ctx_tried[tk] = now
+        if due:
+            try:
+                list_models(cfg, ttl=0)
+            except Exception:                                  # noqa: BLE001 - detection is best effort
+                pass
+            hit = _ctx_meta.get((base, m))
+            if hit:
+                return hit
     for pat, n in _CTX:
         if re.search(pat, m):
             return n
@@ -733,6 +779,12 @@ def list_models(cfg, ttl=600):
         raise ProviderError(f"{cfg['name']} did not return a model list")
     items = j.get("data") if isinstance(j, dict) else j
     ids = sorted({(m.get("id") or m.get("name") or "") if isinstance(m, dict) else str(m) for m in items or []} - {""})
+    base0 = cfg["base"].rstrip("/")
+    for m in items or []:
+        if isinstance(m, dict):
+            n, mid = _ctx_from_item(m), (m.get("id") or m.get("name") or "")
+            if n and mid:
+                _ctx_meta[(base0, str(mid).lower())] = n
     with _lock:
         _models_cache[ck] = (now, ids)
     return ids

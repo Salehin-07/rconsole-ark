@@ -15,7 +15,7 @@ Adapted for Rconsole from the open `find-skills` skill (vercel-labs/skills, MIT)
 
 ## Steps
 
-1. **Understand the need**: the domain and the specific task. First check `/skills` (the skills already installed); one may already fit. Load it with the `skill` tool.
+1. **Understand the need**: the domain and the specific task. First check the skills already installed: they are listed in your instructions (the skills catalog), and the person can see them with the `/skills` chat command. `/skills` is a chat command, **not a folder or a tool**; never list it with a file tool. If one fits, load it with the `skill` tool.
 2. **Search**:
    - Look at the leaderboard https://skills.sh/ with the web fetch tool, and search GitHub for repositories that hold `SKILL.md` files.
    - If Node.js is available you may also run `npx skills find <query>` (search only; never `npx skills add`).

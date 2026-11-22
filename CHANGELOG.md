@@ -18,8 +18,15 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
 - **Built-in `find-skills` skill** (`bundled_skills/`), always available to the agent, lowest priority (your own skill with
   the same name wins). It finds skills and tells the person the `/skills add` command; the agent never installs one itself.
 
+- **Context window detection.** The agent reads each model's window from the provider's model list (`context_length`,
+  `context_window`, `max_model_len`, `max_input_tokens` and similar) instead of defaulting to 32k, so 500k and 1M models
+  are used in full. Order: dashboard override, provider-reported, well-known table (now incl. gpt-oss, Qwen, Gemma), default.
+
 ### Fixed
 - Settings fields without help text no longer show the word "null".
+- The agent tried to open `/skills` as a folder when `find-skills` said "check `/skills`" (a chat command, not a path);
+  the skill now points to the skills catalog and the `skill` tool.
+- The jump-to-latest button no longer covers the status line on phones.
 
 ## 1.5.7 — 2026-11-22
 

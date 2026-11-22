@@ -623,7 +623,7 @@ def _turn(run, text, display_prompt=None):
             sess.set_meta(tokens_in=sess.meta["tokens_in"] + u["input"], tokens_out=sess.meta["tokens_out"] + u["output"],
                           ctx_tokens=u["input"] or est_tokens(system, msgs), cost=round(sess.meta.get("cost", 0) + u.get("cost", 0), 6))
             run.emit({"t": "usage", "in": u["input"], "out": u["output"], "cached": u.get("cached", 0),
-                      "ctx": sess.meta["ctx_tokens"], "window": providers.context_window(cfg),
+                      "ctx": sess.meta["ctx_tokens"], "window": providers.context_window(cfg, fetch=False),
                       "total_in": sess.meta["tokens_in"], "total_out": sess.meta["tokens_out"], "cost": sess.meta["cost"]})
             calls = res["tool_calls"]
             amsg = {"role": "assistant", "content": res["content"]}
