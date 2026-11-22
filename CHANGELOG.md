@@ -3,7 +3,7 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## 1.5.7 — 2026-11-21
+## 1.5.7 — 2026-11-22
 
 ### Added
 - **Agent skills.** Folders with a `SKILL.md`, in the same format OpenCode and Claude Code use. They live in

@@ -154,7 +154,7 @@
         const reload = h("button", { type: "button", class: "b mp-reload", title: "Load the list again", "aria-label": "Load the list again", onclick: () => load(true) }, icon("refresh", "sm"));
         function setActive(i) {
           rows.forEach((r, n) => r.classList.toggle("act", n === i));
-          active = i; if (rows[i]) rows[i].scrollIntoView({ block: "nearest" });
+          active = i; if (rows[i] && rows[i].scrollIntoView) rows[i].scrollIntoView({ block: "nearest" });
         }
         function row(id, sub, extra) {
           const r = h("div", { class: "mp-row" + (id === src.current && !extra ? " on" : ""), role: "option", tabindex: "-1", "aria-selected": id === src.current ? "true" : "false", onclick: () => close(id) },

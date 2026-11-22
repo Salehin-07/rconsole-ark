@@ -13,13 +13,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
   const dom = new JSDOM(html, { runScripts: "outside-only", url: "http://localhost/dashboard", pretendToBeVisual: true });
-  const w = dom.window, d = w.document, errors = [], posts = [];
+  const w = dom.window, d = w.document, errors = [], posts = [], modelReqs = [];
   w.addEventListener("error", (e) => errors.push(e.message));
   const ok = (j) => ({ ok: true, status: 200, json: async () => j });
   w.fetch = async (url, opts) => {
     if (url.startsWith("/api/dashboard/data")) return ok(fx[new URL(url, "http://x").searchParams.get("section")]);
     if (url.startsWith("/api/dashboard/history")) return ok(fx.history);
     if (url.startsWith("/api/dashboard/log")) return ok(fx.log);
+    if (url === "/api/agent/models") { const b = JSON.parse(opts.body); modelReqs.push(b); return ok({ models: ["alpha-1", "beta-2", "gamma-3"], provider: b.provider }); }
     if (url === "/api/dashboard/action") { posts.push(JSON.parse(opts.body)); return ok({ ok: true, message: "done" }); }
     return { ok: false, status: 404, json: async () => ({}) };
   };
@@ -145,6 +146,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const orCard = Array.from(d.querySelectorAll("#dmain details.prov")).find((c) => /OpenRouter/.test(c.querySelector("summary").textContent));
   posts.length = 0; Array.from(orCard.querySelectorAll(".prov-actions button")).find((b) => b.textContent === "Test").click(); await sleep(60);
   check("agent: Test posts agent.test for that provider", posts.some((p) => p.action === "agent.test" && p.id === "openrouter"));
+  // model browser: a real searchable dialog (a native datalist does not work on phones)
+  const orKey = orCard.querySelector('input[type="password"]'); if (orKey) { orKey.value = "typed-not-saved"; orKey.dispatchEvent(new w.Event("input")); }
+  Array.from(orCard.querySelectorAll("button")).find((b) => /Browse/.test(b.textContent)).click(); await sleep(80);
+  check("model browser: opens a dialog listing the models, no datalist anywhere", d.querySelectorAll(".dlg .mp-row").length === 3 && !d.querySelector("datalist"));
+  check("model browser: asks for that provider and sends the unsaved key", modelReqs.length === 1 && modelReqs[0].provider === "openrouter" && (!orKey || modelReqs[0].api_key === "typed-not-saved"), JSON.stringify(modelReqs));
+  const mq = d.querySelector(".dlg .mp-q"); mq.value = "beta"; mq.dispatchEvent(new w.Event("input"));
+  const rowsNow = Array.from(d.querySelectorAll(".dlg .mp-row b")).map((b) => b.textContent);
+  check("model browser: filters, and offers the typed text as a custom id", rowsNow.includes("beta-2") && !rowsNow.includes("alpha-1") && rowsNow[0] === "beta");
+  Array.from(d.querySelectorAll(".dlg .mp-row")).find((r) => r.textContent.includes("beta-2")).click(); await sleep(60);
+  const modelInput = Array.from(orCard.querySelectorAll(".mp-field input"))[0];
+  check("model browser: picking fills the model field and closes the dialog", modelInput && modelInput.value === "beta-2" && !d.querySelector(".dlg .mp"));
   const customCard = Array.from(d.querySelectorAll("#dmain details.prov")).find((c) => /My gateway/.test(c.querySelector("summary").textContent));
   check("agent: a custom provider shows its address and a Delete button", customCard && customCard.querySelector("input[value='http://localhost:8000/v1']") && Array.from(customCard.querySelectorAll("button")).some((b) => b.textContent === "Delete"));
   const addCard = Array.from(d.querySelectorAll("#dmain details.prov")).find((c) => /Add your own provider/.test(c.textContent));

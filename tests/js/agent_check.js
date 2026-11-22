@@ -138,10 +138,11 @@ function boot(opts = {}) {
     check("picking a mode saves it", t.calls.some((c) => c.url.endsWith("/meta") && c.body.mode === "edit") && D.getElementById("sheet").hidden);
     check("the mode chip follows", D.getElementById("chip-mode").textContent.includes("Edit"));
     D.getElementById("chip-model").click(); await sleep(40);
-    check("the model picker lists providers and models", D.querySelectorAll("#sheet .opt").length >= 4);
+    check("the model picker shows a chip per provider and the models of the current one", D.querySelectorAll("#sheet .pchip").length === 2 && D.querySelectorAll("#sheet .mlist .opt").length === 2 && D.querySelector("#sheet .pchip.on").textContent === "Fake");
+    check("the list was asked for the current provider", t.calls.some((c) => c.url.startsWith("/api/agent/models") && c.body && c.body.provider === "p1"));
     const s = D.querySelector("#sheet input.s"); s.value = "beta"; s.dispatchEvent(new t.w.Event("input"));
     const opts = Array.from(D.querySelectorAll("#sheet .opt b")).map((b) => b.textContent);
-    check("the model list filters and offers a custom id", opts.includes("beta-2") && !opts.includes("alpha-1") && opts.some((x) => x.includes("Use")));
+    check("the model list filters and offers a custom id", opts.includes("beta-2") && !opts.includes("alpha-1") && D.querySelector("#sheet .mlist .opt .l span") && D.querySelector("#sheet .mlist .opt .l span").textContent.includes("as typed"));
     Array.from(D.querySelectorAll("#sheet .opt")).find((o) => o.textContent.includes("beta-2")).click(); await sleep(30);
     check("picking a model saves provider and model", t.calls.some((c) => c.url.endsWith("/meta") && c.body.model === "beta-2" && c.body.provider === "p1"));
   }
