@@ -722,7 +722,7 @@
             get = () => input.value; set = (v) => { input.value = v; };
           }
           const top = h("div", { class: "field-top" }, h("label", {}, s.label), s.kind === "secret" ? h("span", { class: "chip " + (s.set ? "ok" : "") }, s.set ? [icon("check"), "Saved"] : "Not set") : null, chips);
-          node.append(top, el, help);
+          node.append(top, el); if (help) node.append(help);
           if (s.kind === "int" && (s.min != null || s.max != null)) node.append(h("p", { class: "hint" }, `Between ${s.min} and ${s.max}${s.unit ? " " + s.unit : ""}.`));
         }
         const foot = [];

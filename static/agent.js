@@ -6,6 +6,8 @@
 (function () {
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
+  var ICON_SEND = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg>';
+  var ICON_STOP = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/></svg>';
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 
   /* ================= tiny syntax highlighter ================= */
@@ -224,7 +226,7 @@
   /* ================= state ================= */
   var S = { id: null, meta: {}, info: {}, run: false, es: null, last: 0, cmds: [], stick: true, bot: null, say: null, md: null, sayText: "", thinkEl: null,
             tools: {}, sessions: [], live: null, t0: 0, hist: [], hi: -1, pop: null, lastUndo: 0, auto: null };
-  var feed = $("feed"), wrap = null, input = $("input"), sendBtn = $("send");
+  var feed = $("feed"), wrap = null, input = $("input"), sendBtn = $("send"); sendBtn.innerHTML = ICON_SEND;
   try { S.hist = JSON.parse(localStorage.getItem("agent.hist") || "[]"); } catch (e) { S.hist = []; }
 
   function resetFeed() {
@@ -252,7 +254,7 @@
   }
   function ensureBot() {
     if (S.bot) return S.bot;
-    var row = el("div", "msg-bot"), av = el("div", "avatar", "A"), body = el("div", "bot-body");
+    var row = el("div", "msg-bot"), av = el("div", "avatar", ""), body = el("div", "bot-body");
     row.appendChild(av); row.appendChild(body); wrap.appendChild(row);
     S.bot = body; return body;
   }
@@ -378,7 +380,7 @@
 
   /* ================= events ================= */
   function setRunning(on) {
-    S.run = on; sendBtn.classList.toggle("stop", on); sendBtn.innerHTML = on ? "&#9632;" : "&#10148;"; sendBtn.setAttribute("aria-label", on ? "Stop" : "Send");
+    S.run = on; sendBtn.classList.toggle("stop", on); sendBtn.innerHTML = on ? ICON_STOP : ICON_SEND; sendBtn.setAttribute("aria-label", on ? "Stop" : "Send");
     if (on) { S.t0 = Date.now(); $("status").textContent = "working..."; } else setLive(null);
   }
   function handle(ev) {
@@ -459,14 +461,15 @@
   }
   function titleOf(c) { var a = c.args || {}; return c.name + (a.path ? " " + a.path : a.command ? ": " + String(a.command).slice(0, 80) : ""); }
   function emptyState() {
-    var e = el("div", "empty"); e.appendChild(el("h2", null, "What should we work on?"));
-    var sub = el("div", null, S.info.configured === false ? "No AI provider is set up yet." : "I can read, search, edit and run things for you in " + (S.meta.cwd || "this directory") + ".");
+    var e = el("div", "empty"); e.appendChild(el("div", "mark"));
+    e.appendChild(el("h2", null, "What should we build today?"));
+    var sub = el("p", "lead", S.info.configured === false ? "No AI provider is set up yet." : "I can read, search, edit and run things for you in " + (S.meta.cwd || "this directory") + ".");
     e.appendChild(sub);
-    if (S.info.configured === false) { var a = el("a", "btn primary", "Set up a provider"); a.href = "/dashboard#agent"; a.style.display = "inline-block"; a.style.marginTop = "14px"; a.style.textDecoration = "none"; e.appendChild(a); }
+    if (S.info.configured === false) { var a = el("a", "btn primary", "Set up a provider"); a.href = "/dashboard#agent"; e.appendChild(a); }
     var tips = el("div", "tips");
     [["Explore this project", "Summarise the layout, how to run it and what looks risky"], ["Find and fix a bug", "Search for the cause, change as little as possible, run the tests"],
      ["Write tests", "Add focused tests for the code I name, then run them"], ["Plan before you touch anything", "/plan then describe the change"]].forEach(function (t) {
-      var b = el("div", "tip", t[0]); b.appendChild(el("small", null, t[1]));
+      var b = el("button", "tip"); b.type = "button"; b.appendChild(el("b", null, t[0])); b.appendChild(el("small", null, t[1]));
       b.addEventListener("click", function () { input.value = t[0] === "Plan before you touch anything" ? "/plan" : t[0] + ": "; input.focus(); autosize(); });
       tips.appendChild(b);
     });
@@ -507,9 +510,11 @@
     if (!box.firstChild) box.appendChild(el("div", "note", "No chats yet"));
   }
   function delChat(s) {
-    if (!confirm("Delete “" + (s.title || "this chat") + "”? This cannot be undone.")) return;
-    api("/api/agent/session/" + s.id + "/delete", { body: {} }).then(function () {
-      if (s.id === S.id) newChat(); else loadSessions();
+    confirmSheet("Delete this chat?", "“" + (s.title || "New chat") + "” will be removed for good. This cannot be undone.", "Delete").then(function (yes) {
+      if (!yes) return;
+      api("/api/agent/session/" + s.id + "/delete", { body: {} }).then(function () {
+        if (s.id === S.id) newChat(); else loadSessions();
+      });
     });
   }
   function openSession(id, quiet) {
@@ -635,6 +640,19 @@
   }
   function closeSheet() { $("sheet").hidden = true; $("sheet").textContent = ""; input.focus(); }
   function sheetHead(card, title) { var h = el("h3"); h.appendChild(el("span", null, title)); var x = el("button", null, "×"); x.type = "button"; x.addEventListener("click", closeSheet); h.appendChild(x); card.appendChild(h); }
+  function confirmSheet(title, body, okLabel) {
+    return new Promise(function (resolve) {
+      var done = false; function end(v) { if (done) return; done = true; closeSheet(); resolve(v); }
+      var card = openSheet(function (c) {
+        c.classList.add("dlg"); c.appendChild(el("h3", null, title)); c.appendChild(el("p", "dlg-body", body));
+        var row = el("div", "dlg-actions"), no = el("button", "btn", "Cancel"), ok = el("button", "btn danger solid", okLabel || "OK");
+        no.type = ok.type = "button"; no.addEventListener("click", function () { end(false); }); ok.addEventListener("click", function () { end(true); });
+        row.appendChild(no); row.appendChild(ok); c.appendChild(row);
+      });
+      $("sheet").onclick = function (e) { if (e.target === $("sheet")) end(false); };
+      var ok2 = card.querySelector(".solid"); if (ok2) ok2.focus();
+    });
+  }
   function setMeta(body) {
     return api("/api/agent/session/" + S.id + "/meta", { body: body }).then(function (d) {
       if (d.error) { toast(d.error); return false; }

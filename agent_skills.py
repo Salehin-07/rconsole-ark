@@ -3,7 +3,8 @@
 A skill is ``<dir>/<name>/SKILL.md`` with a small front matter (``name``, ``description``) followed by instructions;
 the folder may also hold scripts, templates and references the instructions point to. Only the name and description
 go into the prompt; the agent loads the full text with the ``skill`` tool when a task matches (or the person types
-``/<name>``). Looked up (nearest first): ``.rconsole/skills``, ``.claude/skills``, ``.agents/skills`` and
+``/<name>``). Skills shipped with Rconsole (``bundled_skills/``, e.g. ``find-skills``) are always available and are
+looked up last, so your own skill of the same name wins. Looked up (nearest first): ``.rconsole/skills``, ``.claude/skills``, ``.agents/skills`` and
 ``.opencode/skills`` in the working directory and its parents, then the same folders in the home directory.
 
 Installing (``/skills add``) only downloads from GitHub; a skill is text the agent will follow, so install only
@@ -29,6 +30,7 @@ CATALOG_CAP = 6000
 ZIP_CAP = 60 * 1024 * 1024
 FILE_CAP = 1024 * 1024
 TREE_CAP = 8 * 1024 * 1024
+BUNDLED_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bundled_skills")
 HOSTS = {"github.com", "www.github.com", "codeload.github.com", "raw.githubusercontent.com"}
 
 
@@ -81,6 +83,8 @@ def _walk_dirs(ctx):
         if hp not in seen and os.path.isdir(hp):
             seen.add(hp)
             out.append((hp, "global"))
+    if os.path.isdir(BUNDLED_DIR):                                     # shipped with Rconsole, lowest priority, read-only
+        out.append((BUNDLED_DIR, "built-in"))
     return out
 
 
@@ -150,7 +154,11 @@ def load(ctx, name):
                 files.append(rel)
         if len(files) >= 60:
             break
-    return body, ctx.virt(s["dir"]), files[:60]
+    try:
+        shown = ctx.virt(s["dir"])
+    except Exception:                                                  # noqa: BLE001 - bundled folder is outside the workspace
+        shown = s["dir"]
+    return body, shown, files[:60]
 
 
 # ---------------------------------------------------------------------------------------------- install
@@ -296,6 +304,8 @@ def remove(ctx, name):
     s = discover(ctx).get((name or "").strip().lower())
     if not s:
         raise SkillError(f"no skill named '{name}'")
+    if s["scope"] == "built-in":
+        raise SkillError(f"'{name}' ships with Rconsole and cannot be removed (a skill of your own with that name overrides it)")
     shutil.rmtree(s["dir"])
     return s["name"]
 

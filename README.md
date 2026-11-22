@@ -11,7 +11,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.5.7** · MIT licensed · made by Md Abu Salehin
+**Version 1.5.8** · MIT licensed · made by Md Abu Salehin
 
 Rconsole is a Linux console in your browser that you can host for **free**. Put it on one small web service (Render's
 free tier is the reference setup) and you get a terminal, your own Linux systems, a process supervisor and a way to

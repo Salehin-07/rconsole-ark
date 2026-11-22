@@ -5,13 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Dashboard — Rconsole</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=cache_v) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='tokens.css', v=cache_v) }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css', v=cache_v) }}">
+  <link rel="preload" href="/static/fonts/inter-var-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <meta name="theme-color" content="#0d1117">
   <meta name="robots" content="noindex">
   <link rel="prefetch" href="/console">
 </head>
-<body class="dash">
+<body class="dash ui">
   <header id="dh">
     <a class="dh-back" id="dh-back" href="/console" title="Back to the console" aria-label="Back to the console"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg><span>Console</span></a>
     <span class="dh-title">{{ "Dashboard" if is_admin else "My dashboard" }}</span>
@@ -19,7 +21,7 @@
     <span id="dh-live" class="dh-live" title="Refreshes automatically">live</span>
     <span class="dh-user">{{ username }} · v{{ version }}</span>
   </header>
-  <nav id="dtabs" role="tablist"></nav>
+  <nav id="dtabs" role="tablist" aria-label="Dashboard pages"></nav>
   <main id="dmain" aria-live="polite"></main>
   <div id="dtoast" role="status"></div>
   <script>window.RCONSOLE_USER = "{{ username }}"; window.RCONSOLE_ADMIN = {{ "true" if is_admin else "false" }};</script>

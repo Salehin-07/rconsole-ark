@@ -203,7 +203,9 @@ function ansiToHtml(s) {
 // ---------------------------------------------------------------------------
 const THEME_XTERM = {
   default:  { background: "#000000", foreground: "#d6e2ef", cursor: "#d6e2ef" },
-  light:    { background: "#ffffff", foreground: "#1a1a1a", cursor: "#1a1a1a" },
+  light:    { background: "#faf9f6", foreground: "#26231f", cursor: "#c2603a", cursorAccent: "#faf9f6", selectionBackground: "#c2603a33",
+              black: "#26231f", red: "#c0392b", green: "#1e7a46", yellow: "#9a6208", blue: "#2c63c4", magenta: "#8e3fa8", cyan: "#0e7490", white: "#8a857b",
+              brightBlack: "#6a655c", brightRed: "#d6453a", brightGreen: "#2a9157", brightYellow: "#b3741a", brightBlue: "#3f78dc", brightMagenta: "#a352bf", brightCyan: "#1590ae", brightWhite: "#26231f" },
   amber:    { background: "#1a1000", foreground: "#ffb000", cursor: "#ffb000" },
   solarized:{ background: "#002b36", foreground: "#839496", cursor: "#839496" },
   dracula:  { background: "#282a36", foreground: "#f8f8f2", cursor: "#f8f8f2" },

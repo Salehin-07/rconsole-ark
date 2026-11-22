@@ -88,3 +88,5 @@ A skill is text the agent will follow, so install only skills you trust. The mod
   `shutdown`, ...); inside your **VM** the guard is off because those are your own files (`vm reset` rebuilds it).
 - A page or file the agent reads is treated as data, never as instructions; `web_fetch` refuses cloud-metadata addresses.
 - **Auto** mode runs commands without asking, so use it for work you would run yourself.
+
+**Built-in skills.** `find-skills` ships with Rconsole (folder `bundled_skills/`) and is always listed by `/skills` as `[built-in]`. It helps you find skills and prints the `/skills add` command to run; the agent never installs one itself. A skill of your own with the same name takes priority; built-in skills cannot be removed.

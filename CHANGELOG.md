@@ -3,6 +3,24 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.8 — 2026-11-22
+
+### Changed
+- **New look for the dashboard and the AI agent.** A shared design system (`static/tokens.css`) derives every surface,
+  line, text level and accent from the theme colours, so all 17 themes stay coherent; each theme also has its own quiet
+  accent. Inter and JetBrains Mono are bundled (no external requests). The agent page now follows what people know from
+  Claude, ChatGPT and Gemini: chat list sidebar, one centred reading column, assistant text without bubbles, and a floating
+  composer holding the working directory, mode, model and send buttons. Deleting a chat uses an in-page dialog.
+  The dashboard has a left sidebar on wide screens (drawer on phones), calmer cards and one control size.
+- **Light theme** redrawn: warm paper surfaces, a clay accent, text that meets WCAG AA, and a matching terminal palette.
+
+### Added
+- **Built-in `find-skills` skill** (`bundled_skills/`), always available to the agent, lowest priority (your own skill with
+  the same name wins). It finds skills and tells the person the `/skills add` command; the agent never installs one itself.
+
+### Fixed
+- Settings fields without help text no longer show the word "null".
+
 ## 1.5.7 — 2026-11-22
 
 ### Added

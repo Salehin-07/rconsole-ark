@@ -2,6 +2,7 @@
 import io
 import os
 import threading
+import unittest
 import zipfile
 from unittest import mock
 
@@ -78,7 +79,7 @@ class SkillTests(AgentBase):
         self.make(os.path.join(self.work, ".rconsole", "skills"), "deploy-site", "Deploy a site")
         self.make(os.path.join(self.work, ".claude", "skills"), "claude-one", "From Claude Code layout")
         found = sk.discover(c)
-        self.assertEqual({"deploy-site", "claude-one"}, set(found))
+        self.assertEqual({"deploy-site", "claude-one"}, set(found) - {"find-skills"})
         cat = sk.catalog(found)
         self.assertIn("- deploy-site: Deploy a site", cat)
         self.assertNotIn("Step one", cat)                  # only the description goes into the prompt
@@ -187,3 +188,14 @@ class KnowledgeTests(AgentBase):
         self.assertTrue(r["ok"])
         self.assertIn("Publishes a server", r["content"])
         self.assertIn("vm install", kn.docs("vm"))
+
+
+class BundledSkillTests(unittest.TestCase):
+    def test_find_skills_is_bundled_and_parses(self):
+        import agent_skills
+        f = os.path.join(agent_skills.BUNDLED_DIR, "find-skills", "SKILL.md")
+        self.assertTrue(os.path.isfile(f))
+        with open(f, encoding="utf-8") as fh:
+            meta, body = agent_skills.parse(fh.read())
+        self.assertEqual(meta["name"], "find-skills")
+        self.assertIn("/skills add", body)

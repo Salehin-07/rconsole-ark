@@ -1,0 +1,84 @@
+/* Rconsole design tokens (v1.5.8). Shared by the dashboard, the agent and the login page.
+   Every surface, line, text level and accent is derived from the nine base colours each theme sets in style.css
+   (--bg --fg --panel --border --dim --green --blue --amber --red), so all 17 themes stay coherent.
+   A theme may also set --accent / --on-accent / --shadow-rgb below; the rest follows. */
+
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap;
+             src: url("/static/fonts/inter-var-latin.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: swap;
+             src: url("/static/fonts/jetbrains-mono-var-latin.woff2") format("woff2"); }
+
+:root {
+  --font-ui: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Bengali", "Noto Sans", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --accent: var(--blue);
+  --on-accent: var(--bg);
+  --shadow-rgb: 0, 0, 0;
+
+  /* surfaces, from the page outwards */
+  --s0: var(--bg);
+  --s1: color-mix(in srgb, var(--bg) 94%, var(--panel));
+  --s2: var(--panel);
+  --s3: color-mix(in srgb, var(--panel) 90%, var(--fg));
+  --hover: color-mix(in srgb, var(--fg) 6%, transparent);
+  --press: color-mix(in srgb, var(--fg) 11%, transparent);
+  --sel: color-mix(in srgb, var(--accent) 14%, transparent);
+
+  /* lines and text */
+  --line: color-mix(in srgb, var(--border) 88%, var(--fg) 5%);
+  --line-strong: color-mix(in srgb, var(--border) 60%, var(--fg) 25%);
+  --text: var(--fg);
+  --text-2: color-mix(in srgb, var(--fg) 72%, var(--bg));
+  --text-3: var(--dim);
+
+  /* status, kept readable on every surface */
+  --ok: var(--green); --warn: var(--amber); --bad: var(--red); --info: var(--blue);
+  --ok-bg: color-mix(in srgb, var(--ok) 13%, transparent);
+  --warn-bg: color-mix(in srgb, var(--warn) 14%, transparent);
+  --bad-bg: color-mix(in srgb, var(--bad) 12%, transparent);
+  --info-bg: color-mix(in srgb, var(--info) 12%, transparent);
+
+  /* shape, depth, motion */
+  --r-xs: 6px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 22px; --r-pill: 999px;
+  --e1: 0 1px 2px rgba(var(--shadow-rgb), .10), 0 0 0 1px color-mix(in srgb, var(--line) 70%, transparent);
+  --e2: 0 4px 16px rgba(var(--shadow-rgb), .14), 0 0 0 1px var(--line);
+  --e3: 0 18px 50px rgba(var(--shadow-rgb), .30), 0 0 0 1px var(--line);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  color-scheme: dark;
+}
+
+/* ---- per-theme accent: a quiet, readable colour rather than the terminal's bright green ---- */
+[data-theme="light"]      { --accent: #c2603a; --on-accent: #ffffff; --shadow-rgb: 60, 40, 20; color-scheme: light;
+                            --s1: #f5f3ee; --s2: #ffffff; --s3: #ece9e1; --hover: rgba(60, 40, 20, .06); --press: rgba(60, 40, 20, .10); }
+[data-theme="amber"]      { --accent: #ffb000; --on-accent: #1a1000; }
+[data-theme="solarized"]  { --accent: #2aa198; }
+[data-theme="dracula"]    { --accent: #bd93f9; }
+[data-theme="github"]     { --accent: #4493f8; }
+[data-theme="ubuntu"]     { --accent: #e95420; --on-accent: #ffffff; }
+[data-theme="retro"]      { --accent: #33ff33; --on-accent: #001100; }
+[data-theme="nord"]       { --accent: #88c0d0; }
+[data-theme="gruvbox"]    { --accent: #d79921; --on-accent: #1d2021; }
+[data-theme="matrix"]     { --accent: #33ff33; --on-accent: #001400; }
+[data-theme="tokyonight"] { --accent: #7aa2f7; }
+[data-theme="catppuccin"] { --accent: #cba6f7; --on-accent: #1e1e2e; }
+[data-theme="monokai"]    { --accent: #a6e22e; --on-accent: #1f201b; }
+[data-theme="everforest"] { --accent: #a7c080; --on-accent: #2d353b; }
+[data-theme="ayu"]        { --accent: #ffb454; --on-accent: #0a0e14; }
+[data-theme="papercolor"] { --accent: #87afff; --on-accent: #1c1c1c; }
+
+/* ---- shared base ---- */
+.ui, .ui button, .ui input, .ui select, .ui textarea { font-family: var(--font-ui); }
+.ui { font-size: 15px; line-height: 1.55; color: var(--text); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+      font-feature-settings: "cv11", "ss01"; -webkit-tap-highlight-color: transparent; }
+.ui *, .ui *::before, .ui *::after { box-sizing: border-box; }
+.ui [hidden] { display: none !important; }
+.ui code, .ui pre, .ui .mono, .ui kbd { font-family: var(--font-mono); font-feature-settings: "calt" 0; }
+.ui ::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.ui :focus-visible { outline: none; box-shadow: var(--ring); }
+.ui { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
+.ui ::-webkit-scrollbar { width: 10px; height: 10px; }
+.ui ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--fg) 20%, transparent); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
+.ui ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--fg) 34%, transparent); background-clip: content-box; border: 3px solid transparent; }
+@media (prefers-reduced-motion: reduce) { .ui *, .ui *::before, .ui *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }

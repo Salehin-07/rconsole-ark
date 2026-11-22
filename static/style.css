@@ -608,8 +608,9 @@ body.touch #editor-bar button { font-size: 15px; padding: 12px 16px; }
    derive their colors from these, so a single switch re-themes everything.
    --------------------------------------------------------------------------- */
 [data-theme="light"] {
-  --bg: #ffffff; --fg: #1a1a1a; --green: #137333; --blue: #1a73e8;
-  --dim: #666666; --amber: #b8860b; --red: #c0392b; --panel: #f0f0f0; --border: #cccccc;
+  /* v1.5.8: a warm paper palette instead of stark white on grey; text meets WCAG AA on every surface. */
+  --bg: #faf9f6; --fg: #26231f; --green: #1e7a46; --blue: #2c63c4;
+  --dim: #6a655c; --amber: #9a6208; --red: #c0392b; --panel: #f2f0ea; --border: #e1ddd3;
 }
 [data-theme="amber"] {
   --bg: #1a1000; --fg: #ffb000; --green: #ffb000; --blue: #ffd27f;

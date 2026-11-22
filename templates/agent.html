@@ -5,44 +5,48 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>Agent — Rconsole</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=cache_v) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='tokens.css', v=cache_v) }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='agent.css', v=cache_v) }}">
+  <link rel="preload" href="/static/fonts/inter-var-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <meta name="theme-color" content="#0d1117">
   <meta name="robots" content="noindex">
 </head>
-<body class="ag">
+<body class="ag ui">
   <div id="app">
     <aside id="side" aria-label="Chats">
       <div class="side-head">
-        <a class="side-back" id="side-back" href="/console" title="Back to the console" aria-label="Back to the console"><span aria-hidden="true">&lsaquo;</span> Console</a>
-        <button id="newchat" class="btn primary" type="button">New chat</button>
+        <a class="side-back" id="side-back" href="/console" title="Back to the console" aria-label="Back to the console"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg><span>Console</span></a>
       </div>
-      <input id="sq" type="search" placeholder="Search chats" autocomplete="off" aria-label="Search chats">
+      <button id="newchat" class="btn primary" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New chat</span></button>
+      <label class="sq-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="sq" type="search" placeholder="Search chats" autocomplete="off" aria-label="Search chats"></label>
       <div id="slist" role="list"></div>
-      <div class="side-foot"><a href="/dashboard" id="setup-link">Providers &amp; settings</a><span>v{{ version }}</span></div>
+      <div class="side-foot"><a href="/dashboard" id="setup-link"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg><span>Providers &amp; settings</span></a><span class="ver">v{{ version }}</span></div>
     </aside>
     <div id="scrim"></div>
     <main id="chat">
       <header id="bar">
-        <button id="burger" class="icon-btn" type="button" aria-label="Chats">&#9776;</button>
+        <button id="burger" class="icon-btn" type="button" aria-label="Chats"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>
         <div id="title" class="title" title="Click to rename">New chat</div>
-        <div class="chips">
-          <button id="chip-model" class="chip" type="button" title="Model"></button>
-          <button id="chip-mode" class="chip" type="button" title="What it may do on its own"></button>
-        </div>
-        <button id="menu" class="icon-btn" type="button" aria-label="More">&#8943;</button>
+        <button id="menu" class="icon-btn" type="button" aria-label="More"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg></button>
       </header>
       <div id="meter" title="Context used"><i></i></div>
       <div id="feed" role="log" aria-live="polite"></div>
-      <button id="jump" class="jump" type="button" hidden>&darr; Latest</button>
+      <button id="jump" class="jump" type="button" hidden aria-label="Jump to the latest message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
       <div id="todos" hidden></div>
       <footer id="composer">
         <div id="pop" hidden></div>
-        <div class="cmeta"><button id="chip-cwd" class="chip ghost" type="button" title="Working directory"></button><span id="status"></span></div>
         <div class="cbox">
-          <textarea id="input" rows="1" placeholder="Ask the agent...   / commands   @ files" enterkeyhint="send" autocomplete="off" autocapitalize="sentences"></textarea>
-          <button id="send" class="send" type="button" aria-label="Send">&#10148;</button>
+          <textarea id="input" rows="1" placeholder="Ask anything. Type / for commands, @ for files" enterkeyhint="send" autocomplete="off" autocapitalize="sentences"></textarea>
+          <div class="ctools">
+            <button id="chip-cwd" class="chip ghost" type="button" title="Working directory"></button>
+            <span class="grow"></span>
+            <button id="chip-mode" class="chip" type="button" title="What it may do on its own"></button>
+            <button id="chip-model" class="chip model" type="button" title="Model"></button>
+            <button id="send" class="send" type="button" aria-label="Send"></button>
+          </div>
         </div>
+        <div class="cmeta"><span id="status"></span></div>
       </footer>
     </main>
   </div>
