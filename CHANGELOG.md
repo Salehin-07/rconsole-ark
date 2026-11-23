@@ -11,6 +11,10 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
   another user's or the server's processes. Hosts with user namespaces keep the real private `/proc` per VM.
 
 ### Fixed
+- **`ps` in an Alpine VM printed "Error, do this: mount -t proc proc /proc".** Alpine's busybox `ps` refuses to run without
+  `/proc/self`, which a VM without a PID namespace cannot have. Every VM now gets a small `ps` in `/usr/local/bin`: when
+  `/proc/self` exists it runs the system `ps`, otherwise it lists the VM's own processes (PID, USER, TIME, COMMAND) from its
+  built `/proc`. `ps aux` and `ps` both work; other flags are ignored there.
 - **The host shell (`shell`) had no history and no path in its prompt.** The interactive host window ran `sh`, which is
   dash on Debian: no up/down-arrow history, no Ctrl+R, and a bare `$`. It now starts **bash** with a managed rc file
   (`data/host.bashrc`): the prompt is `rconsole@host:<path>$` like the VM windows, up/down walk through earlier commands,

@@ -177,6 +177,27 @@ done
 echo "udevadm: command not found" >&2
 exit 127
 """
+PS_SHIM_TEXT = """#!/bin/sh
+# rconsole: busybox ps (Alpine) refuses to run without /proc/self ("do this: mount -t proc proc /proc"), which a
+# VM without its own PID namespace cannot have. There, list this VM's processes from its own /proc view.
+if [ -e /proc/self ]; then
+  for p in /bin/ps /usr/bin/ps; do [ -x "$p" ] && exec "$p" "$@"; done
+fi
+u=$(id -u 2>/dev/null); [ "$u" = 0 ] && u=root
+printf '%5s %-8s %5s  %s\\n' PID USER TIME COMMAND
+for d in /proc/[0-9]*; do
+  [ -r "$d/stat" ] || continue
+  pid=${d#/proc/}
+  st=$(cat "$d/stat" 2>/dev/null) || continue
+  rest=${st##*) }
+  set -- $rest
+  t=$(( (${12:-0} + ${13:-0}) / 100 ))
+  cmd=$(tr '\\0' ' ' < "$d/cmdline" 2>/dev/null)
+  if [ -z "$cmd" ]; then c=${st#*(}; cmd="[${c%%)*}]"; fi
+  printf '%5s %-8s %2d:%02d  %s\\n' "$pid" "$u" $((t / 60)) $((t % 60)) "$cmd"
+done
+"""
+
 LN_SHIM_TEXT = """#!/bin/sh
 # Managed by rconsole: skip re-creating the standard /dev links that already exist.
 for _last; do :; done
@@ -1054,6 +1075,10 @@ def sync_guest_tools(sid, vm=None):
         if not lnshim.exists() or lnshim.read_text() != LN_SHIM_TEXT:
             lnshim.write_text(LN_SHIM_TEXT)
             lnshim.chmod(0o755)
+        psshim = dest_dir / "ps"
+        if not psshim.exists() or psshim.read_text() != PS_SHIM_TEXT:
+            psshim.write_text(PS_SHIM_TEXT)
+            psshim.chmod(0o755)
         if (rootfs_path(sid, vm) / "etc/debian_version").exists():   # Debian, Ubuntu, Kali
             for name, text in (("journalctl", JOURNALCTL_SHIM_TEXT),
                                ("systemd-hwdb", HWDB_SHIM_TEXT), ("udevadm", UDEVADM_SHIM_TEXT)):

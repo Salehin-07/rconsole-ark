@@ -106,6 +106,22 @@ class ProcViewTests(unittest.TestCase):
         self.assertFalse(self.view.exists())
 
 
+class PsShimTests(unittest.TestCase):
+    def test_the_shim_lists_processes_from_a_proc_view_without_self(self):
+        d = Path(tempfile.mkdtemp(prefix="ps-"))
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        (d / "12").mkdir()
+        (d / "12" / "stat").write_text("12 (sleep) S 1 12 12 0 -1 4194560 0 0 0 0 250 50 0 0 20 0 1 0 1 1 1 1")
+        (d / "12" / "cmdline").write_bytes(b"sleep\x0099\x00")
+        script = sandbox.PS_SHIM_TEXT.replace("/proc/", str(d) + "/").replace("[ -e %s/self ]" % d, "false")
+        out = subprocess.run(["sh", "-c", script], capture_output=True, text=True).stdout
+        self.assertIn("PID", out)
+        self.assertRegex(out, r"12\s+\S+\s+0:03\s+sleep 99")
+
+    def test_the_shim_is_installed_in_every_vm(self):
+        self.assertIn('"ps"', __import__("inspect").getsource(sandbox.sync_guest_tools))
+
+
 class ProotPrefixTests(unittest.TestCase):
     def prefix(self, admin, own_pidns=False, user_proc=False):
         env = {"RCONSOLE_USER_VM_PROC": "1"} if user_proc else {"RCONSOLE_USER_VM_PROC": "0"}
