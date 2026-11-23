@@ -11,6 +11,8 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
   another user's or the server's processes. Hosts with user namespaces keep the real private `/proc` per VM.
 
 ### Fixed
+- **`top` in an Alpine VM printed the same error.** It gets the same fallback: a refreshing list of the VM's own processes with
+  uptime, load and memory (`top -b -n 1`, `-d`, `-n` work).
 - **`ps` in an Alpine VM printed "Error, do this: mount -t proc proc /proc".** Alpine's busybox `ps` refuses to run without
   `/proc/self`, which a VM without a PID namespace cannot have. Every VM now gets a small `ps` in `/usr/local/bin`: when
   `/proc/self` exists it runs the system `ps`, otherwise it lists the VM's own processes (PID, USER, TIME, COMMAND) from its

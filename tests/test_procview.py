@@ -119,7 +119,17 @@ class PsShimTests(unittest.TestCase):
         self.assertRegex(out, r"12\s+\S+\s+0:03\s+sleep 99")
 
     def test_the_shim_is_installed_in_every_vm(self):
-        self.assertIn('"ps"', __import__("inspect").getsource(sandbox.sync_guest_tools))
+        src = __import__("inspect").getsource(sandbox.sync_guest_tools)
+        self.assertIn('"ps"', src)
+        self.assertIn('"top"', src)
+
+    def test_top_shim_prints_a_header_and_the_process_list(self):
+        script = sandbox.TOP_SHIM_TEXT.replace("[ -e /proc/self ]", "false").replace("/usr/local/bin/ps", "echo PSLIST")
+        out = subprocess.run(["sh", "-c", script, "top", "-b", "-n", "1"], capture_output=True, text=True).stdout
+        self.assertIn("load average", out)
+        self.assertIn("kB total", out)
+        self.assertNotIn(chr(92) + "n", out)
+        self.assertIn("PSLIST", out)
 
 
 class ProotPrefixTests(unittest.TestCase):

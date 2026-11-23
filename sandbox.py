@@ -198,6 +198,35 @@ for d in /proc/[0-9]*; do
 done
 """
 
+TOP_SHIM_TEXT = """#!/bin/sh
+# rconsole: busybox top (Alpine) refuses to run without /proc/self. Without it, show this VM's own processes
+# from its built /proc. Options: -n COUNT (number of refreshes), -d SECONDS (delay), -b (no screen clearing).
+if [ -e /proc/self ]; then
+  for p in /bin/top /usr/bin/top; do [ -x "$p" ] && exec "$p" "$@"; done
+fi
+n=0; delay=3; batch=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -n) n=$2; shift;; -d) delay=$2; shift;; -b) batch=1;;
+    -n[0-9]*) n=${1#-n};; -d[0-9]*) delay=${1#-d};;
+  esac
+  shift
+done
+i=0
+while :; do
+  [ "$batch" = 1 ] || printf '\\033[H\\033[2J'
+  read -r up _ < /proc/uptime 2>/dev/null
+  read -r l1 l2 l3 _ < /proc/loadavg 2>/dev/null
+  printf 'up %ss  load average: %s %s %s\\n' "${up%%.*}" "$l1" "$l2" "$l3"
+  awk '/^MemTotal/{t=$2} /^MemAvailable/{a=$2} END{printf "Mem: %d kB total, %d kB available\\n", t, a}' /proc/meminfo 2>/dev/null
+  echo
+  /usr/local/bin/ps
+  i=$((i + 1))
+  [ "$n" -gt 0 ] && [ "$i" -ge "$n" ] && break
+  sleep "$delay"
+done
+"""
+
 LN_SHIM_TEXT = """#!/bin/sh
 # Managed by rconsole: skip re-creating the standard /dev links that already exist.
 for _last; do :; done
@@ -1075,10 +1104,11 @@ def sync_guest_tools(sid, vm=None):
         if not lnshim.exists() or lnshim.read_text() != LN_SHIM_TEXT:
             lnshim.write_text(LN_SHIM_TEXT)
             lnshim.chmod(0o755)
-        psshim = dest_dir / "ps"
-        if not psshim.exists() or psshim.read_text() != PS_SHIM_TEXT:
-            psshim.write_text(PS_SHIM_TEXT)
-            psshim.chmod(0o755)
+        for name, text in (("ps", PS_SHIM_TEXT), ("top", TOP_SHIM_TEXT)):
+            shim = dest_dir / name
+            if not shim.exists() or shim.read_text() != text:
+                shim.write_text(text)
+                shim.chmod(0o755)
         if (rootfs_path(sid, vm) / "etc/debian_version").exists():   # Debian, Ubuntu, Kali
             for name, text in (("journalctl", JOURNALCTL_SHIM_TEXT),
                                ("systemd-hwdb", HWDB_SHIM_TEXT), ("udevadm", UDEVADM_SHIM_TEXT)):
