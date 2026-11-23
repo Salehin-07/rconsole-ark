@@ -394,6 +394,7 @@ class MultiVm(unittest.TestCase):
         for name in ("rootfs", "home", "distro.json", ".ready"):
             os.replace(new / name, base / name)
         shutil.rmtree(new / "dev-net", ignore_errors=True)       # didn't exist in the old layout
+        shutil.rmtree(new / "procview", ignore_errors=True)      # nor did the safe /proc view (1.5.9)
         new.rmdir()
         sandbox._migrated.discard("alice")
         self.assertEqual(sandbox.installed_vms("alice"), ["debian"])    # moved under debian/

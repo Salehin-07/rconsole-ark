@@ -5,6 +5,11 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
 
 ## 1.5.9 — 2026-11-23
 
+### Added
+- **Every VM has its own `/proc`, isolated from all the others.** On hosts without PID namespaces each VM's `/proc` is built
+  per VM (`procview.py`) and holds only that VM's own processes plus harmless host-wide files; no VM can see another VM's,
+  another user's or the server's processes. Hosts with user namespaces keep the real private `/proc` per VM.
+
 ### Fixed
 - **The host shell (`shell`) had no history and no path in its prompt.** The interactive host window ran `sh`, which is
   dash on Debian: no up/down-arrow history, no Ctrl+R, and a bare `$`. It now starts **bash** with a managed rc file
