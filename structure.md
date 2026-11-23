@@ -55,7 +55,7 @@ rconsole/
 ├── jobs.py                 # Background jobs (`cmd &`, jobs/jobout/jobtail/fg/kill %n)
 ├── termsess.py             # Persistent PTY sessions keyed by (user, tab)
 ├── ptyhost.py              # WebSocket ⇄ terminal-session bridge (attach/detach/kill)
-├── shellutil.py            # Shared shell detection + subprocess/PTY environment builder
+├── shellutil.py            # Shared shell detection, subprocess/PTY environment builder, interactive host shell (bash + rc file)
 ├── state.py                # In-memory session/tab/host state + JSON persistence
 ├── auth.py                 # User auth & persistence (data/users.json, PBKDF2 hashes)
 ├── examples/               # Example hosted apps (run them with `service add … --expose`)
@@ -63,6 +63,8 @@ rconsole/
 ├── gunicorn.conf.py        # Production server settings (1 worker + threads: state is in-memory)
 ├── pidns.py                # one PID namespace per VM (unshare + nsenter), `vm ps` / `vm kill` scoping
 ├── pidns_init.py           # PID 1 of a VM's namespace: reaps zombies, exits when the server dies
+├── procview.py             # safe /proc for VMs without a PID namespace: system files, copy-only view of the VM's own processes
+├── procguard.py            # marks the server non-dumpable so VMs cannot read its /proc/<pid>/environ or fd
 ├── vmdeps.py               # per-VM dependency manifest (deps.json): capture before backup, reinstall after restore
 ├── vmupdate.py             # `vm update`: lock, snapshot (hard links), upgrade, verify, rollback, crash recovery
 ├── dashboard.py            # Dashboard backend: resource sampler, admin section views, normal-user views (own things only), own-password change, admin actions, audit trail

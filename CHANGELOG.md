@@ -3,6 +3,38 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.9 — 2026-11-23
+
+### Fixed
+- **The host shell (`shell`) had no history and no path in its prompt.** The interactive host window ran `sh`, which is
+  dash on Debian: no up/down-arrow history, no Ctrl+R, and a bare `$`. It now starts **bash** with a managed rc file
+  (`data/host.bashrc`): the prompt is `rconsole@host:<path>$` like the VM windows, up/down walk through earlier commands,
+  and history is saved as you go in `~/.bash_history` (or the workspace when the home is not writable), so it survives a
+  closed tab and a restart. Your own `~/.bashrc` is still read afterwards, so your prompt settings win. Without bash
+  the plain shell still shows the path (through `$ENV`). Commands run with `@host <cmd>` are unchanged.
+- **VMs on hosts without PID namespaces (Render and most containers) had almost no `/proc`.** They saw seven files, so
+  `ps`, `top`, `pgrep`, `df`, `mount`, `vmstat` and `free` failed or printed nothing. Handing them the real `/proc` is not an
+  option (checked: a VM could read `/proc/<other pid>/fd/N` and open a file outside its own root, and read other
+  processes' `environ`). So the `/proc` of such a VM is now **built for it** (`procview.py`):
+  - the host-wide, harmless files and folders are bound live: `uptime`, `meminfo`, `cpuinfo`, `loadavg`, `version`,
+    `stat`, `vmstat`, `diskstats`, `filesystems`, `partitions`, `swaps`, `devices`, `cgroups`, `pressure`, `sys/kernel/*`
+    (random, hostname, osrelease, pid_max ...), `sys/vm`, `sys/fs/file-nr`;
+  - **the VM's own processes**, and only those, appear as `/proc/<pid>/{stat,status,statm,cmdline,comm}`, refreshed
+    every two seconds while the VM is in use, so `ps aux`, `top`, `pgrep` and `pidof` work and show nothing of other
+    VMs, other users or the server. They are plain copies, never links into the host;
+  - a `mounts` file describes the VM, so `df` and `mount` have something sensible to read.
+  The folder is writable by the VM, so every write is defensive (`O_NOFOLLOW`, temp file + rename, anything the VM plants
+  is deleted on the next refresh). Tested with a planted symlink at every level: nothing outside the folder is touched.
+  Still absent without a PID namespace, because only the kernel can give them out safely: `/proc/self`, `/proc/<pid>/fd`,
+  `environ`, `exe`, `cwd`. On a host that allows user namespaces a VM has the real, private `/proc` as before.
+
+### Security
+- **The server marks itself non-dumpable** (`procguard.py`, `PR_SET_DUMPABLE=0`) when it starts, in `app.py` and in
+  `gunicorn.conf.py`. Any process of the same user may read `/proc/<pid>/environ` and `fd` of another process of that user
+  unless it is non-dumpable. The server holds the backup token, the passphrase and the session key, so a VM that is
+  given the real `/proc` (`RCONSOLE_USER_VM_PROC=1`, or `RCONSOLE_VM_PIDNS=off` for admins) can no longer read them.
+  Programs the server starts are dumpable again, as `exec` resets the flag. Side effect: no core dumps of the server.
+
 ## 1.5.8 — 2026-11-22
 
 ### Changed

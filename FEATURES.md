@@ -1,6 +1,6 @@
 # Rconsole features
 
-Every feature of Rconsole 1.5.8, by area. This is the **map**; the details live in
+Every feature of Rconsole 1.5.9, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.
@@ -98,14 +98,14 @@ persistent `/root`. You are `root` inside and can install anything; no host priv
 | **`vm list`** | Every installable system (`debian:bookworm`, `ubuntu:24.04`, `alpine:3.21`, `kali`, `arch`, aliases `deb ubu alp archlinux`). |
 | **`vm install [name…]`** | Installs one or more (`all` too) in the background; root filesystems come from the distribution's own mirrors and are verified against the **published SHA-256**; safe extraction; the same system can't be installed twice. |
 | **`vm shell [name]`** | Interactive root shell in a VM. |
-| **`shell`** | Admins only: the same kind of interactive window, on the **host** shell. |
+| **`shell`** | Admins only: the same kind of interactive window, on the **host** shell (bash with `rconsole@host:<path>$` prompt, ↑/↓ history saved between sessions). |
 | **`vm run [--vm name] <cmd>`** | One command, printed output (90 s limit). `@vm:<name> cmd` does the same inline. |
 | **`vm use <n>` / `vm mode [host\|vm [name]]`** | Which VM plain commands use / where they run (`host` is admins only). Several VMs and no default pops up a picker. |
 | **`vm reset [name] --yes`** | Recreates a VM's system files and **keeps its `/root`**. |
 | **`vm remove <name\|all> --yes`** | Deletes a VM and its `/root`. |
 | **`vm setup <profile> [name]`** | Ready-made toolchains installed as a background job with live progress: `python` (with headers for psycopg2, mysqlclient, Pillow, lxml, cryptography…), `build`, `node`, `rust`, `db`, `tools`, `docker`, `udocker`, `kali` (Kali toolset), `all`. Profiles are remembered and re-applied after a restore. |
 | **`vm update [name]`** | Updates a VM to the latest version, safely (Alpine walks to the **newest release**, one release at a time; Debian/Ubuntu/Kali get all newer packages of their release; `--stay` = packages only): **locks** it (nothing can start in it, what ran there stops), checks the package database, takes a **snapshot** (hard links: almost no disk), upgrades without questions (config files kept), **verifies**, and on *any* problem — failure, timeout, shutdown, even a crash — **restores the snapshot**. `/root` is never touched. Admins must be in the host shell; a normal user with one system has everything stop while it runs (name optional), with several only that VM is locked. `--yes` confirms, `--log` shows the run, `vm status` shows progress. |
-| **`vm ps [name]`** · **`vm kill <pid> [name]`** | Processes of one VM. Each VM has its **own PID namespace** (`RCONSOLE_VM_PIDNS`, default `auto`), so `ps`/`top`/`kill`/`/proc` inside it show only its processes (PIDs from 1) and `kill -9 -1` stays inside; where the host forbids user namespaces these two commands are the scoped view (found through proot) and `vm doctor` says "NOT isolated". |
+| **`vm ps [name]`** · **`vm kill <pid> [name]`** | Processes of one VM. Each VM has its **own PID namespace** (`RCONSOLE_VM_PIDNS`, default `auto`), so `ps`/`top`/`kill`/`/proc` inside it show only its processes (PIDs from 1) and `kill -9 -1` stays inside; where the host forbids user namespaces the VM gets a **built `/proc`** (harmless host-wide files, a copy-only view of its own processes so `ps`/`top`/`pgrep` work, a `mounts` file; no `/proc/self`) and these two commands are the scoped view (found through proot) and `vm doctor` says "NOT isolated". |
 | **`vm deps [name]`** | What a restore will reinstall in a VM: system packages, pip, global npm, virtualenvs and Node projects under `/root` (`deps.json`, taken before each backup). `vm deps capture` records now, `vm deps restore` reinstalls now. `RCONSOLE_RESTORE_DEPS=0` disables restoring. |
 | **`vm doctor [name]`** | Step-by-step health check: shell, programs, root, write, DNS, internet, packages. |
 | **`vm help`** | Short usage. |

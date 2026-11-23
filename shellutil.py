@@ -75,3 +75,68 @@ def build_env(sid=None):
         except Exception:
             pass
     return env
+
+
+# --------------------------------------------------------------- the interactive host shell
+HOST_RC_NAME = "host.bashrc"
+HOST_RC_TEXT = r"""# Managed by rconsole: prompt with the path, command history on the arrow keys, history kept between sessions.
+PS1='\[\e[1;32m\]rconsole@host\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ '
+[ -r "$HOME/.bashrc" ] && . "$HOME/.bashrc"          # yours wins: set your own PS1 there if you like
+: "${HISTFILE:=$HOME/.bash_history}"
+HISTSIZE=5000
+HISTFILESIZE=20000
+HISTCONTROL=ignoredups
+shopt -s histappend checkwinsize 2>/dev/null
+case ";$PROMPT_COMMAND;" in *"history -a"*) ;; *) PROMPT_COMMAND="history -a${PROMPT_COMMAND:+;$PROMPT_COMMAND}";; esac
+[ -r "$HISTFILE" ] && history -n 2>/dev/null
+"""
+# dash / busybox ash have no line editing, but they do expand $PWD inside PS1.
+HOST_ENV_TEXT = "PS1='rconsole@host:$PWD$ '\n"
+
+
+def _history_file(cwd):
+    """Where the host shell keeps its history: the home directory when writable, else the workspace."""
+    for base in (os.environ.get("HOME"), cwd):
+        if base and os.path.isdir(base) and os.access(base, os.W_OK):
+            return os.path.join(base, ".bash_history")
+    return None
+
+
+def _write_if_changed(path, text):
+    try:
+        if not path.exists() or path.read_text() != text:
+            path.write_text(text)
+        return True
+    except OSError:
+        return False
+
+
+def interactive_host(cwd):
+    """``(argv, extra_env)`` for an interactive host shell.
+
+    ``sh`` is dash on Debian: no arrow-key history and a bare ``$`` prompt. So the interactive shell is
+    bash when there is one (readline: up/down history, Ctrl+R, tab completion), started with a managed rc
+    file that gives the prompt ``rconsole@host:<path>$`` and saves history between sessions. Without bash
+    the plain shell still gets the prompt with the path, through ``$ENV``."""
+    extra = {}
+    if os.name == "nt":
+        exe, _ = detect_shell()
+        return [exe], extra
+    hist = _history_file(cwd)
+    if hist:
+        extra["HISTFILE"] = hist
+    bash = shutil.which("bash")
+    try:
+        config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    if bash:
+        rc = config.DATA_DIR / HOST_RC_NAME
+        if _write_if_changed(rc, HOST_RC_TEXT):
+            return [bash, "--rcfile", str(rc), "-i"], extra
+        return [bash, "-i"], extra
+    exe, _ = detect_shell()
+    envf = config.DATA_DIR / "host.shrc"
+    if _write_if_changed(envf, HOST_ENV_TEXT):
+        extra["ENV"] = str(envf)
+    return [exe, "-i"], extra

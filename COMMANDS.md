@@ -124,7 +124,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.5.8` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.5.9` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -301,6 +301,9 @@ Admins only. Opens an interactive window on the **host** shell (the server itsel
 opens for a VM. It always opens the host, whatever system the tab currently uses, and `exit` (or the ✕) closes it and
 returns you to your tab and directory. It needs no `sudo`; a normal user gets a permission error and should use
 `vm shell` instead. It takes no arguments (`shell ls` is refused: run `ls` directly).
+The window runs **bash** (1.5.9) with a prompt that shows the path, `rconsole@host:~/project$`, **↑/↓ history**,
+Ctrl+R and tab completion; history is saved as you type in `~/.bash_history`, so it survives a closed tab and a
+restart. Your own `~/.bashrc` is read too, so a prompt you set there wins.
 ```text
 shell          # an interactive host shell, admins only
 ```

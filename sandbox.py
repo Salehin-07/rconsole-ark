@@ -60,6 +60,7 @@ import auth
 import config
 import distros
 import pidns
+import procview
 import state
 
 HOST = "host"
@@ -198,8 +199,7 @@ if [ -z "$RCONSOLE_PROFILE_LOADED" ]; then
   unset _rc_f
 fi
 """ + GAMES_PATH_SNIPPET
-SAFE_PROC_FILES = ("uptime", "meminfo", "cpuinfo", "loadavg", "version",
-                   "sys/kernel/random/uuid", "sys/kernel/random/boot_id")   # Kali's login scripts read these
+SAFE_PROC_FILES = procview.SAFE_ENTRIES   # harmless /proc entries every VM gets (Kali's login scripts read random/uuid)
 CACHE_KEEP = 4                      # downloaded rootfs tarballs kept for reuse
 TOOLS_SRC = config.HERE / "vmtools" / "rfetch.sh"
 _VM_ID_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,31}\Z")
@@ -1226,6 +1226,7 @@ def reset(sid, vm=None, keep_home=True):
     if install_state(sid, vm)["state"] == "updating":
         raise SandboxError(f"{vm} is being updated; wait for it to finish (`vm status`).")
     pidns.stop(sid, vm)                 # nothing may keep running from a system that is being deleted
+    procview.forget(base)
     (base / READY_MARKER).unlink(missing_ok=True)
     (base / DISTRO_FILE).unlink(missing_ok=True)
     shutil.rmtree(rootfs_path(sid, vm), ignore_errors=True)
@@ -1520,15 +1521,14 @@ def _proot_prefix(sid, vm, cwd, admin, extra_binds=(), own_pidns=False):
         # everybody (not just admins) gets the real one: ps, top, kill, free all just work.
         argv += ["-b", "/proc"]
     elif config.env_bool("RCONSOLE_USER_VM_PROC", False) or (admin and config.VM_PIDNS == "off"):
-        argv += ["-b", "/proc"]
+        argv += ["-b", "/proc"]       # explicit opt-in (or VM_PIDNS=off for admins): the real, unfiltered /proc
     else:
-        # The full /proc exposes every host process (and their environments),
-        # so non-admins get only the harmless system-wide info files. That is
-        # enough for free, uptime, neofetch and friends.
-        for name in SAFE_PROC_FILES:
-            host = f"/proc/{name}"
-            if os.path.exists(host):
-                argv += ["-b", f"{host}:{host}"]
+        # Nobody gets the real /proc by default, admins included: every process runs as the server's uid,
+        # so /proc/<pid>/fd/N and environ would open other people's files and secrets. They get a safe
+        # /proc instead (see procview.py): harmless system-wide files plus a copy-only view of this
+        # VM's own processes, enough for ps, top, pgrep, free, uptime, df, neofetch and friends.
+        for host, guest in procview.binds(vm_dir(sid, vm), rootfs_path(sid, vm)):
+            argv += ["-b", f"{host}:{guest}"]
     if os.path.exists("/etc/resolv.conf"):
         argv += ["-b", "/etc/resolv.conf:/etc/resolv.conf"]
     # Some systems (Kali's login scripts) try to create /dev/net/tun. The host's
@@ -1601,7 +1601,13 @@ def spec(sid, cmd, cwd, forced=None, tty=False):
         argv = [exe, flag, cmd] if cmd else [exe]
         host_cwd = cwd if cwd and os.path.isdir(cwd) else state.default_cwd()
         _fetch_stored(cmd, lambda w: Path(os.path.normpath(os.path.join(host_cwd, os.path.expanduser(w)))))
-        return Spec(argv, host_cwd, shellutil.build_env(sid), HOST)
+        env = shellutil.build_env(sid)
+        if tty and not cmd:
+            # An interactive window on the host: bash with history and a prompt that shows the path.
+            argv, extra = shellutil.interactive_host(host_cwd)
+            for k, v in extra.items():
+                env.setdefault(k, v)
+        return Spec(argv, host_cwd, env, HOST)
     config.ensure_private_dir(config.VM_DIR)
     guest_cwd = _vm_cwd(sid, tgt.vm, cwd)
     _fetch_stored(cmd, _guest_resolver(sid, tgt.vm, guest_cwd))

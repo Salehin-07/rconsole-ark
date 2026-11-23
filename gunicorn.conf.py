@@ -8,8 +8,10 @@ number of terminals you expect open at once (default 64).
 """
 import os
 
+import procguard
 import settingsfile
 
+procguard.harden()                          # VM processes must not read the server's /proc/<pid>/environ or fd
 settingsfile.inject()                       # options saved from the dashboard (PORT, threads, log level ...)
 
 bind = f"0.0.0.0:{os.environ.get('PORT', '5000')}"

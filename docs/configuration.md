@@ -89,7 +89,7 @@ Other secrets are different: values you save with `sudo env` or `service add --e
 | `RCONSOLE_DEFAULT_MODE` | `host` | Where an admin's plain commands run: `host` or `vm`. Non-admins always use `vm`. |
 | `RCONSOLE_DEFAULT_SYSTEM` | `debian` | System that `vm install` uses when you name none (`alpine` suits 512 MB instances). |
 | `RCONSOLE_ALLOW_USER_HOST` | `0` | Let **non-admins** run commands on the real host. This is remote code execution: leave it off. |
-| `RCONSOLE_USER_VM_PROC` | `0` | Bind the host's full `/proc` into VMs that have no PID namespace of their own (`ps`/`top` then show host processes: see the security model). VMs with their own PID namespace always see only their own processes. |
+| `RCONSOLE_USER_VM_PROC` | `0` | Bind the host's real `/proc` into VMs that have no PID namespace of their own (gives `/proc/self` and friends, but `ps`/`top` then show host processes: see the security model). Off by default: such VMs get a safe, built `/proc` showing only their own processes. VMs with their own PID namespace always see only their own processes. |
 | `RCONSOLE_VM_PIDNS` | `auto` | One PID namespace per VM. `auto`/`on`: use it when the host allows user namespaces and say so in `vm doctor` when it does not; `off`: never (VMs share the server's PID space). |
 | `RCONSOLE_HOST_HOME` | `/home/rconsole` | Where the host shell starts. The Docker image links it to the persistent workspace; if it is missing or not writable, `<data>/workspace` is used. |
 | `RCONSOLE_VM_ROOTFS_URL` | - | Use your own root filesystem tarball for **every** system you install (mirrors, air-gapped hosts, tests). Default: the catalog's checksum-verified image for the system you pick. |

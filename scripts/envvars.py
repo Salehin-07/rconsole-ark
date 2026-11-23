@@ -86,9 +86,10 @@ VARS = [
     ("systems", "RCONSOLE_ALLOW_USER_HOST", "`0`",
      "Let **non-admins** run commands on the real host. This is remote code execution: leave it off.", "all"),
     ("systems", "RCONSOLE_USER_VM_PROC", "`0`",
-     "Bind the host's full `/proc` into VMs that have no PID namespace of their own (`ps`/`top` then show "
-     "host processes: see the security model). VMs with their own PID namespace always see only their own "
-     "processes.", "all"),
+     "Bind the host's real `/proc` into VMs that have no PID namespace of their own (gives `/proc/self` and "
+     "friends, but `ps`/`top` then show host processes: see the security model). Off by default: such VMs get a "
+     "safe, built `/proc` showing only their own processes. VMs with their own PID namespace always see only their "
+     "own processes.", "all"),
     ("systems", "RCONSOLE_VM_PIDNS", "`auto`",
      "One PID namespace per VM. `auto`/`on`: use it when the host allows user namespaces and say so in "
      "`vm doctor` when it does not; `off`: never (VMs share the server's PID space).", "all"),

@@ -22,7 +22,7 @@ class ShellCommandTests(Base):
         self.login()
         sp = sandbox.spec("ark", "@host", os.getcwd(), tty=True)
         self.assertEqual(sp.mode, sandbox.HOST)
-        self.assertEqual(len(sp.argv), 1)                        # a bare shell: interactive
+        self.assertNotIn("-c", sp.argv)                         # no command: an interactive shell
 
     def test_normal_users_are_refused(self):
         self.login("alice", "longenough1")

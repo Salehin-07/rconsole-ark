@@ -157,8 +157,7 @@ class KaliLoginNoiseTests(unittest.TestCase):
     """1.3.10: Kali's login scripts must not spam errors; /usr/games must be on PATH."""
 
     def test_proc_whitelist_has_the_random_files(self):
-        self.assertIn("sys/kernel/random/uuid", sandbox.SAFE_PROC_FILES)
-        self.assertIn("sys/kernel/random/boot_id", sandbox.SAFE_PROC_FILES)
+        self.assertIn("sys/kernel/random", sandbox.SAFE_PROC_FILES)
 
     def test_games_dirs_are_on_the_path(self):
         self.assertIn("/usr/games", sandbox.SYSTEM_PATH.split(":"))

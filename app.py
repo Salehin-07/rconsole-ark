@@ -44,6 +44,7 @@ import services
 import settings
 import interp
 import jobs
+import procguard
 import ptyhost
 import sandbox
 import state
@@ -52,6 +53,7 @@ import updater
 import vmupdate
 from version import __version__
 
+procguard.harden()      # VM processes must not read the server's /proc/<pid>/environ or fd/
 app = Flask(__name__)
 app.secret_key = config.persistent_secret("RCONSOLE_SECRET", "secret.key")
 app.config.update(

@@ -25,13 +25,17 @@ own root filesystem and its own `/root`; that is isolation of *files*, not of *p
 | Question | Answer |
 |---|---|
 | Does each system see other systems' processes? | **No, when PID namespaces are available** (1.3.8+): each VM gets its own PID namespace (`unshare --user --pid`). Inside it `ps`, `top`, `kill` and `/proc` show only that VM's processes, with PIDs from 1, and `kill -9 -1` stays inside. |
-| What if the host forbids user namespaces? | Rconsole still works, **without** process isolation, and `vm doctor` says so (`pid ns:` line). Everyone then sees only harmless `/proc` files (uptime, meminfo, cpuinfo, loadavg, version) instead of host processes. `vm ps` and `vm kill` show and signal only that VM's processes (found through PRoot). `RCONSOLE_VM_PIDNS=off` never creates namespaces and restores the pre-1.3.8 behaviour, including the host's full `/proc` for admins' VMs. |
+| What if the host forbids user namespaces? | Rconsole still works, **without** process isolation, and `vm doctor` says so (`pid ns:` line). Everyone then gets a **built `/proc`** (1.5.9) instead of host processes: harmless host-wide files (uptime, meminfo, cpuinfo, loadavg, stat, vmstat, diskstats, `sys/kernel/*` ...), a copy-only view of *that VM's own* processes (`ps`, `top`, `pgrep` work), and a `mounts` file. `/proc/self`, `/proc/<pid>/fd` and `environ` are not available there, because only the kernel can hand them out safely. `vm ps` and `vm kill` show and signal only that VM's processes (found through PRoot). `RCONSOLE_VM_PIDNS=off` never creates namespaces and restores the pre-1.3.8 behaviour, including the host's full `/proc` for admins' VMs. |
 | Is that a strong boundary? | **No.** Even with a PID namespace, every VM still runs under the server's single user id, shares the kernel, the network and the host's resources. A malicious account can still attack the server and other users. Namespaces prevent *accidents and snooping*, not a determined attacker. |
 | Does Docker allow it? | Docker's default seccomp profile blocks user namespaces. On plain Docker add `--security-opt seccomp=unconfined` (or a profile allowing `unshare`/`setns`) to get isolation. Not verified on Render. |
 | Resource limits? | **None** per VM or user: no memory, CPU or process quotas. One user can use all of the instance's RAM and CPU. |
 
-`RCONSOLE_USER_VM_PROC=1` binds the host's `/proc` into VMs that have **no** PID namespace, which exposes host process
-lists and their environments. Leave it off unless you trust every account.
+`RCONSOLE_USER_VM_PROC=1` binds the host's real `/proc` into VMs that have **no** PID namespace. That gives them
+`/proc/self` and everything else, but it also exposes host processes: a VM can open files other processes hold open and read
+their environments (the server itself is protected, see below). Leave it off unless you trust every account.
+
+The server process marks itself non-dumpable (`PR_SET_DUMPABLE=0`), so even a VM that has the real `/proc` cannot read
+the server's `environ` (backup token, passphrase, session key) or its open files. Programs it launches are normal again.
 
 The AI agent's destructive-command guard is switched off for commands run *inside* a user's own system, because those
 are the user's own files. That is a convenience, not a statement that PRoot isolates the host.
