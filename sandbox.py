@@ -59,6 +59,7 @@ import requests
 import auth
 import config
 import distros
+import guestshims
 import pidns
 import procview
 import state
@@ -1104,7 +1105,8 @@ def sync_guest_tools(sid, vm=None):
         if not lnshim.exists() or lnshim.read_text() != LN_SHIM_TEXT:
             lnshim.write_text(LN_SHIM_TEXT)
             lnshim.chmod(0o755)
-        for name, text in (("ps", PS_SHIM_TEXT), ("top", TOP_SHIM_TEXT)):
+        shims = {"ps": PS_SHIM_TEXT, "top": TOP_SHIM_TEXT, **guestshims.all_shims()}
+        for name, text in shims.items():
             shim = dest_dir / name
             if not shim.exists() or shim.read_text() != text:
                 shim.write_text(text)

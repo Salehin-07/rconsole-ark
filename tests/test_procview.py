@@ -11,6 +11,7 @@ from unittest import mock
 
 import helpers  # noqa: F401  (isolates the data dir; must come before rconsole modules)
 import procguard
+import guestshims
 import procview
 import sandbox
 import shellutil
@@ -56,7 +57,7 @@ class ProcViewTests(unittest.TestCase):
         (self.view / "junkdir").mkdir()
         with mock.patch.object(procview, "vm_pids", return_value=[]):
             procview.refresh(self.view, "/r")
-        self.assertEqual(sorted(p.name for p in self.view.iterdir()), ["mounts"])
+        self.assertEqual(sorted(p.name for p in self.view.iterdir()), ["mounts", "net"])
 
     def test_a_planted_symlink_cannot_make_the_server_write_outside(self):
         outside = self.tmp / "outside.txt"
@@ -130,6 +131,89 @@ class PsShimTests(unittest.TestCase):
         self.assertIn("kB total", out)
         self.assertNotIn(chr(92) + "n", out)
         self.assertIn("PSLIST", out)
+
+
+class NetViewTests(unittest.TestCase):
+    def test_filter_table_keeps_only_this_vms_sockets(self):
+        head = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+        mine = "   0: 0100007F:2328 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 111 1 0\n"
+        other = "   1: 0100007F:2329 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 222 1 0\n"
+        out = procview.filter_table(head + mine + other, {"111"}).decode()
+        self.assertIn("2328", out)
+        self.assertNotIn("2329", out)
+        self.assertTrue(out.startswith("  sl"))
+
+    def test_my_own_listening_socket_is_found_by_inode(self):
+        import socket
+        s = socket.socket()
+        self.addCleanup(s.close)
+        s.bind(("127.0.0.1", 0))
+        s.listen()
+        inodes = procview.socket_inodes([os.getpid()])
+        self.assertIn(os.readlink(f"/proc/self/fd/{s.fileno()}")[8:-1], inodes)
+
+    def test_refresh_writes_a_filtered_net_folder(self):
+        d = Path(tempfile.mkdtemp(prefix="nv-"))
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        with mock.patch.object(procview, "vm_pids", return_value=[]):
+            procview.refresh(d / "procview", "/r")
+        names = sorted(p.name for p in (d / "procview" / "net").iterdir())
+        for n in ("tcp", "tcp6", "udp", "udp6"):
+            self.assertIn(n, names)
+        self.assertEqual(len((d / "procview" / "net" / "tcp").read_text().splitlines()), 1)   # header only
+
+
+class ProcToolShimTests(unittest.TestCase):
+    """pgrep / pkill / pidof / killall / pstree against a fake /proc folder."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp(prefix="pt-"))
+        self.addCleanup(shutil.rmtree, self.d, ignore_errors=True)
+        for pid, comm, cmd, ppid in ((10, "sh", b"sh\x00-l\x00", 1), (11, "nginx", b"nginx\x00-g\x00", 10),
+                                    (12, "python", b"python\x00app.py\x00", 10)):
+            p = self.d / str(pid)
+            p.mkdir()
+            (p / "stat").write_text(f"{pid} ({comm}) S {ppid} 1 1 0 -1 0 0 0 0 0 5 5 0 0 20 0 1 0 1 1 1 1")
+            (p / "cmdline").write_bytes(cmd)
+        lst = self.d / "list.sh"
+        lst.write_text(guestshims.PROCLIST_TEXT.replace("/proc/", str(self.d) + "/"))
+        lst.chmod(0o755)
+        self.tool = self.d / "tool.sh"
+        self.tool.write_text(guestshims.PROC_TOOL_TEXT.replace("/usr/local/bin/rconsole-proclist", str(lst)))
+
+    def run_tool(self, *args):
+        r = subprocess.run(["sh", str(self.tool), *args], capture_output=True, text=True)
+        return r.returncode, r.stdout
+
+    def test_pgrep(self):
+        self.assertEqual(self.run_tool("pgrep", "nginx"), (0, "11\n"))
+        self.assertEqual(self.run_tool("pgrep", "-f", "app.py"), (0, "12\n"))
+        self.assertEqual(self.run_tool("pgrep", "-l", "py"), (0, "12 python\n"))
+        self.assertEqual(self.run_tool("pgrep", "-a", "-f", "nginx -g"), (0, "11 nginx -g\n"))
+        self.assertEqual(self.run_tool("pgrep", "-c", "n"), (0, "2\n"))
+        self.assertEqual(self.run_tool("pgrep", "-x", "ngin")[0], 1)
+        self.assertEqual(self.run_tool("pgrep", "nosuch")[0], 1)
+        self.assertEqual(self.run_tool("pgrep")[0], 2)
+
+    def test_pidof_and_killall_names(self):
+        self.assertEqual(self.run_tool("pidof", "nginx"), (0, "11\n"))
+        self.assertEqual(self.run_tool("pidof", "python", "nginx"), (0, "12 11\n"))
+        self.assertEqual(self.run_tool("pidof", "nosuch")[0], 1)
+        self.assertEqual(self.run_tool("killall", "-q", "nosuch")[0], 1)
+
+    def test_pstree_shows_the_hierarchy(self):
+        rc, out = self.run_tool("pstree")
+        self.assertEqual(rc, 0)
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "sh")
+        self.assertEqual(sorted(x for x in lines[1:]), ["  nginx", "  python"])
+
+    def test_every_shim_is_installed_and_wraps_the_system_tool(self):
+        shims = guestshims.all_shims()
+        for n in ("pgrep", "pkill", "pidof", "killall", "pstree", "htop", "rconsole-proc", "rconsole-proclist"):
+            self.assertIn(n, shims)
+        self.assertIn("exec /usr/local/bin/rconsole-proc pgrep", shims["pgrep"])
+        self.assertIn("[ -e /proc/self ]", shims["pkill"])
 
 
 class ProotPrefixTests(unittest.TestCase):

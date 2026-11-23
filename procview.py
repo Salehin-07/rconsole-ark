@@ -14,7 +14,9 @@ So such a VM gets a ``/proc`` that is assembled from three kinds of harmless thi
   ``stat``, ``status``, ``statm``, ``cmdline`` and ``comm`` in a private folder, refreshed every couple of
   seconds while the VM is in use. ``ps``, ``top``, ``pgrep``, ``pidof`` and ``free`` work and show only this
   VM's processes. They are ordinary files, never links into the host, so nothing leads out of the VM;
-* **a ``mounts`` file** describing the VM (so ``df`` and ``mount`` have something sensible to read).
+* **a ``mounts`` file** describing the VM (so ``df`` and ``mount`` have something sensible to read), and
+  **``net/``** with ``tcp``, ``tcp6``, ``udp``, ``udp6`` filtered to the sockets this VM's processes hold (so
+  ``netstat`` shows this VM's ports only) plus the interface tables (``dev``, ``route``).
 
 Not available here (they need the kernel's per-process view): ``/proc/self``, ``/proc/<pid>/fd``,
 ``environ``, ``exe``, ``cwd``, ``root``. A host with user namespaces has all of them, safely.
@@ -64,6 +66,41 @@ def binds(vm_dir, root):
     refresh(d, root)
     touch(d, root)
     return [(str(d), "/proc")] + system_binds()
+
+
+NET_TABLES = ("tcp", "tcp6", "udp", "udp6")          # filtered to this VM's sockets
+NET_HEADER = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+NET_COPIES = ("dev", "route", "if_inet6")             # harmless interface information, copied as is
+
+
+def socket_inodes(pids):
+    """Inodes of the sockets the given processes hold open (read from the server, which may look)."""
+    found = set()
+    for p in pids:
+        base = f"/proc/{p}/fd"
+        try:
+            names = os.listdir(base)
+        except OSError:
+            continue
+        for n in names:
+            try:
+                t = os.readlink(f"{base}/{n}")
+            except OSError:
+                continue
+            if t.startswith("socket:["):
+                found.add(t[8:-1])
+    return found
+
+
+def filter_table(text, inodes):
+    """The header and the lines of a /proc/net/{tcp,udp}* table whose socket belongs to ``inodes``."""
+    lines = text.splitlines()
+    out = lines[:1]
+    for ln in lines[1:]:
+        f = ln.split()
+        if len(f) > 9 and f[9] in inodes:
+            out.append(ln)
+    return ("\n".join(out) + "\n").encode()
 
 
 def mounts_text():
@@ -171,7 +208,7 @@ def refresh(d, root):
         return False
     try:
         pids = vm_pids(root)
-        keep = {str(p) for p in pids} | {"mounts"}
+        keep = {str(p) for p in pids} | {"mounts", "net"}
         for name in os.listdir(root_fd):       # drop vanished processes and anything the VM planted
             if name not in keep:
                 _clear(name, root_fd)
@@ -194,6 +231,27 @@ def refresh(d, root):
             _put(root_fd, "mounts", mounts_text().encode())
         except OSError:
             pass
+        try:                                   # /proc/net: only the sockets of this VM's own processes
+            nfd = _sub(root_fd, "net")
+        except OSError:
+            nfd = None
+        if nfd is not None:
+            try:
+                inodes = socket_inodes(pids)
+                for name in NET_TABLES:
+                    data = _read(f"/proc/net/{name}", 4 << 20).decode(errors="replace") or NET_HEADER
+                    _put(nfd, name, filter_table(data, inodes))
+                for name in NET_COPIES:
+                    data = _read(f"/proc/net/{name}")
+                    if data:
+                        _put(nfd, name, data)
+                for name in os.listdir(nfd):
+                    if name not in NET_TABLES + NET_COPIES:
+                        _clear(name, nfd)
+            except OSError:
+                pass
+            finally:
+                os.close(nfd)
         with _lock:
             rec = _active.get(str(d))
             if rec and pids:

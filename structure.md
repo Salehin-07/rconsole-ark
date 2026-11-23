@@ -64,6 +64,7 @@ rconsole/
 ├── pidns.py                # one PID namespace per VM (unshare + nsenter), `vm ps` / `vm kill` scoping
 ├── pidns_init.py           # PID 1 of a VM's namespace: reaps zombies, exits when the server dies
 ├── procview.py             # safe /proc for VMs without a PID namespace: system files, copy-only view of the VM's own processes
+├── guestshims.py           # pgrep/pkill/pidof/killall/pstree/htop fallbacks installed in every VM
 ├── procguard.py            # marks the server non-dumpable so VMs cannot read its /proc/<pid>/environ or fd
 ├── vmdeps.py               # per-VM dependency manifest (deps.json): capture before backup, reinstall after restore
 ├── vmupdate.py             # `vm update`: lock, snapshot (hard links), upgrade, verify, rollback, crash recovery

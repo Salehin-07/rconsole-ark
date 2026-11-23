@@ -11,6 +11,12 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
   another user's or the server's processes. Hosts with user namespaces keep the real private `/proc` per VM.
 
 ### Fixed
+- **All process tools work in every VM, not only Alpine.** `pgrep`, `pkill`, `pidof`, `killall`, `pstree`, `htop`, `ps` and `top`
+  each use the system tool when the VM has a real `/proc/self` and otherwise work from the VM's own `/proc` view (`pgrep`
+  takes `-f -x -l -a -c -n -o -i -v -d`; `pkill` and `killall` take `-SIGNAL`). `free`, `uptime`, `df`, `mount` and `vmstat` read
+  files the built `/proc` provides. **`netstat`** works too: the VM's `/proc/net/{tcp,tcp6,udp,udp6}` are filtered to the sockets
+  its own processes hold, so a VM sees its own ports and no one else's (`ss` uses netlink and still lists the whole host;
+  nothing on a host without network namespaces can change that).
 - **`top` in an Alpine VM printed the same error.** It gets the same fallback: a refreshing list of the VM's own processes with
   uptime, load and memory (`top -b -n 1`, `-d`, `-n` work).
 - **`ps` in an Alpine VM printed "Error, do this: mount -t proc proc /proc".** Alpine's busybox `ps` refuses to run without
