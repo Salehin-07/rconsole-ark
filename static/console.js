@@ -405,6 +405,17 @@ function renderTabs() {
       d.appendChild(close);
     }
     d.onclick = () => selectTab(t.id);
+    d.setAttribute("role", "tab");
+    d.setAttribute("aria-selected", t.id === activeId ? "true" : "false");
+    d.tabIndex = 0;
+    d.title = t.name;
+    d.onkeydown = (e) => {
+      if (e.target !== d) return;
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectTab(t.id); }
+      else if ((e.key === "Delete" || e.key === "Backspace") && tabs.length > 1) { e.preventDefault(); closeTab(t.id); }
+    };
+    d.onauxclick = (e) => { if (e.button === 1 && tabs.length > 1) { e.preventDefault(); closeTab(t.id); } };   // middle-click closes
+    d.onmousedown = (e) => { if (e.button === 1) e.preventDefault(); };                                           // no autoscroll icon
     elTabs.appendChild(d);
   });
 }
@@ -3164,6 +3175,7 @@ function applySelectionUI() {
 
 function openEntry(e) {
   if (!e) return;
+  filesState.lastOpenAt = Date.now();
   if (e.is_dir) loadDir(e.path);
   else if (mediaKind(e.name)) openViewer(e.path);          // photo / video / audio / PDF / Office: show it, keep the browser behind
   else { openCodeEditor(e.path).then((ok) => { if (ok) hideFiles(); }); }
@@ -3446,7 +3458,10 @@ elFilesList.addEventListener("click", (ev) => {
   if (btn && !btn.classList.contains("files-name")) return;                        // download / rename / delete
   if (btn) {
     const selecting = (touch && filesState.selected.size > 0) || mod || shift;
-    if (!selecting) { openEntry(entryByPath(row.dataset.path)); return; }
+    if (!selecting) {
+      if (ev.detail > 1) return;                      // 2nd click of a double-click: the 1st already opened it (v2.0.3)
+      openEntry(entryByPath(row.dataset.path)); return;
+    }
     ev.preventDefault();
   } else if (touch && !filesState.selected.size) {
     return;
@@ -3456,6 +3471,7 @@ elFilesList.addEventListener("click", (ev) => {
 elFilesList.addEventListener("dblclick", (ev) => {
   const row = ev.target.closest(".files-row[data-path]");
   if (!row || ev.target.closest("button, input")) return;
+  if (Date.now() - (filesState.lastOpenAt || 0) < 500) return;
   openEntry(entryByPath(row.dataset.path));
 });
 
@@ -3953,7 +3969,60 @@ elFiles.addEventListener("keydown", (ev) => {
   if (dialogOpen() || (ev.target.closest && ev.target.closest("input, textarea, select"))) return;
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "a" || ev.key === "A")) { ev.preventDefault(); selectAll(); }
   else if (ev.key === "Delete") { ev.preventDefault(); deleteSelected(); }
+  else if (ev.key === "ArrowDown" || ev.key === "ArrowUp" || ev.key === "Home" || ev.key === "End") {
+    const order = filesOrder();
+    if (!order.length) return;
+    ev.preventDefault();
+    const cur = filesState.anchor ? order.indexOf(filesState.anchor) : -1;
+    let i = ev.key === "Home" ? 0 : ev.key === "End" ? order.length - 1
+      : ev.key === "ArrowDown" ? Math.min(order.length - 1, cur + 1) : Math.max(0, cur < 0 ? 0 : cur - 1);
+    if (ev.shiftKey && cur >= 0) setSelection(FM.sweepSelection(order, new Set(), cur, i), order[cur]);
+    else setSelection([order[i]], order[i]);
+    const row = [...elFilesList.querySelectorAll(".files-row[data-path]")].find((r) => r.dataset.path === order[i]);
+    if (row && row.scrollIntoView) row.scrollIntoView({ block: "nearest" });
+  } else if (ev.key === "Enter" && filesState.selected.size === 1) {
+    ev.preventDefault(); openEntry(selectedEntries()[0]);
+  } else if (ev.key === "Backspace" && !filesState.selected.size) {
+    ev.preventDefault(); $f("files-up").click();
+  } else if (ev.key === "F2" && filesState.selected.size === 1) {
+    ev.preventDefault(); filesState.renaming = [...filesState.selected][0]; renderFiles();
+  }
 });
+
+// Desktop: drag the panel's left edge to resize the file manager (remembered per browser).
+(function () {
+  const grip = document.getElementById("files-resize");
+  if (!grip) return;
+  const KEY = "rconsole.files.width";
+  const clamp = (w) => Math.max(360, Math.min(w, Math.floor(window.innerWidth * 0.8)));
+  try { const w = parseInt(localStorage.getItem(KEY) || "", 10); if (w && window.innerWidth >= 900) elFiles.style.setProperty("--files-w", clamp(w) + "px"); } catch (_) {}
+  grip.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== undefined && ev.button !== 0) return;
+    ev.preventDefault();
+    elFiles.classList.add("resizing");
+    try { grip.setPointerCapture(ev.pointerId); } catch (_) {}
+    const move = (e) => elFiles.style.setProperty("--files-w", clamp(window.innerWidth - e.clientX) + "px");
+    const up = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", up);
+      grip.removeEventListener("pointercancel", up);
+      elFiles.classList.remove("resizing");
+      try { localStorage.setItem(KEY, String(parseInt(elFiles.style.getPropertyValue("--files-w"), 10) || "")); } catch (_) {}
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up);
+    grip.addEventListener("pointercancel", up);
+  });
+  grip.addEventListener("dblclick", () => {                  // double-click: back to the default width
+    elFiles.style.removeProperty("--files-w");
+    try { localStorage.removeItem(KEY); } catch (_) {}
+  });
+  window.addEventListener("resize", () => {
+    const cur = parseInt(elFiles.style.getPropertyValue("--files-w"), 10);
+    if (cur && window.innerWidth >= 900) elFiles.style.setProperty("--files-w", clamp(cur) + "px");
+    else if (cur) elFiles.style.removeProperty("--files-w");
+  });
+})();
 
 // On load, rebuild tabs from the server so persistent terminal sessions
 // (e.g. a long-running bot) survive a page refresh and can be re-attached.

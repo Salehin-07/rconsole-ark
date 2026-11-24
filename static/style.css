@@ -1457,3 +1457,112 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 .ofv-tabs button { flex: 0 0 auto; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: transparent; color: var(--fg);
   border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
 .ofv-tabs button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+/* ======================================================================================================
+   v2.0.3: laptop / desktop polish, honest hover / click / select states, theme-correct controls.
+   Layered on top of everything above so no earlier rule has to change.
+   ====================================================================================================== */
+:root {
+  --ctl: color-mix(in srgb, var(--panel) 86%, var(--fg));          /* button surface, follows every theme */
+  --ctl-hover: color-mix(in srgb, var(--panel) 78%, var(--fg));
+  --ctl-in: var(--bg);                                              /* text-field surface */
+  --row-hover: color-mix(in srgb, var(--fg) 6%, transparent);
+  --row-sel: color-mix(in srgb, var(--blue) 18%, transparent);
+  --row-sel-hover: color-mix(in srgb, var(--blue) 26%, transparent);
+}
+
+/* Controls used hard-coded dark hex colours, which looked wrong in the light and papercolor themes. */
+#keybar button, #editor-bar button, #files-xfer button, #files-bar button, #files-go, #files-sel button,
+.fd-actions button, .pdfv-bar button { background: var(--ctl); }
+#files-path, .files-inline input, .fd-body select, .fd-body input[type="text"] { background: var(--ctl-in); }
+.tab.active { background: var(--bg); }
+#editor-gutter { background: color-mix(in srgb, var(--bg) 92%, var(--panel)); }
+#keybar button { background: var(--ctl); box-shadow: none; }
+#editor-save, .fd-actions button.primary, .files-inline button { color: var(--bg); }
+.login-box input { background: var(--bg); }
+
+/* Every clickable control: a pointer, a visible press, no text-selection flicker. */
+#tabbar button, #files-bar button, #files-xfer button, #files-go, #files-sel button, .fd-actions button,
+#editor-bar button, #editor-keys button, #keybar button, .files-act, .files-name, .crumb, .tab, .sm-link {
+  cursor: pointer; -webkit-user-select: none; user-select: none; touch-action: manipulation;
+}
+#files-bar button:active, #files-xfer button:active, #files-go:active, #files-sel button:active, .fd-actions button:active,
+#editor-bar button:active, #editor-keys button:active { transform: translateY(1px); filter: brightness(.94); }
+button:disabled { cursor: default; }
+
+/* Terminal output is text: it must be selectable and show a text cursor. */
+#output { -webkit-user-select: text; user-select: text; cursor: text; }
+
+/* ---- hover only where a real hover exists (no sticky highlights after a tap) ---- */
+@media (hover: hover) and (pointer: fine) {
+  .tab:hover { background: var(--row-hover); }
+  .tab.active:hover { background: var(--bg); }
+  #tabbar button:hover { color: var(--fg); background: var(--row-hover); }
+  #logoutbtn:hover { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
+  #files-bar button:hover, #files-xfer button:hover, #files-go:hover, #files-sel button:hover,
+  #editor-bar button:hover, #editor-keys button:hover, .fd-actions button:hover { background: var(--ctl-hover); border-color: var(--line-strong, var(--blue)); }
+  .files-row:hover { background: var(--row-hover); }
+  .files-row.sel:hover { background: var(--row-sel-hover); }
+  .files-name:hover .files-label { text-decoration: underline; text-underline-offset: 3px; }
+  /* Row actions appear on hover or keyboard focus, so a long list stays calm. */
+  .files-row:not(.files-inline) .files-act { opacity: 0; transition: opacity .12s; }
+  .files-row:hover .files-act, .files-row:focus-within .files-act, .files-row.sel .files-act { opacity: 1; }
+  .files-act:hover { background: var(--ctl); }
+}
+@media (hover: none) {
+  .tab:hover, #tabbar button:hover, .files-row:hover, .files-act:hover, .files-name:hover { background: transparent; }
+  .files-row.sel:hover { background: var(--row-sel); }
+  #logoutbtn:hover { background: transparent; color: var(--dim); }
+  .files-act { opacity: .85; }
+}
+.files-row { cursor: default; transition: background .1s; }
+.files-row.sel { background: var(--row-sel); box-shadow: inset 3px 0 0 var(--blue); }
+.files-row:active:not(.files-inline) { background: color-mix(in srgb, var(--fg) 10%, transparent); }
+.files-row.sel:active { background: var(--row-sel-hover); }
+.files-name { border-radius: 6px; }
+.files-name:focus-visible, .files-act:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+
+/* ---- tabs: steady width, readable names, a proper close target ---- */
+.tab { display: flex; align-items: center; min-width: 96px; max-width: 220px; padding: 8px 8px 8px 14px; }
+.tab > span:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab .close { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin-left: 6px;
+  border-radius: 50%; flex: 0 0 auto; }
+@media (hover: hover) { .tab .close:hover { background: color-mix(in srgb, var(--red) 18%, transparent); } }
+#tabs { scrollbar-width: none; }
+#tabs::-webkit-scrollbar { display: none; }
+#targetsel { background: var(--ctl); color: var(--fg); border: 0; border-left: 1px solid var(--border); font: inherit; font-size: 12px;
+  padding: 0 10px; max-width: 200px; cursor: pointer; }
+#targetsel:hover { background: var(--ctl-hover); }
+#settingsmenu { box-shadow: var(--shadow-2); }
+.sm-row { min-height: 40px; }
+
+/* ---- laptop and desktop (>= 900px): a wider, resizable file panel, calmer terminal margins ---- */
+#files { width: var(--files-w, min(440px, 100%)); max-width: 100%; }
+#files-resize { display: none; }
+@media (min-width: 900px) {
+  #files { --files-w-default: clamp(440px, 36vw, 640px); width: var(--files-w, var(--files-w-default)); max-width: 80vw; }
+  #files-resize { display: block; position: absolute; left: -4px; top: 0; bottom: 0; width: 9px; cursor: col-resize; z-index: 31; touch-action: none; }
+  #files-resize::after { content: ""; position: absolute; left: 4px; top: 0; bottom: 0; width: 1px; background: transparent; transition: background .12s; }
+  #files-resize:hover::after, #files.resizing #files-resize::after { background: var(--blue); width: 2px; left: 3px; }
+  #files.resizing { transition: none; -webkit-user-select: none; user-select: none; }
+  #screen { padding: 16px 28px; }
+  #output, #promptline { max-width: 1400px; }
+  .files-meta { min-width: 72px; font-size: 12px; }
+  .files-name { font-size: 13.5px; }
+}
+@media (min-width: 1400px) { #screen { padding: 18px 40px; } }
+
+/* ---- short windows (landscape phones, small laptops) ---- */
+@media (max-height: 520px) {
+  #tabbar .tab, #files-bar { padding-top: 4px; padding-bottom: 4px; }
+  #files-xfer { padding: 4px 10px; }
+  #files-goto { padding-top: 4px; }
+  body.touch #keybar button { padding: 8px 12px; }
+  .files-row { min-height: 38px; }
+}
+@media (max-width: 380px) { #files-xfer button { font-size: 11px; padding: 7px 4px; } #files-sel button { padding: 8px 8px; } }
+@media (pointer: coarse) {
+  .tab .close { width: 30px; height: 30px; }
+  .files-act { min-width: 40px; min-height: 40px; }
+  #files-bar button, #files-go { min-height: 40px; }
+}

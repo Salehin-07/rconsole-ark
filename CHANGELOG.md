@@ -3,6 +3,26 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 2.0.3 — 2026-11-24
+
+### Fixed
+- **Double-clicking a folder opened two levels deep.** Both clicks of a double-click opened an item, and the second landed on a
+  row of the new folder. The second click is now ignored, and a double-click on a row's blank space never fires right after an open.
+- **Hover that stuck on phones and tablets.** Hover highlights now only exist on devices that can really hover; a tap no longer
+  leaves a row, tab or button looking "pressed".
+- **Light and paper themes had dark buttons and fields.** Console, file manager, editor and dialog controls used fixed dark colours;
+  they now follow the theme.
+- Tabs had no name limit and a tiny close target; names now truncate with an ellipsis and the close button is a proper target.
+- Terminal output is selectable with a text cursor again on every theme.
+
+### Added
+- **Laptop / desktop layout.** The file manager is wider on large screens and **resizable** (drag its left edge, double-click to
+  reset; remembered per browser). Wide windows get roomier margins, short windows (landscape phones, small laptops) get tighter bars.
+- **File manager keyboard control:** Up / Down / Home / End move the selection (Shift extends it), Enter opens, F2 renames,
+  Backspace goes up a folder, Delete deletes, Ctrl/Cmd+A selects all, Esc clears.
+- Tabs are keyboard reachable (Enter / Space selects, Delete closes) and a middle-click closes a tab.
+- Row actions (download, rename, delete) show on hover or focus on desktop and stay visible on touch; every button has a press state.
+
 ## 1.5.10 — 2026-11-24
 
 ### Added

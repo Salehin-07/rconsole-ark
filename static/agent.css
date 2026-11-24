@@ -241,3 +241,9 @@ body.ag #app { display: flex; flex-direction: row; height: 100dvh; width: 100%; 
   .chip { padding: 0 9px; } .chip.model { max-width: 120px; } .chip.ghost { max-width: 34%; }
   .say { font-size: 16px; }
 }
+
+/* v2.0.3: touch-safe hover and press states. */
+@media (hover: none) { .sitem:hover { background: transparent; } }
+.sitem:active, button:active { filter: brightness(.94); }
+button { cursor: pointer; touch-action: manipulation; } button:disabled { cursor: not-allowed; }
+@media (pointer: coarse) { .sitem .x { min-width: 40px; min-height: 40px; } }

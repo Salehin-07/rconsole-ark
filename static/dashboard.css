@@ -289,3 +289,16 @@ details.adv { margin-top: var(--sp-2); border-top: 1px solid var(--line); paddin
   .kv { grid-template-columns: 1fr; gap: 0; } .kv dt { margin-top: 8px; font-size: 12.5px; }
   svg.chart { height: 120px; } .mp-list { max-height: 42vh; }
 }
+
+/* v2.0.3: no sticky hover after a tap; a real press state instead; steadier wide layout. */
+@media (hover: none) {
+  .dh-back:hover, .dh-menu:hover, #dtabs button:hover, table.t tbody tr:hover, button.b.ghost:hover,
+  details.group > summary:hover, .sheet-list button:hover, .drawer-list button:hover, .mp-row:hover { background: transparent; }
+  button.b:hover, .btn:hover { background: var(--s2); border-color: var(--line); }
+  button.b.danger:hover { background: transparent; border-color: var(--line); }
+}
+.dash button, .dash .btn, #dtabs button, .drawer-list button, .sheet-list button { cursor: pointer; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+button.b:active, .btn:active, #dtabs button:active, .drawer-list button:active, .sheet-list button:active { background: var(--press); }
+.dash button:disabled { cursor: not-allowed; }
+@media (min-width: 1500px) { #dmain { max-width: 1320px; margin-left: auto; margin-right: auto; } }
+@media (pointer: coarse) { #dtabs button, .drawer-list button, .sheet-list button { min-height: 44px; } }
