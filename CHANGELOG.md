@@ -3,7 +3,24 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## 2.0.3 — 2026-11-24
+## 1.5.10 — 2026-11-24
+
+### Added
+- **`service add … --expose PORT:NAME --public`.** `expose` already took `--public` (open to anyone, no login, admins only); the
+  `--expose` option of `service add` now does too, so a supervised app can be published publicly in one command. Normal users
+  get the same refusal as with `expose`, `--public` without `--expose` is rejected with a hint, and `service list` marks
+  public exposures with `(public)`.
+- **Laptop / desktop layout.** The file manager is wider on large screens and **resizable** (drag its left edge, double-click to
+  reset; remembered per browser). Wide windows get roomier margins, short windows (landscape phones, small laptops) get tighter bars.
+- **File manager keyboard control:** Up / Down / Home / End move the selection (Shift extends it), Enter opens, F2 renames,
+  Backspace goes up a folder, Delete deletes, Ctrl/Cmd+A selects all, Esc clears.
+- Tabs are keyboard reachable (Enter / Space selects, Delete closes) and a middle-click closes a tab.
+- Row actions (download, rename, delete) show on hover or focus on desktop and stay visible on touch; every button has a press state.
+
+### Changed
+- `service add` usage, the in-console help, COMMANDS, FEATURES, FREE_HOSTING, the hosting docs and the built-in agent's
+  knowledge now describe `--expose PORT:NAME [--public]`. The confirmation line says whether the app is open to anyone or
+  needs a login.
 
 ### Fixed
 - **Double-clicking a folder opened two levels deep.** Both clicks of a double-click opened an item, and the second landed on a
@@ -14,27 +31,6 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
   they now follow the theme.
 - Tabs had no name limit and a tiny close target; names now truncate with an ellipsis and the close button is a proper target.
 - Terminal output is selectable with a text cursor again on every theme.
-
-### Added
-- **Laptop / desktop layout.** The file manager is wider on large screens and **resizable** (drag its left edge, double-click to
-  reset; remembered per browser). Wide windows get roomier margins, short windows (landscape phones, small laptops) get tighter bars.
-- **File manager keyboard control:** Up / Down / Home / End move the selection (Shift extends it), Enter opens, F2 renames,
-  Backspace goes up a folder, Delete deletes, Ctrl/Cmd+A selects all, Esc clears.
-- Tabs are keyboard reachable (Enter / Space selects, Delete closes) and a middle-click closes a tab.
-- Row actions (download, rename, delete) show on hover or focus on desktop and stay visible on touch; every button has a press state.
-
-## 1.5.10 — 2026-11-24
-
-### Added
-- **`service add … --expose PORT:NAME --public`.** `expose` already took `--public` (open to anyone, no login, admins only); the
-  `--expose` option of `service add` now does too, so a supervised app can be published publicly in one command. Normal users
-  get the same refusal as with `expose`, `--public` without `--expose` is rejected with a hint, and `service list` marks
-  public exposures with `(public)`.
-
-### Changed
-- `service add` usage, the in-console help, COMMANDS, FEATURES, FREE_HOSTING, the hosting docs and the built-in agent's
-  knowledge now describe `--expose PORT:NAME [--public]`. The confirmation line says whether the app is open to anyone or
-  needs a login.
 
 ## 1.5.9 — 2026-11-23
 
