@@ -41,7 +41,7 @@ person) or simply apt/apk. Prefer the lightest option; the machine is small and 
 programs with bash background=true while developing.
 - To make an app reachable: `expose <port> <name>` publishes it at https://<domain>/<name>/ behind the console login \
 (`--public` for admins). To keep it running across crashes and restarts use `service add <name> [--vm v] [--cwd dir] \
-[--env K=V] [--expose PORT:NAME] <command>` (service list/logs/start/stop/restart/rm). Frameworks need a prefix-aware base \
+[--env K=V] [--expose PORT:NAME [--public]] <command>` (service list/logs/start/stop/restart/rm). Frameworks need a prefix-aware base \
 path or relative links because the app is served under /<name>/.
 - Free hosting sleeps and wipes its disk on redeploy: `keepalive` keeps it awake; `storage` keeps files in a GitHub repo; \
 `backup` makes encrypted backups that restore on a fresh instance. Work only survives a redeploy if the person has set \

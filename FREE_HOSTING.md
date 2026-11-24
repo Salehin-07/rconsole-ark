@@ -114,7 +114,8 @@ service add app --vm debian --cwd /root/app --expose 8000:app gunicorn -b 127.0.
 ```
 It starts at boot, restarts if it crashes, and lives at `/app/`. Apps that build absolute links (`/static/...`)
 are fixed automatically (add `--no-rewrite` to `--expose` or `expose` to opt out, e.g. if the framework already
-handles the prefix; `X-Forwarded-Prefix` is sent). See [COMMANDS.md](COMMANDS.md#expose).
+handles the prefix; `X-Forwarded-Prefix` is sent). Admins can add `--public` to `--expose` so anyone can open the
+app without logging in, just like `expose --public`. See [COMMANDS.md](COMMANDS.md#expose).
 
 ### A Telegram or Discord bot
 ```text

@@ -303,6 +303,33 @@ class CommandTests(Base):
         self.assertEqual(self.run_cmd(u, "service add site3 --vm debian --no-autostart --expose 8127:mysite3 sleep 5").count("rewritten automatically"), 1)
         self.assertTrue(exposure.rewrites(exposure.get("mysite3")))
 
+    def test_expose_option_public_for_admins(self):
+        c = self.admin()
+        out = self.run_cmd(c, "service add pub --host --no-autostart --expose 8128:mypub --public sleep 5")
+        self.assertIn("Exposed at /mypub/", out)
+        self.assertIn("anyone can open it", out)
+        self.assertTrue(exposure.get("mypub")["public"])
+        self.assertIn("(public)", self.run_cmd(c, "service list"))
+        self.run_cmd(c, "service rm pub")
+        self.assertIsNone(exposure.get("mypub"))
+
+    def test_expose_option_is_private_by_default(self):
+        c = self.admin()
+        out = self.run_cmd(c, "service add priv --host --no-autostart --expose 8129:mypriv sleep 5")
+        self.assertIn("login required", out)
+        self.assertFalse(exposure.get("mypriv")["public"])
+        self.assertNotIn("(public)", self.run_cmd(c, "service list"))
+
+    def test_public_needs_admin_and_expose(self):
+        u = self.user()
+        out = self.run_cmd(u, "service add site4 --vm debian --no-autostart --expose 8130:mysite4 --public sleep 5")
+        self.assertIn("admins only", out)
+        self.assertIsNone(exposure.get("mysite4"))
+        self.assertIsNone(services.get("site4"))
+        out = self.run_cmd(self.admin(), "service add site5 --host --no-autostart --public sleep 5")
+        self.assertIn("--public only makes sense together with --expose", out)
+        self.assertIsNone(services.get("site5"))
+
     def test_start_stop_all(self):
         c = self.admin()
         self.run_cmd(c, "service add a --host --no-autostart sleep 30")

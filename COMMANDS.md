@@ -124,7 +124,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.5.9` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.5.10` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -445,9 +445,10 @@ expose rm myapp                   # stop exposing
   (Django `FORCE_SCRIPT_NAME`, Flask `ProxyFix(x_prefix=1)`, Vite `--base`) can serve natively.
   Root-relative links in HTML and CSS (`/static/x.css`, `url(/img/a.png)`) are rewritten into the prefix
   automatically, best effort (not JavaScript). `--no-rewrite` opts out; the old `--rewrite` is still accepted and
-  does nothing. `service add … --expose PORT:NAME` behaves the same and also takes `--no-rewrite`. Exposures saved
+  does nothing. `service add … --expose PORT:NAME` behaves the same and also takes `--no-rewrite` and `--public`. Exposures saved
   by older versions get rewriting too.
-* `--public` (admins only) removes the login requirement for that name — handy for webhooks and demos.
+* `--public` (admins only) removes the login requirement for that name — handy for webhooks and demos. It works on
+  `expose` and on `service add … --expose PORT:NAME --public` (1.5.10).
 * Not supported: WebSockets through the proxy. Requests are buffered (not streamed) and time out after 30 s.
 * The console's own session cookie is never forwarded to your app.
 

@@ -10,7 +10,8 @@
 
 Options for ``add``:  ``--vm <name>`` run inside that VM  ·  ``--host`` on the server
 itself (admins)  ·  ``--cwd <dir>`` (default: the directory you are in now)  ·  ``--env KEY=VALUE`` (repeatable)  ·
-``--expose PORT:NAME`` publish the app at /NAME/ (links fixed automatically; ``--no-rewrite`` opts out)  ·  ``--no-autostart``.
+``--expose PORT:NAME`` publish the app at /NAME/ (links fixed automatically; ``--no-rewrite`` opts out;
+``--public`` lets anyone open it without logging in, admins only)  ·  ``--no-autostart``.
 
 Examples::
 
@@ -25,11 +26,12 @@ import posixpath
 
 import commands
 import distros
+import exposure
 import sandbox
 import services
 
 USAGE = """\
-service add <name> [--vm n | --host] [--cwd dir (default: where you are)] [--env K=V]... [--expose PORT:NAME [--no-rewrite]] [--no-autostart] <command…>
+service add <name> [--vm n | --host] [--cwd dir (default: where you are)] [--env K=V]... [--expose PORT:NAME [--public] [--no-rewrite]] [--no-autostart] <command…>
 service list                          services and their state
 service start|stop|restart <name|all>
 service logs <name> [lines]           recent output
@@ -38,7 +40,7 @@ service rm <name>                     stop and delete
 Example:  service add tgbot --vm debian --cwd /root/bot python bot.py"""
 
 _VALUE_OPTS = {"--vm", "--cwd", "--env", "--expose"}
-_FLAG_OPTS = {"--host", "--no-autostart", "--no-rewrite"}
+_FLAG_OPTS = {"--host", "--no-autostart", "--no-rewrite", "--public"}
 
 
 def _after(raw, pos, token):
@@ -136,6 +138,8 @@ def _line(i):
     elif i["state"] in ("backoff", "restarting"):
         extra = f" retry in {i['retry_in']}s" + (f", last exit {i['last_exit']}" if i["last_exit"] is not None else "")
     exp = f" → /{i['expose'][1]}/" if i.get("expose") else ""
+    if exp and (exposure.get(i["expose"][1]) or {}).get("public"):
+        exp += " (public)"
     head = f"{dot} {i['name']} — {i['state']}{extra} · {where} · restarts {i['restarts']}{exp}"
     out = [head, f"    {i['cmd']}"]
     if i["state"] in ("backoff", "starting") and i["last_error"]:
@@ -183,6 +187,10 @@ def cmd_service(ctx, args):
         if err:
             return f"service: {err}"
         expose = None
+        if opts.get("public") and not opts.get("expose"):
+            return "service: --public only makes sense together with --expose PORT:NAME"
+        if opts.get("public") and not admin:
+            return "service: --public is for admins only (it removes the login requirement)."
         if opts.get("expose"):
             port_s, _, ename = opts["expose"].partition(":")
             if not port_s.isdigit() or not ename:
@@ -198,6 +206,7 @@ def cmd_service(ctx, args):
         ok, msg = services.add(opts["name"], user, opts["cmd"], target, cwd=cwd,
                                env=opts["env"], expose=expose,
                                rewrite=not opts.get("no_rewrite"),
+                               public=bool(opts.get("public")),
                                enabled=not opts.get("no_autostart"))
         if not ok:
             return f"service: {msg}"
@@ -206,7 +215,8 @@ def cmd_service(ctx, args):
                + (f", in {cwd}" if cwd else "") + "); "
                + ("starting now." if not opts.get("no_autostart") else "not started (--no-autostart).")]
         if expose:
-            out.append(f"Exposed at /{expose[1]}/ (port {expose[0]}); "
+            out.append(f"Exposed at /{expose[1]}/ (port {expose[0]}, "
+                       + ("anyone can open it, no login" if opts.get("public") else "login required") + "); "
                        + ("link rewriting is off." if opts.get("no_rewrite") else
                           "root-relative links are rewritten automatically."))
         out.append("It restarts after crashes and starts again after every reboot or redeploy.")

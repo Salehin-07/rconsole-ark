@@ -3,6 +3,19 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.10 — 2026-11-24
+
+### Added
+- **`service add … --expose PORT:NAME --public`.** `expose` already took `--public` (open to anyone, no login, admins only); the
+  `--expose` option of `service add` now does too, so a supervised app can be published publicly in one command. Normal users
+  get the same refusal as with `expose`, `--public` without `--expose` is rejected with a hint, and `service list` marks
+  public exposures with `(public)`.
+
+### Changed
+- `service add` usage, the in-console help, COMMANDS, FEATURES, FREE_HOSTING, the hosting docs and the built-in agent's
+  knowledge now describe `--expose PORT:NAME [--public]`. The confirmation line says whether the app is open to anyone or
+  needs a login.
+
 ## 1.5.9 — 2026-11-23
 
 ### Added

@@ -1,6 +1,6 @@
 # Rconsole features
 
-Every feature of Rconsole 1.5.9, by area. This is the **map**; the details live in
+Every feature of Rconsole 1.5.10, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.
@@ -120,7 +120,7 @@ persistent `/root`. You are `root` inside and can install anything; no host priv
 
 | Feature | What you get |
 |---|---|
-| **`expose <port> <name>`** | Publishes a server you started (host or any VM) at `https://<domain>/<name>/`. Private by default (rconsole login), `--public` for admins (webhooks, demos); root-relative links in HTML/CSS are fixed automatically (`--no-rewrite` opts out). Up to 20 per user; names unique across users. |
+| **`expose <port> <name>`** | Publishes a server you started (host or any VM) at `https://<domain>/<name>/`. Private by default (rconsole login), `--public` for admins (webhooks, demos; also on `service add --expose … --public`); root-relative links in HTML/CSS are fixed automatically (`--no-rewrite` opts out). Up to 20 per user; names unique across users. |
 | **`expose list` / `expose rm` / `unexpose`** | List with `[up]`/`[down]`, remove one, several, or `all`. |
 | **Reverse proxy** | Pooled; sends `X-Forwarded-Prefix/Host/Proto`, rewrites redirects into the prefix, passes multiple `Set-Cookie` through, never forwards rconsole's own session cookie; requests are buffered with a 30 s timeout (no WebSockets through it). |
 | **`service`** | Named commands rconsole **keeps running**: start at boot, restart on crash with 2 s → 60 s back-off (reset after a minute of stability), live in a VM or on the host, are restored after a redeploy (definitions are in the backups; processes are stopped and started again once the VM is rebuilt). "Boot" means Rconsole's own startup. `service add\|list\|start\|stop\|restart\|logs\|rm\|help`. |

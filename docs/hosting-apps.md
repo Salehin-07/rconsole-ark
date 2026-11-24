@@ -12,7 +12,7 @@ $ expose list                   # [up]/[down] status
 $ expose rm myapp
 ```
 Apps that don't know they live under a path prefix just work: root-relative links in HTML/CSS (`/static/x.css`) are
-fixed automatically, no flag needed (`--no-rewrite` turns that off for prefix-aware apps). The proxy sends `X-Forwarded-Prefix`, so prefix-aware frameworks work natively. Details and
+fixed automatically, no flag needed (`--no-rewrite` turns that off for prefix-aware apps). Admins can make an app open to everyone with `--public` — on `expose`, or on `service add … --expose PORT:NAME --public`. The proxy sends `X-Forwarded-Prefix`, so prefix-aware frameworks work natively. Details and
 limits (no WebSockets) are in [COMMANDS.md](../COMMANDS.md#expose).
 
 **`service` — Rconsole starts and keeps the app running** (this replaces `sudo serve` / `sudo gunicorn`,
