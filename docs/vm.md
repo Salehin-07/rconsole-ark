@@ -94,6 +94,97 @@ $ vm use debian                   # plain commands now run in Debian
 ark@debian:/root$ python3 --version
 ```
 
+## Snapshots, clones and pre-baked templates
+
+Setting up a system takes minutes: download, `apt install`, Python, build tools, Node. Three features exist so you
+**do that once** and then go back, branch or repeat in seconds. They are easy to mix up, so here is the whole picture.
+
+| | What it is | Lives where | Use it when |
+|---|---|---|---|
+| **Snapshot** | A named, compressed picture of **one VM at one moment** (system files **and** `/root`). | A `.tar.gz` on the data disk, belongs to that VM. | You are about to do something risky and want an undo button. |
+| **Clone** | A **second, independent VM** copied from a VM (or from one of its snapshots). | A normal VM next to the original. | You want to experiment, test an upgrade, or run two copies of an app. |
+| **Template** | A **pre-baked recipe**: a VM prepared once (Python, Node, your tools) and stored so new VMs start from it. | A `.tar.gz`, yours or shared with everyone. | You create the same kind of system again and again. |
+
+### Snapshots: an undo button
+
+```
+vm snapshot create before-upgrade --note "debian 13, working app"
+apt full-upgrade          # ...and it goes wrong
+vm snapshot restore before-upgrade --yes
+```
+
+* **What is saved:** the whole system (installed packages, config in `/etc`, everything you added) *and* your `/root`, plus
+  the `vm setup` and package records, so the VM comes back exactly as it was.
+* **What restore does:** stops what runs in that VM, unpacks the snapshot **next to** the VM, and only then switches the
+  files over. If anything fails the VM is left exactly as it was. What you changed since the snapshot is gone, so snapshot first
+  if you may want it.
+* **Limits:** up to **5 per VM**, private to you. They are compressed (usually a third of the VM's size) and need free disk
+  space; the command tells you when there is not enough. `vm snapshot delete <name>` frees it.
+* **While it runs** the VM is **locked** (like during `vm update`); other VMs keep working. One such job per user at a time.
+* **Crash-consistent:** files are copied as they are. A database that was mid-write is as a power cut would leave it, so stop the
+  app first if you need a clean copy. Processes are not saved, only files.
+* `vm snapshot list [vm]` shows them. A snapshot **survives `vm remove`**, so `vm clone debian@before-upgrade debian2` can
+  bring the VM back.
+
+### Clones: a copy that lives on its own
+
+```
+vm clone debian test            # a copy of debian as it is now -> VM "test"
+vm clone debian@before-upgrade test2     # ...or from a snapshot
+vm shell test
+```
+
+A clone takes seconds and **downloads nothing**. It is a full VM: its own `/root`, its own processes and ports, its own
+`vm update`, services and prompt (`test@root`). Changing the clone never changes the original. The name is 1-32 characters
+and cannot be the name of an installable system (`debian`, `ubuntu`, ...). After a **fresh deploy** a clone is rebuilt like any VM
+(a new system of the same distro, your `/root`, the `vm setup` profiles and recorded packages), not byte for byte; use a
+**snapshot or template** for exact copies, and note those live on the data disk.
+
+### Templates: pre-baked systems
+
+A template is a VM **baked** in advance. Starting from one skips the download and every install step.
+
+```
+vm template save debian pydev --desc "Python 3 + build tools"   # freeze a VM you prepared
+vm template bake nodebox debian node python                      # or build one from scratch
+vm template list
+vm template use pydev api-project                                # a new VM, ready in seconds
+```
+
+* **`save`** freezes a VM you already set up. **`bake`** does everything for you: it installs the distro in a scratch VM, runs the
+  `vm setup` profiles you name (`vm setup` lists them), saves the result, and **deletes the scratch VM** whatever happens.
+  Baking takes as long as the setups do; it runs in the background.
+* **Secrets are never baked in.** Shell history, `~/.ssh`, `~/.gnupg`, `.netrc`, git credentials, `gh`/AWS/kube/docker config,
+  `.npmrc`, `.pypirc` and the pip cache are left out, so a template is safe to hand to someone else.
+* **Private by default** (up to 8). An admin can add `--shared` (up to 12) so every user can `vm template use` it: a good way for a
+  small team to start from the same toolchain. `vm template delete <name> [--shared]` removes one.
+* A VM made from a template records its tools, so a backup restore knows what to reinstall.
+
+### Where they are stored (and what a backup does)
+
+Snapshots and templates live under the data directory (`vmstore/`), **not** in your encrypted backup: a system is hundreds of
+MB. On a host with a disk that survives restarts they survive too; on a free tier that wipes the disk on each deploy they do
+not, but your VMs, `/root` and package lists are still rebuilt as before. With repo storage on, files that are only in the repo
+(placeholders) are copied as placeholders, not downloaded.
+
+## Active ports and "Open in Proxy"
+
+`vm ports` (and the **Systems** page of the dashboard) lists **every TCP port a VM is listening on**: the port, the address,
+the process, and whether it is already published. Systems share the server's network, so a server you start inside a VM listens
+on the host's `localhost`; Rconsole attributes each listening socket to the VM whose processes own it, so you only see your own.
+
+```
+python -m http.server 8000 &
+vm ports                    # debian: 1 listening port(s)  8000  0.0.0.0  pid 41  python -m http.server
+vm ports open 8000 demo     # same as `expose 8000 demo`  ->  https://<your-site>/demo/
+vm ports close 8000
+```
+
+In the dashboard each port has an **Open in Proxy** switch. It uses the same registry as `expose`, so it shows up in
+`expose list` and the Apps page, needs a login to open (making one public is an admin-only `expose --public`), and only works
+for a port the VM is **really listening on right now**. Ports bound to a specific non-local address are shown with a reason,
+because the proxy reaches `127.0.0.1` only.
+
 ## How it works
 
 Each system is a root filesystem run under [proot](https://proot-me.github.io/)

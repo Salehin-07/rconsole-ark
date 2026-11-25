@@ -775,7 +775,7 @@ def install_state(sid, vm):
     """State of one VM: ``installing`` / ``updating`` / ``failed`` / ``ready`` / ``absent``."""
     with _installs_lock:
         rec = dict(_installs.get((sid, vm)) or {})
-    if rec.get("state") in ("installing", "updating", "failed"):
+    if rec.get("state") in ("installing", "updating", "failed", "working"):
         return rec
     with _installs_lock:
         msg = _restoring.get((sid, vm))
@@ -804,6 +804,13 @@ def any_updating():
         return any(rec.get("state") == "updating" for rec in _installs.values())
 
 
+def working(sid):
+    """Names of this user's VMs locked by a snapshot, restore-from-snapshot or clone (see :mod:`vmsnap`)."""
+    with _installs_lock:
+        return [vm for (s, vm), rec in _installs.items()
+                if s == sid and rec.get("state") == "working"]
+
+
 def busy_reason(sid, vm):
     """Why ``vm`` cannot be used right now (installing / updating), or ``None``."""
     st = install_state(sid, vm)["state"]
@@ -817,6 +824,11 @@ def busy_reason(sid, vm):
     if st == "updating":
         return (f"{vm} is being updated and is locked until it finishes (`vm status` shows "
                 f"progress). Use another system meanwhile, e.g. `vm use <name>`.")
+    if st == "working":
+        if getattr(_tl, "restorer", False):
+            return None
+        return (f"{vm} is busy ({install_state(sid, vm)['message']}) and locked until that finishes "
+                f"(`vm status` shows progress). Use another system meanwhile, e.g. `vm use <name>`.")
     return None
 
 
@@ -1147,9 +1159,11 @@ def _install_worker(sid, plan):
         _install_one(sid, distro, release)
 
 
-def _install_one(sid, distro, release):
+def _install_one(sid, distro, release, vm=None):
+    """Provision one system. ``vm`` is the name it gets (default: the distro's id); a rebuilt clone
+    (``vm clone``) is reinstalled from its distro under its own name."""
     global _no_seccomp
-    vm = distro.id
+    vm = vm or distro.id
     base = vm_dir(sid, vm)
     try:
         config.ensure_private_dir(config.VM_DIR)
@@ -1185,7 +1199,7 @@ def _install_one(sid, distro, release):
             _set_install(sid, vm, "installing", "creating the pacman signing keys")
             arch_keyring(sid, vm)                     # not fatal: `vm update` retries it
         (base / DISTRO_FILE).write_text(json.dumps({
-            "id": vm, "release": release, "family": distro.family,
+            "id": distro.id, "release": release, "family": distro.family,
             "label": label, "installed_at": int(time.time())}))
         (base / READY_MARKER).write_text(str(int(time.time())))
         try:                                    # repo storage: the system's /home etc. come back from the repo
@@ -1276,6 +1290,11 @@ def reset(sid, vm=None, keep_home=True):
             reset(sid, name, keep_home)
         if not keep_home:
             shutil.rmtree(user_dir(sid), ignore_errors=True)
+            try:
+                import vmsnap
+                vmsnap.remove_user(sid)             # their snapshots and private templates go with the account
+            except Exception:
+                pass
         return True
     base = vm_dir(sid, vm)
     if not base.exists():
@@ -1349,6 +1368,29 @@ def _end_restoring(sid, vm):
         _restoring.pop((sid, vm), None)
 
 
+def _rebuild_one(user, vm, release, choice):
+    """Reinstall one system after a restore. A clone (``vm clone``, any name that is not a catalog id) is
+    rebuilt from the distro its ``distro.json`` names, under its own name: a fresh system of that distro with
+    its ``/root`` and recorded setups, not a byte copy (snapshots and templates stay on the disk they were
+    made on)."""
+    if vm in distros.CATALOG:
+        return install(user, choice, wait=True)
+    try:
+        meta = json.loads((vm_dir(user, vm) / DISTRO_FILE).read_text())
+    except (OSError, ValueError, SandboxError):
+        return False, "its metadata is unreadable"
+    distro = distros.CATALOG.get(meta.get("id"))
+    if distro is None:
+        return False, f"unknown base system '{meta.get('id')}'"
+    if not supported():
+        return False, "the VM is unavailable (needs Linux and RCONSOLE_VM=1)."
+    _set_install(user, vm, "installing", "queued")
+    _install_one(user, distro, release or distro.default_release, vm=vm)
+    if installed(user, vm):
+        return True, "ready"
+    return False, install_state(user, vm).get("message") or "failed"
+
+
 def restore_vms(log=print):
     """Rebuild missing VMs one by one: system, then `vm setup` profiles, then the recorded packages.
 
@@ -1368,7 +1410,7 @@ def restore_vms(log=print):
                 and release != distros.CATALOG[vm].default_release else vm
             log(f"[rconsole] rebuilding {user}/{vm} …")
             _set_restoring(user, vm, "installing the system")
-            ok, msg = install(user, choice, wait=True)
+            ok, msg = _rebuild_one(user, vm, release, choice)
             if not ok:
                 log(f"[rconsole] could not rebuild {user}/{vm}: {msg}")
                 continue
@@ -1421,6 +1463,11 @@ def rename_user(old, new):
         raise SandboxError(f"{old}'s system is being updated; wait for it to finish.")
     if src.exists() and not dst.exists():
         os.replace(src, dst)
+    try:
+        import vmsnap
+        vmsnap.rename_user(old, new)
+    except Exception:
+        pass
     with _installs_lock:
         for key in [k for k in _installs if k[0] == old]:
             _installs.pop(key, None)

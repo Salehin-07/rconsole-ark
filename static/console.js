@@ -3188,6 +3188,7 @@ const VIDEO_EXTS = ["mp4", "m4v", "webm", "ogv", "mov"];
 const AUDIO_EXTS = ["mp3", "wav", "ogg", "oga", "opus", "m4a", "aac", "flac", "weba"];
 const PDF_EXTS = ["pdf"];
 const OFFICE_EXTS = ["docx", "xlsx", "xlsm", "xls", "pptx"];   // previewed in the browser (static/office-viewer.js)
+const DB_EXTS = ["db", "sqlite", "sqlite3", "db3", "s3db", "sl3", "sqlitedb"];   // SQLite files: read-only browser (static/db-viewer.js); keep equal to dbview.DB_EXTS
 const LEGACY_OFFICE_EXTS = ["doc", "ppt"];                     // old binary Word/PowerPoint: cannot be previewed, offered as a download
 function mediaKind(name) {
   const ext = ((name || "").split(".").pop() || "").toLowerCase();
@@ -3196,6 +3197,7 @@ function mediaKind(name) {
   if (AUDIO_EXTS.includes(ext)) return "audio";
   if (PDF_EXTS.includes(ext)) return "pdf";
   if (OFFICE_EXTS.includes(ext)) return "office";
+  if (DB_EXTS.includes(ext)) return "db";
   if (LEGACY_OFFICE_EXTS.includes(ext)) return "legacy";
   return "";
 }
@@ -3268,6 +3270,42 @@ function viewerShowOffice(e) {
     }).destroy;
   }).catch(() => {
     if (viewerState.idx === idx) viewerMessage("The document viewer could not be loaded.", e);
+  });
+}
+let dbScriptPromise = null;
+function loadDbViewerScript() {
+  if (window.RCDb) return Promise.resolve();
+  if (!dbScriptPromise) {
+    dbScriptPromise = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      const v = assetVersion();
+      s.src = "/static/db-viewer.js" + (v ? "?v=" + v : "");
+      s.onload = () => resolve();
+      s.onerror = () => { dbScriptPromise = null; reject(new Error("load failed")); };
+      document.head.appendChild(s);
+    });
+  }
+  return dbScriptPromise;
+}
+function viewerShowDb(e) {
+  const idx = viewerState.idx;
+  const boot = document.createElement("div");
+  boot.className = "pdfv-boot";
+  const spin = document.createElement("span");
+  spin.className = "pdfv-spin";
+  const label = document.createElement("span");
+  label.textContent = "Opening database…";
+  boot.append(spin, label);
+  elViewerStage.appendChild(boot);
+  loadDbViewerScript().then(() => {
+    if (viewerState.idx !== idx || viewerState.list[idx] !== e) return;
+    boot.remove();
+    viewerState.cleanup = window.RCDb.open(elViewerStage, {
+      path: e.path, name: e.name, version: assetVersion(),
+      onFallback: (msg) => { if (viewerState.idx === idx) viewerMessage(msg, e); },
+    }).destroy;
+  }).catch(() => {
+    if (viewerState.idx === idx) viewerMessage("The database viewer could not be loaded.", e);
   });
 }
 let pdfScriptPromise = null;
@@ -3360,6 +3398,8 @@ function viewerShow(i) {
     viewerShowPdf(e);
   } else if (mediaKind(e.name) === "office") {
     viewerShowOffice(e);
+  } else if (mediaKind(e.name) === "db") {
+    viewerShowDb(e);
   } else if (mediaKind(e.name) === "legacy") {
     viewerMessage("Old-format Word and PowerPoint files (.doc, .ppt) can't be previewed here. Download it and open it in Word, or save it as .docx first.", e);
   } else if (mediaKind(e.name) === "audio") {
@@ -3415,7 +3455,7 @@ document.getElementById("viewer-dl").onclick = () => {
 elViewer.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); closeViewer(); return; }
   if (ev.target && (ev.target.tagName === "VIDEO" || ev.target.tagName === "AUDIO" || ev.target.tagName === "INPUT")) return;  // arrows seek inside a player / move the caret
-  if (ev.target && ev.target.closest && ev.target.closest(".pdfv")) return;                       // a PDF scrolls with the keys
+  if (ev.target && ev.target.closest && (ev.target.closest(".pdfv") || ev.target.closest(".dbv"))) return;   // a PDF / database scrolls with the keys
   if (ev.key === "ArrowLeft") { ev.preventDefault(); viewerShow(viewerState.idx - 1); }
   else if (ev.key === "ArrowRight") { ev.preventDefault(); viewerShow(viewerState.idx + 1); }
 });
@@ -3423,7 +3463,7 @@ elViewer.addEventListener("keydown", (ev) => {
 (() => {
   let x0 = null, y0 = 0;
   elViewerStage.addEventListener("touchstart", (ev) => {
-    if (ev.touches.length !== 1 || ev.target.tagName === "VIDEO" || ev.target.tagName === "AUDIO" || ev.target.closest(".pdfv")) { x0 = null; return; }
+    if (ev.touches.length !== 1 || ev.target.tagName === "VIDEO" || ev.target.tagName === "AUDIO" || ev.target.closest(".pdfv") || ev.target.closest(".dbv")) { x0 = null; return; }
     x0 = ev.touches[0].clientX; y0 = ev.touches[0].clientY;
   }, { passive: true });
   elViewerStage.addEventListener("touchend", (ev) => {

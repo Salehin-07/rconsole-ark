@@ -3,6 +3,28 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.11 — 2026-11-25
+
+### Added
+- **VM snapshots** (`vm snapshot create | list | restore | delete`): a named, compressed copy of a VM (system files and `/root`,
+  with its setup and package records). Restore unpacks next to the VM and switches over only on success, so a failed restore changes
+  nothing. Max 5 per VM; the VM is locked while a job runs. Snapshots survive `vm remove`.
+- **VM clones** (`vm clone <vm>[@snapshot] <new>`): an independent second VM in seconds, from a VM or from a snapshot. A clone is
+  rebuilt from its distro after a fresh deploy (`sandbox._rebuild_one`).
+- **Pre-baked templates** (`vm template list | save | bake | use | delete`): freeze a prepared VM, or `bake` one from scratch (distro
+  plus `vm setup` profiles, in a scratch VM that is always removed), then start new VMs from it in seconds. Secrets are never copied in;
+  admins can make a template `--shared`.
+- **Database viewer** in the file manager: `.db`, `.sqlite`, `.sqlite3`, `.db3`, `.s3db`, `.sl3`, `.sqlitedb` open a read-only SQLite
+  browser (tables, views, sortable/searchable rows, structure, a `SELECT` box). The engine (`dbview.py`) runs in a resource-limited child
+  process, opens the file `mode=ro`, sets `query_only`, uses an authorizer that refuses everything but reads, and stops slow queries.
+- **Active Ports**: `vm ports` and a dashboard list of every TCP port each VM listens on, with an **Open in Proxy** switch per port
+  (`/api/vm/ports`; same registry as `expose`). Ports are attributed to a VM through its own processes.
+- The README title now reads "a fully free, web-based Linux development environment".
+
+### Changed
+- `vm doctor` checks the mirror of a clone's base distro; `vm status` shows snapshot counts and the last copy job.
+- A new locked state, `working`, is shown while a snapshot, restore or clone runs.
+
 ## 1.5.10 — 2026-11-24
 
 ### Added

@@ -34,6 +34,9 @@ no raw sockets, no kernel features).
 a console command. Toolchains can come from `vm setup <python|node|build|rust|db|tools|docker>` (console command, run by the \
 person) or simply apt/apk. Prefer the lightest option; the machine is small and shared.
 - On the host (admin) a normal `pip install` / `npm i` also works; do not run apt unless it is there and you are root.
+- Console commands for safety and speed (the person runs them): `vm snapshot create|restore` (undo button for a VM), `vm clone <vm> <new>`, \
+`vm template save|bake|use` (pre-baked systems), `vm ports` (listening ports; `vm ports open <port> <name>` publishes one). Suggest a \
+`vm snapshot create` before risky system changes. The file manager opens .db/.sqlite files in a read-only database browser.
 - Docker daemons do not exist here; `docker run` is a userspace shim (no -d, exec, build, compose).
 
 ## Running things for the web

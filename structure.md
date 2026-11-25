@@ -67,6 +67,9 @@ rconsole/
 ├── guestshims.py           # pgrep/pkill/pidof/killall/pstree/htop fallbacks installed in every VM
 ├── procguard.py            # marks the server non-dumpable so VMs cannot read its /proc/<pid>/environ or fd
 ├── vmdeps.py               # per-VM dependency manifest (deps.json): capture before backup, reinstall after restore
+├── vmsnap.py               # `vm snapshot` / `vm clone` / `vm template`: tar.gz snapshots, clones, pre-baked templates, bake
+├── vmports.py              # Active Ports: listening TCP ports per VM (via its processes) and the Open in Proxy toggle
+├── dbview.py               # read-only SQLite engine for the file manager's DB tab (runs in a limited child process)
 ├── vmupdate.py             # `vm update`: lock, snapshot (hard links), upgrade, verify, rollback, crash recovery
 ├── dashboard.py            # Dashboard backend: resource sampler, admin section views, normal-user views (own things only), own-password change, admin actions, audit trail
 ├── serve.py                # Launcher: gunicorn if usable, else built-in threaded server (Windows)
@@ -84,6 +87,7 @@ rconsole/
 │   ├── test_dashboard.py   # Dashboard: access control, sections, actions, audit trail, logout button
 │   ├── test_serve.py       # serve.py: server choice, gunicorn command, built-in fallback + shutdown
 │   ├── test_sandbox.py     # Path confinement (symlink/.. escapes), authorization
+│   ├── test_v1511.py       # snapshots, clones, templates, Active Ports, database viewer
 │   ├── test_vmupdate.py    # vm update: snapshot/rollback, lock, who may update, recovery (fake package manager)
 │   ├── test_vmupdate_e2e.py # vm update in a real proot VM with a fake apt-get
 │   ├── test_multivm.py     # Several VMs per user: separation, picker, targets API, migration, doctor

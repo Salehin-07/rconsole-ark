@@ -124,7 +124,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.5.10` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.5.11` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -332,6 +332,16 @@ its own `/root`**. Inside one you are `root` and can install anything. Debian is
 | `vm kill <pid> [name] [--9]` | stop one process of a VM by the PID `vm ps` shows (never its init) |
 | `vm deps [name]` | what a restore will reinstall; `vm deps capture` records now, `vm deps restore` reinstalls now |
 | `vm doctor [name]` | step-by-step health check (shell, programs, root, write, DNS, internet, packages) |
+| `vm snapshot create [vm] [name] [--note text]` | save the VM (system + `/root`) as a named snapshot (max 5 per VM; the VM is locked meanwhile) |
+| `vm snapshot list [vm]` · `vm snapshot delete [vm] <name>` | list or delete snapshots |
+| `vm snapshot restore [vm] <name> --yes` | put a snapshot back (stops what runs in the VM; a failed restore changes nothing) |
+| `vm clone <vm>[@snapshot] <new>` | a second, independent VM copied from a VM or one of its snapshots (seconds, no download) |
+| `vm template list` | templates you can use (yours and shared) |
+| `vm template save [vm] <name> [--shared] [--desc text]` | freeze a prepared VM as a pre-baked template (secrets left out; `--shared` is admins only) |
+| `vm template bake <name> <distro[:release]> [profile ...] [--shared]` | build a template from scratch: install, run `vm setup` profiles, save, remove the scratch VM |
+| `vm template use <name> <new-vm>` · `vm template delete <name> [--shared]` | a new VM from a template; delete one |
+| `vm ports [vm]` | every TCP port a VM listens on, with its proxy state |
+| `vm ports open <port> [name] [--vm n]` · `vm ports close <port>` | publish a listening port at `/<name>/` (like `expose`) or stop |
 | `vm help` | short usage |
 
 ```text

@@ -1,6 +1,6 @@
 # Rconsole features
 
-Every feature of Rconsole 1.5.10, by area. This is the **map**; the details live in
+Every feature of Rconsole 1.5.11, by area. This is the **map**; the details live in
 [COMMANDS.md](COMMANDS.md) (each command, option and example), [README.md](README.md) (setup, configuration,
 security model), [DEPLOY.md](DEPLOY.md) and [FREE_HOSTING.md](FREE_HOSTING.md). A test fails when a command exists
 that is not mentioned here or in COMMANDS.md.
@@ -109,6 +109,11 @@ persistent `/root`. You are `root` inside and can install anything; no host priv
 | **`vm ps [name]`** · **`vm kill <pid> [name]`** | Processes of one VM. Each VM has its **own PID namespace** (`RCONSOLE_VM_PIDNS`, default `auto`), so `ps`/`top`/`kill`/`/proc` inside it show only its processes (PIDs from 1) and `kill -9 -1` stays inside; where the host forbids user namespaces the VM gets a **built `/proc`** (harmless host-wide files, a copy-only view of its own processes so `ps`/`top`/`pgrep` work, a `mounts` file; no `/proc/self`) and these two commands are the scoped view (found through proot) and `vm doctor` says "NOT isolated". |
 | **`vm deps [name]`** | What a restore will reinstall in a VM: system packages, pip, global npm, virtualenvs and Node projects under `/root` (`deps.json`, taken before each backup). `vm deps capture` records now, `vm deps restore` reinstalls now. `RCONSOLE_RESTORE_DEPS=0` disables restoring. |
 | **`vm doctor [name]`** | Step-by-step health check: shell, programs, root, write, DNS, internet, packages. |
+| **`vm snapshot`** | Named, compressed pictures of one VM (system **and** `/root`, plus setup/package records): `create`, `list`, `restore --yes`, `delete`. Up to 5 per VM; the VM is locked while it works; restore unpacks beside the VM and switches over only when it worked. Stored in `vmstore/` on the data disk (not in the encrypted backup). |
+| **`vm clone <vm>[@snapshot] <new>`** | A second, independent VM copied from a VM or a snapshot, in seconds and with no download. Rebuilt from its distro after a fresh deploy like any VM. |
+| **`vm template`** | Pre-baked VMs: `save` a prepared VM, `bake` one from scratch (distro + `vm setup` profiles), `use` it to start a new VM in seconds, `delete`. Secrets (history, `~/.ssh`, tokens) are never included; admins can `--shared` a template with every user. |
+| **`vm ports`** · dashboard **Active ports** | Every TCP port a VM is listening on (found through the VM's own processes), with a one-click **Open in Proxy** switch (the same registry as `expose`). Only a port the VM really listens on can be opened. |
+| **Database viewer** | Opening `.db`, `.sqlite`, `.sqlite3`, `.db3`, `.s3db`, `.sl3` or `.sqlitedb` in the file manager shows a read-only SQLite browser: tables and views, sortable and searchable pages of rows, the schema, and a `SELECT` box. It runs in a limited child process and cannot write (read-only open, `query_only`, an authorizer, file-size limit, time limit). |
 | **`vm help`** | Short usage. |
 | **No questions asked** | Installs are non-interactive (`DEBIAN_FRONTEND=noninteractive`); `pip install` works without `--break-system-packages`; Kali gets a writable `/dev/net` and no banner; user tool directories (`~/.local/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/go/bin`) are on `PATH`. |
 | **`docker`** | `docker run`/`pull`/`images`/`ps`/`rm`/`rmi`/… **without a daemon** (a shim over udocker, installed in the image and by `vm setup docker`). `drun` is `docker run`. `DOCKER_HOST` forwards to a real engine. Daemon-only features (`-d`, `exec`, `logs`, `build`, `compose`) explain why they are impossible. |

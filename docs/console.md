@@ -42,3 +42,18 @@ real PTY window. Close it with the **✕ button in the top-right corner** (works
 phones, where there is no Esc key) or press **Esc**: either one ends the session and
 returns you to the console. Other commands have a 60-second timeout —
 append ` &` to run longer ones as a job.
+
+## Database viewer (SQLite)
+
+Open a `.db`, `.sqlite`, `.sqlite3`, `.db3`, `.s3db`, `.sl3` or `.sqlitedb` file in the file manager and a small **read-only**
+database browser opens instead of the editor: a list of tables and views on the left (a dropdown on phones), then three tabs.
+
+* **Browse** - pages of 100 rows, click a column heading to sort, type in the search box to filter. NULLs, blobs (size and first bytes)
+  and long text (cut, with its length) are shown quietly.
+* **Structure** - the columns, keys and the `CREATE` statement, plus the table's indexes and triggers.
+* **Query** - a `SELECT` box (Ctrl/Cmd + Enter runs it). Only `SELECT`, `WITH`, `EXPLAIN` and read-only `PRAGMA` run; a statement that
+  would change anything is refused.
+
+The file is never modified: it is opened read-only, the reader runs in its own limited process (memory, CPU time, file size and
+a time limit per query), and a damaged file can only cost one request. A database in WAL mode that is open in a running app is read
+without its log (the header says so). Files that are not SQLite (an encrypted database, `Thumbs.db`) give a clear message and a download button.

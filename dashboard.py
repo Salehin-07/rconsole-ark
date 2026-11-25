@@ -30,6 +30,8 @@ import sandbox
 import services
 import state
 import termsess
+import vmports
+import vmsnap
 from version import __version__
 
 HISTORY_MAX = 720            # samples kept (one hour at the default 5 s)
@@ -448,10 +450,21 @@ def _vm_rows(only=None):
                     procs = pidns.vm_procs(owner, vm)
             except Exception:
                 procs = []
+            ports = []
+            try:
+                if procs and st["state"] == "ready":
+                    ports = vmports.cached_scan(owner, vm, procs)
+            except Exception:
+                ports = []
+            try:
+                snaps = [{"name": x["name"], "created": x.get("created"), "bytes": x.get("bytes", 0),
+                          "note": x.get("note", "")} for x in vmsnap.list_snapshots(owner, vm)]
+            except Exception:
+                snaps = []
             rows.append({"owner": owner, "vm": vm, "state": st["state"], "message": st.get("message", ""),
                          "distro": meta.get("label") or meta.get("id") or vm,
-                         "version": str(meta.get("release") or ""),
-                         "procs": procs[:60], "proc_count": len(procs)})
+                         "version": str(meta.get("release") or ""), "cloned_from": meta.get("cloned_from") or "",
+                         "procs": procs[:60], "proc_count": len(procs), "ports": ports, "snapshots": snaps})
     return rows
 
 
@@ -683,7 +696,8 @@ def view(section, actor=""):
     if section == "users":
         return _users_view(actor)
     if section == "systems":
-        return {"systems": _vm_rows(), "storage": storage(), "pid_namespaces": pidns.status()}
+        return {"systems": _vm_rows(), "storage": storage(), "pid_namespaces": pidns.status(),
+                "templates": vmsnap.list_templates(actor) if actor else []}
     if section == "apps":
         exps, hosted = _app_rows()
         return {"exposures": exps, "hosted": hosted}
@@ -730,7 +744,7 @@ def view_user(section, who):
     if section == "apps":
         return {"exposures": exps, "hosted": hosted}
     if section == "systems":
-        return {"systems": systems}
+        return {"systems": systems, "templates": vmsnap.list_templates(who)}
     if section == "processes":
         return {"jobs": jobs_, "terminals": terms, "services": svcs}
     account = {"name": who, "admin": bool(u.get("is_admin")), "last_seen": int(seen[0]) if seen else None,

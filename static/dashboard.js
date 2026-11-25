@@ -313,7 +313,7 @@
   const td = (v, cls) => h("td", { class: cls || "" }, v);
   const btn = (label, fn, cls) => h("button", { class: "b " + (cls || ""), type: "button", onclick: fn }, label);
   const statePill = (st) => h("span", { class: "pill " + ({ running: "ok", ready: "ok", stopped: "", starting: "warn", backoff: "bad",
-    restarting: "warn", failed: "bad", installing: "warn", updating: "warn", restoring: "warn" }[st] || "") }, st);
+    restarting: "warn", failed: "bad", installing: "warn", updating: "warn", restoring: "warn", working: "warn" }[st] || "") }, st);
 
   async function showLog(kind, owner, id, title) {
     const bg = h("div", { class: "modal-bg", onclick: (e) => { if (e.target === bg) bg.remove(); } });
@@ -438,6 +438,8 @@
       out.push(table(["Owner", "System", "State", "#Processes", ""], d.systems.map((v) => h("tr", {},
         td(v.owner), td([v.distro, v.version ? " " + v.version : ""]), td([statePill(v.state), v.message ? h("div", { class: "sub" }, v.message) : null]),
         td(v.proc_count, "num"), td(v.proc_count ? btn("Processes", () => showVmProcs(v)) : ""))), "No systems installed."));
+      out.push(...portsSection(d.systems, true));
+      out.push(...copiesSection(d, true));
       const st = d.storage;
       out.push(h("h2", { class: "sec" }, "Disk usage ", h("small", {}, st.age != null ? `measured ${dur(st.age)} ago${st.partial ? " (partial)" : ""}` : st.busy ? "measuring…" : ""),
         h("span", { class: "sp" }), btn("Measure again", () => act({ action: "storage.rescan" }))));
@@ -899,7 +901,8 @@
       return [h("h2", { class: "sec" }, "Your Linux systems"),
         table(["System", "State", "#Processes", ""], d.systems.map((v) => h("tr", {},
           td([v.distro, v.version ? " " + v.version : ""]), td([statePill(v.state), v.message ? h("div", { class: "sub" }, v.message) : null]),
-          td(v.proc_count, "num"), td(v.proc_count ? btn("Processes", () => showVmProcs(v, true)) : ""))), "No systems installed. Try `vm install debian` in the console.")];
+          td(v.proc_count, "num"), td(v.proc_count ? btn("Processes", () => showVmProcs(v, true)) : ""))), "No systems installed. Try `vm install debian` in the console."),
+        ...portsSection(d.systems, false), ...copiesSection(d, false)];
     },
 
     async processes(d) {
@@ -919,6 +922,45 @@
 
   VIEWS.account = accountView;
   const V = ADMIN ? VIEWS : USER_VIEWS;
+
+
+  // ---------------------------------------------------------------- Active ports + snapshots (Systems page)
+  const agoTs = (ts) => (ts ? dur(Math.max(0, Date.now() / 1000 - ts)) + " ago" : "");
+  async function togglePort(v, p, on) {
+    try {
+      const r = await api("/api/vm/ports", { method: "POST", headers: { "Content-Type": "application/json" },
+                                              body: JSON.stringify({ owner: v.owner, vm: v.vm, port: p.port, on }) });
+      const d = await r.json();
+      toast(d.message || d.error || (d.ok ? "done" : "failed"), !d.ok);
+    } catch (e) { toast("request failed", true); }
+    load();
+  }
+  function portsSection(systems, withOwner) {
+    const rows = [];
+    for (const v of systems) for (const p of v.ports || []) {
+      const sw = h("button", { type: "button", class: "switch", role: "switch", "aria-checked": String(!!p.exposed),
+        "aria-label": `Open port ${p.port} in the proxy`, disabled: !p.proxyable && !p.exposed ? true : null, title: p.why || "" });
+      sw.onclick = () => togglePort(v, p, sw.getAttribute("aria-checked") !== "true");
+      rows.push(h("tr", {}, withOwner ? td(v.owner) : null, td(v.vm), td(p.port, "num"), td(p.addr), td(p.cmd || "-", "cmd"),
+        td(p.exposed ? h("a", { href: `/${p.exposed}/`, target: "_blank", rel: "noopener", style: "color:var(--blue)" }, `/${p.exposed}/ ↗`)
+                     : h("span", { class: "sub" }, p.why || "not published")), td(sw)));
+    }
+    const head = (withOwner ? ["Owner"] : []).concat(["System", "#Port", "Address", "Program", "Proxy", "Open in Proxy"]);
+    return [h("h2", { class: "sec" }, "Active ports ", h("small", {}, "every TCP port a system is listening on")),
+      table(head, rows,
+        "Nothing is listening. Start a server inside a system (e.g. python -m http.server 8000) and it appears here.")];
+  }
+  function copiesSection(d, withOwner) {
+    const snaps = [];
+    for (const v of d.systems) for (const s of v.snapshots || [])
+      snaps.push(h("tr", {}, withOwner ? td(v.owner) : null, td(v.vm), td(s.name), td(bytes(s.bytes), "num"), td(agoTs(s.created)), td(s.note || "")));
+    const tpl = (d.templates || []).map((t) => h("tr", {}, td(t.name), td(t.label || t.distro), td((t.setups || []).join(", ") || "-"),
+      td(bytes(t.bytes || 0), "num"), td(t.shared ? "shared" : "yours"), td(t.description || "")));
+    return [h("h2", { class: "sec" }, "Snapshots ", h("small", {}, "vm snapshot create / restore / delete")),
+      table((withOwner ? ["Owner"] : []).concat(["System", "Name", "#Size", "Taken", "Note"]), snaps, "No snapshots yet. `vm snapshot create` in the console saves one."),
+      h("h2", { class: "sec" }, "Templates ", h("small", {}, "vm template save / bake / use")),
+      table(["Name", "Based on", "Tools", "#Size", "Who", "About"], tpl, "No templates yet. `vm template bake pydev debian python` builds one.")];
+  }
 
   function showVmProcs(v, readOnly) {
     const bg = h("div", { class: "modal-bg", onclick: (e) => { if (e.target === bg) bg.remove(); } });

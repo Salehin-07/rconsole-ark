@@ -22,6 +22,10 @@ Subcommands::
   vm kill <pid> [name]  stop one process of a VM (--9 forces it)
   vm deps [name]        packages a restore will reinstall; `capture` / `restore` run it now
   vm doctor [name]      check that a VM works and show what is wrong if not
+  vm snapshot ...       save a VM at a moment and put it back later (`vm snapshot help`)
+  vm clone <vm>[@snap] <new>   a second, independent VM copied from a VM or one of its snapshots
+  vm template ...       pre-baked VMs: save, bake, use, delete (`vm template help`)
+  vm ports [name]       every TCP port a VM listens on, with "open in proxy" (`vm ports help`)
 
 With a single VM you never need to type its name. With several, commands that
 need to know which one show a picker (a dropdown in the browser).
@@ -40,6 +44,8 @@ import jobs
 import pidns
 import sandbox
 import vmdeps
+import vmports
+import vmsnap
 import vmupdate
 
 RUN_TIMEOUT = 90      # under Render's 100 s HTTP limit; use `vm shell` or `&` for more
@@ -61,7 +67,11 @@ _USAGE = """\
   vm ps [name]          processes running in a VM (each VM sees only its own)
   vm kill <pid> [name]  stop one of them (add --9 to force)
   vm deps [name]        what a restore will reinstall (`vm deps capture` / `vm deps restore` run it now)
-  vm doctor [name]      diagnose a VM"""
+  vm doctor [name]      diagnose a VM
+  vm snapshot [create|list|restore|delete]   save / put back a VM  (`vm snapshot help`)
+  vm clone <vm>[@snap] <new>   copy a VM (or a snapshot of it) into a new one
+  vm template [list|save|bake|use|delete]    pre-baked VMs, made once, started in seconds
+  vm ports [open|close] listening ports of a VM and the proxy toggle"""
 
 
 def _human(n):
@@ -129,15 +139,24 @@ def _status(sid, cols, only=None):
         for i in infos:
             mark = "*" if i["vm"] == active and mode == sandbox.VM else " "
             st = {"ready": "", "installing": " (installing…)", "updating": " (updating…, locked)",
-                  "failed": " (install FAILED)", "absent": "", "restoring": " (restoring…, locked)"}[i["state"]]
+                  "failed": " (install FAILED)", "absent": "", "restoring": " (restoring…, locked)",
+                  "working": " (busy…, locked)"}[i["state"]]
             title = i["distro"] or i["label"] or i["vm"]
             size = f" · {_human(i['disk'])}" if i["disk"] is not None else ""
             lines.append(f"{mark} {i['vm']:<8}{title}{size}{st}")
-            if i["message"] and i["state"] in ("installing", "updating", "failed", "restoring"):
+            if i["message"] and i["state"] in ("installing", "updating", "failed", "restoring", "working"):
                 lines.append(_wrap(i["message"], cols or 80, 11))
             last = vmupdate.summary(sid, i["vm"]) if i["state"] == "ready" else ""
             if last and (only or i["vm"] == active):
                 lines.append(_wrap(last, cols or 80, 11))
+            if i["state"] == "ready" and (only or i["vm"] == active):
+                n_snap = len(vmsnap.list_snapshots(sid, i["vm"]))
+                if n_snap:
+                    lines.append(f"           {n_snap} snapshot(s): `vm snapshot list {i['vm']}`")
+                res = vmsnap.last_result(sid, i["vm"])
+                if res:
+                    lines.append(_wrap(("last copy job: " if res["ok"] else "last copy job FAILED: ") + res["message"],
+                                       cols or 80, 11))
         if only and infos[0]["family"]:
             pm = {"alpine": "apk add <pkg>", "arch": "pacman -S <pkg>"}.get(
                 infos[0]["family"], "apt install -y <pkg>")
@@ -237,9 +256,10 @@ def _doctor(ctx, vm):
                              "NOT isolated — " + (pidns.probe()[1] or "unavailable")
                              + " (VMs share the server's PID space; see FEATURES.md, RCONSOLE_VM_PIDNS)"),
              ""]
+    kind = (sandbox.distro_info(sid, vm) or {}).get("id") or vm       # a clone keeps its distro's mirror
     host = {"alpine": "dl-cdn.alpinelinux.org", "debian": "deb.debian.org",
             "arch": "geo.mirror.pkgbuild.com"}.get(
-        vm, "archive.ubuntu.com" if vm == "ubuntu" else "http.kali.org" if vm == "kali"
+        kind, "archive.ubuntu.com" if kind == "ubuntu" else "http.kali.org" if kind == "kali"
         else "deb.debian.org")
     if fam == "alpine":
         dns = f"nslookup {host} >/dev/null 2>&1 && echo ok"
@@ -328,6 +348,320 @@ def _update(ctx, rest):
                 f"Services restart by themselves afterwards. Continue with: vm update {vm} --yes")
     ok, msg = vmupdate.start(sid, vm, everything, stay=stay)
     return msg if ok else f"vm update: {msg}"
+
+
+# ----------------------------------------------------- snapshots, clones, templates, ports
+def _take_opts(args, valued=("--note", "--desc"), flags=("--yes", "-y", "--shared")):
+    """Split ``args`` into positionals and options. Returns ``(positionals, options, error)``."""
+    pos, opts, i = [], {}, 0
+    while i < len(args):
+        a = args[i]
+        key, eq, val = a.partition("=")
+        if key in valued and eq:
+            opts[key] = val
+        elif a in valued:
+            if i + 1 >= len(args):
+                return pos, opts, f"{a} needs a value"
+            opts[a] = args[i + 1]
+            i += 1
+        elif a in flags:
+            opts[a] = True
+        elif a.startswith("-") and len(a) > 1:
+            return pos, opts, f"unknown option {a}"
+        else:
+            pos.append(a)
+        i += 1
+    return pos, opts, None
+
+
+def _ago(ts):
+    secs = max(0, int(time.time()) - int(ts or 0))
+    for unit, n in (("d", 86400), ("h", 3600), ("min", 60)):
+        if secs >= n:
+            return f"{secs // n} {unit} ago"
+    return "just now"
+
+
+def _snap_lines(sid, vm, cols):
+    snaps = vmsnap.list_snapshots(sid, vm)
+    if not snaps:
+        return []
+    out = [f"{vm}  ({len(snaps)} of {vmsnap.MAX_SNAPSHOTS})"]
+    for s_ in snaps:
+        line = f"  {s_['name']:<22}{_human(s_.get('bytes', 0)):>9}  {_ago(s_.get('created')):<10}"
+        out.append(line + (f" {s_['note']}" if s_.get("note") else ""))
+    return out
+
+
+_SNAPSHOT_HELP = """\
+vm snapshot — save a VM at one moment and put it back later
+
+  vm snapshot create [vm] [name] [--note "why"]   save the system AND /root
+  vm snapshot list [vm]                             what you have saved
+  vm snapshot restore [vm] <name> --yes             put it back (stops what runs in that VM)
+  vm snapshot delete [vm] <name>                    free the disk space
+  vm clone <vm>@<name> <new>                        start a new VM from a snapshot instead
+
+Up to %d per VM. They are compressed, private to you, and live on the server's data
+disk (not in your backup: a system is hundreds of MB). The VM is locked while they run.""" % vmsnap.MAX_SNAPSHOTS
+
+
+def _snapshot(ctx, rest):
+    sid, cols = ctx["sid"], ctx.get("cols") or 80
+    if not sandbox.supported():
+        return "vm: the VM is unavailable (needs Linux and RCONSOLE_VM=1)."
+    action = (rest[0].lower() if rest else "list")
+    if action in ("help", "-h", "--help"):
+        return _SNAPSHOT_HELP
+    action = {"ls": "list", "show": "list", "new": "create", "save": "create", "add": "create",
+              "rm": "delete", "remove": "delete", "del": "delete", "revert": "restore", "rollback": "restore"
+              }.get(action, action)
+    if action not in ("create", "list", "restore", "delete"):
+        return f"vm snapshot: unknown subcommand '{action}'\n\n" + _SNAPSHOT_HELP
+    pos, opts, err = _take_opts(rest[1:])
+    if err:
+        return f"vm snapshot: {err}"
+    vms = sandbox.installed_vms(sid)
+    yes = bool(opts.get("--yes") or opts.get("-y"))
+
+    if action == "list":
+        names = [pos[0]] if pos else sorted(set(vms) | set(vmsnap.snapshot_vms(sid)))
+        lines = []
+        for n in names:
+            try:
+                lines += _snap_lines(sid, n, cols) + [""]
+            except vmsnap.SnapError as e:
+                return f"vm snapshot: {e}"
+        if not any(lines):
+            return ("You have no snapshots yet. Save one with `vm snapshot create` "
+                    "(before something risky, like an upgrade).")
+        return "Snapshots\n---------\n" + "\n".join(lines).rstrip()
+
+    # create / restore / delete: work out the VM and the snapshot name
+    name = None
+    if action == "create":
+        if len(pos) >= 2:
+            vm, name = pos[0], pos[1]
+        elif len(pos) == 1 and pos[0] in vms:
+            vm = pos[0]
+        elif len(pos) == 1:
+            vm, name = None, pos[0]
+        else:
+            vm = None
+    else:
+        if not pos:
+            return f"usage: vm snapshot {action} [vm] <name>" + (" --yes" if action == "restore" else "")
+        if len(pos) >= 2:
+            vm, name = pos[0], pos[1]
+        else:
+            vm, name = None, pos[0]
+    if vm is None:
+        vm, _r, reply = _pick_vm(sid, [], f"vm snapshot {action}",
+                                 f"vm snapshot {action} {{vm}}" + (f" {name}" if name else ""))
+        if reply:
+            return reply
+    elif action != "delete" and vm not in vms:
+        hint = " Bring it back as a new system with `vm clone <vm>@<name> <new>`." if action == "restore" else ""
+        return f"vm: '{vm}' is not installed (see `vm`)." + hint
+
+    if action == "create":
+        ok, msg = vmsnap.create_snapshot(sid, vm, name, opts.get("--note", ""))
+        if ok and vmupdate.has_running(vmupdate.running_in(sid, vm, False)):
+            msg += ("\nSomething is running in it: the copy is taken as it is (like a power cut would leave it). "
+                    "Stop the app first for a clean snapshot.")
+        return msg if ok else f"vm snapshot: {msg}"
+    if action == "delete":
+        ok, msg = vmsnap.delete_snapshot(sid, vm, name)
+        return msg if ok else f"vm snapshot: {msg}"
+    # restore
+    if not yes:
+        running = vmupdate.describe_running(vmupdate.running_in(sid, vm, False))
+        return (f"This replaces EVERYTHING in {vm} (system files and /root) with snapshot '{name}' and stops what "
+                f"runs in it{': ' + running if running else ''}. What you changed since then is lost.\n"
+                f"Continue with: vm snapshot restore {vm} {name} --yes")
+    ok, msg = vmsnap.restore_snapshot(sid, vm, name)
+    return msg if ok else f"vm snapshot: {msg}"
+
+
+def _clone(ctx, rest):
+    sid = ctx["sid"]
+    if not sandbox.supported():
+        return "vm: the VM is unavailable (needs Linux and RCONSOLE_VM=1)."
+    if rest[:1] in (["help"], ["-h"], ["--help"]):
+        return ("vm clone <vm>[@snapshot] <new>   make a second, independent VM\n"
+                "  vm clone debian test          a copy of debian as it is now\n"
+                "  vm clone debian@before-upgrade test   from a snapshot instead\n"
+                "  vm clone test2                (with one system) a copy of it\n"
+                "The copy takes seconds and no download. It has its own /root and processes.")
+    pos, _opts, err = _take_opts(rest)
+    if err:
+        return f"vm clone: {err}"
+    if not pos or len(pos) > 2:
+        return "usage: vm clone <vm>[@snapshot] <new>"
+    if len(pos) == 2:
+        source, _, snap = pos[0].partition("@")
+        new = pos[1]
+    else:
+        new = pos[0]
+        source, _r, reply = _pick_vm(sid, [], "vm clone", f"vm clone {{vm}} {new}")
+        if reply:
+            return reply
+        snap = ""
+    ok, msg = vmsnap.clone(sid, source, new, snap or None)
+    return msg if ok else f"vm clone: {msg}"
+
+
+_TEMPLATE_HELP = """\
+vm template — pre-baked VMs: do the setup once, start new ones in seconds
+
+  vm template list                                   templates you can use
+  vm template save [vm] <name> [--shared]            freeze a VM you prepared
+  vm template bake <name> <distro[:release]> [profile ...] [--shared]
+                                                     build one from scratch (e.g. debian python node)
+  vm template use <name> <new-vm>                    a new VM from a template
+  vm template delete <name> [--shared]
+
+Add --desc "text" to describe it. Secrets (shell history, ~/.ssh, tokens) are never copied in.
+--shared (admins) makes it available to every user. `vm setup` lists the profiles for `bake`."""
+
+
+def _template(ctx, rest):
+    sid, cols = ctx["sid"], ctx.get("cols") or 80
+    if not sandbox.supported():
+        return "vm: the VM is unavailable (needs Linux and RCONSOLE_VM=1)."
+    action = (rest[0].lower() if rest else "list")
+    if action in ("help", "-h", "--help"):
+        return _TEMPLATE_HELP
+    action = {"ls": "list", "show": "list", "create": "save", "new": "use", "start": "use", "spawn": "use",
+              "rm": "delete", "remove": "delete", "del": "delete", "build": "bake"}.get(action, action)
+    if action not in ("list", "save", "bake", "use", "delete"):
+        return f"vm template: unknown subcommand '{action}'\n\n" + _TEMPLATE_HELP
+    pos, opts, err = _take_opts(rest[1:])
+    if err:
+        return f"vm template: {err}"
+    shared = bool(opts.get("--shared"))
+    desc = opts.get("--desc", "")
+
+    if action == "list":
+        items = vmsnap.list_templates(sid)
+        if not items:
+            return ("No templates yet.\n  vm template save <vm> <name>   freeze a VM you set up\n"
+                    "  vm template bake <name> debian python   build one from scratch\n"
+                    "Then `vm template use <name> <new-vm>` starts a copy in seconds.")
+        lines = ["Templates", "---------"]
+        for t in items:
+            tools = ", ".join(t.get("setups") or []) or "no extra tools"
+            head = f"{t['name']:<16}{t.get('label') or t.get('distro')} · {tools} · {_human(t.get('bytes', 0))}"
+            lines.append(textwrap.fill(head + (" · shared" if t.get("shared") else ""), width=max(cols, 30),
+                                       subsequent_indent=" " * 16, break_long_words=False))
+            if t.get("description"):
+                lines.append(_wrap(t["description"], cols, 16))
+        lines += ["", "Start one: vm template use <name> <new-vm>"]
+        return "\n".join(lines)
+
+    if action == "use":
+        if len(pos) != 2:
+            return "usage: vm template use <name> <new-vm>"
+        ok, msg = vmsnap.use_template(sid, pos[0], pos[1])
+        return msg if ok else f"vm template: {msg}"
+
+    if action == "delete":
+        if len(pos) != 1:
+            return "usage: vm template delete <name> [--shared]"
+        ok, msg = vmsnap.delete_template(sid, pos[0], shared=shared)
+        return msg if ok else f"vm template: {msg}"
+
+    if action == "bake":
+        if len(pos) < 2:
+            return "usage: vm template bake <name> <distro[:release]> [profile ...]   e.g. vm template bake pydev debian python node"
+        profiles = [p for chunk in pos[2:] for p in chunk.replace(",", " ").split()]
+        ok, msg = vmsnap.bake_template(sid, pos[0], pos[1], profiles, shared=shared, description=desc)
+        return msg if ok else f"vm template: {msg}"
+
+    # save
+    vms = sandbox.installed_vms(sid)
+    if not pos:
+        return "usage: vm template save [vm] <name> [--shared]"
+    if len(pos) >= 2:
+        vm, name = pos[0], pos[1]
+    else:
+        vm, name = None, pos[0]
+    if vm is None:
+        vm, _r, reply = _pick_vm(sid, [], "vm template save", f"vm template save {{vm}} {name}")
+        if reply:
+            return reply
+    elif vm not in vms:
+        return f"vm: '{vm}' is not installed (see `vm`)."
+    ok, msg = vmsnap.save_template(sid, vm, name, shared=shared, description=desc)
+    return msg if ok else f"vm template: {msg}"
+
+
+_PORTS_HELP = """\
+vm ports — every TCP port a VM is listening on
+
+  vm ports [vm]                      list them (all your VMs when none is named)
+  vm ports open <port> [name]        publish it at /<name>/ (same as `expose <port> <name>`)
+  vm ports close <port>              stop publishing it
+
+Add --vm <name> to open/close when two VMs could own the port. The dashboard shows the same list
+with a switch per port."""
+
+
+def _ports(ctx, rest):
+    sid = ctx["sid"]
+    if not sandbox.supported():
+        return "vm: the VM is unavailable (needs Linux and RCONSOLE_VM=1)."
+    action = rest[0].lower() if rest else "list"
+    if action in ("help", "-h", "--help"):
+        return _PORTS_HELP
+    vms = sandbox.installed_vms(sid)
+    if not vms:
+        return _no_vm_reply(sid)
+    if action in ("open", "expose", "on", "close", "unexpose", "off"):
+        on = action in ("open", "expose", "on")
+        pos, opts, err = _take_opts(rest[1:], valued=("--vm", "--name"))
+        if err:
+            return f"vm ports: {err}"
+        if not pos or not pos[0].isdigit():
+            return f"usage: vm ports {action} <port>" + (" [name]" if on else "") + "  [--vm <name>]"
+        port = int(pos[0])
+        name = pos[1] if len(pos) > 1 else opts.get("--name")
+        want = opts.get("--vm")
+        if want and want not in vms:
+            return f"vm: '{want}' is not installed (see `vm`)."
+        owners = [want] if want else [v for v in vms if any(r["port"] == port for r in vmports.scan(sid, v))]
+        if not owners and not on:
+            owners = vms[:1]                          # closing only needs the exposure
+        if not owners:
+            return f"vm ports: nothing in your systems is listening on port {port} (see `vm ports`)."
+        if len(owners) > 1:
+            return f"vm ports: more than one system listens on {port} ({', '.join(owners)}); add --vm <name>."
+        ok, msg, _n = vmports.toggle(sid, owners[0], port, on, name)
+        return msg if ok else f"vm ports: {msg}"
+    if action == "list":
+        target = rest[1] if len(rest) > 1 else None
+    elif action in vms:
+        target = action
+    else:
+        return f"vm ports: unknown subcommand '{action}'\n\n" + _PORTS_HELP
+    if target and target not in vms:
+        return f"vm: '{target}' is not installed (see `vm`)."
+    out = []
+    for vm in ([target] if target else vms):
+        rows = vmports.scan(sid, vm)
+        if not rows and not target and len(vms) > 1:
+            continue
+        out.append(f"{vm}: " + (f"{len(rows)} listening port(s)" if rows else "nothing is listening"))
+        for r in rows:
+            proxy = f"/{r['exposed']}/" if r["exposed"] else ("-" if r["proxyable"] else "n/a")
+            out.append(f"  {r['port']:>5}  {r['addr']:<12} pid {r['pid']:<5} proxy {proxy:<16} {r['cmd'][:40]}")
+            if r["why"]:
+                out.append(f"         {r['why']}")
+    if not out:
+        return "Nothing is listening in any of your systems."
+    out.append("")
+    out.append("Publish one: vm ports open <port> [name]")
+    return "\n".join(out)
 
 
 # ------------------------------------------------------------------- command
@@ -444,7 +778,10 @@ def cmd_vm(ctx, args):
             sandbox.set_mode(sid, sandbox.HOST)       # don't strand commands without a VM
         sandbox.reset_cwds(sid)
         verb = "removed" if sub == "remove" else "reset (run `vm install <name>` to recreate)"
-        return f"vm: {', '.join(targets)} {verb}."
+        kept = [f"{n} ({len(vmsnap.list_snapshots(sid, n))})" for n in targets if vmsnap.list_snapshots(sid, n)]
+        note = (f"\nIts snapshots are kept: {', '.join(kept)}. `vm clone <vm>@<name> <new>` makes a VM from one; "
+                "`vm snapshot delete` frees the space.") if kept else ""
+        return f"vm: {', '.join(targets)} {verb}." + note
 
     if sub in ("setup", "dev", "tools"):
         if not rest or rest[0] in ("list", "help", "-h"):
@@ -511,6 +848,18 @@ def cmd_vm(ctx, args):
         if rep:
             text += "\nlast restore: " + ("ok" if rep["ok"] else "failed: " + "; ".join(rep["failed"][:5]))
         return text
+
+    if sub in ("snapshot", "snapshots", "snap"):
+        return _snapshot(ctx, rest)
+
+    if sub == "clone":
+        return _clone(ctx, rest)
+
+    if sub in ("template", "templates", "tpl"):
+        return _template(ctx, rest)
+
+    if sub in ("ports", "port"):
+        return _ports(ctx, rest)
 
     if sub in ("doctor", "check", "diagnose"):
         vms = sandbox.installed_vms(sid)

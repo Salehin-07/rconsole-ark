@@ -116,6 +116,11 @@ def _migrate_cleanup(name):
         except Exception:
             pass
     sandbox.reset(name, keep_home=False)
+    try:
+        import vmsnap
+        vmsnap.remove_user(name)             # snapshots and private templates go with the account
+    except Exception:
+        pass
     state.drop_user(name)
     exposure.remove_owner(name)
     services.remove_owner(name)

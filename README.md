@@ -1,6 +1,6 @@
 <p align="center"><img src="static/logo.png" alt="Rconsole logo" width="140"></p>
 
-# Rconsole — free hosting for your bots, websites and workers
+# Rconsole — a fully free, web-based Linux development environment
 
 > 🌐 **[Documentation website](https://salehin-07.github.io/rconsole-ark/)** ·
 > 🆓 **Start here → [FREE_HOSTING.md](FREE_HOSTING.md)** (host on Render's free tier from your phone) ·
@@ -11,7 +11,7 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.5.10** · MIT licensed · made by Md Abu Salehin
+**Version 1.5.11** · MIT licensed · made by Md Abu Salehin
 
 Rconsole is a Linux console in your browser that you can host for **free**. Put it on one small web service (Render's
 free tier is the reference setup) and you get a terminal, your own Linux systems, a process supervisor and a way to

@@ -36,6 +36,8 @@ import auth
 import backup
 import config
 import dashboard
+import dbview
+import vmports
 import exposure
 import fileops
 import gitstore
@@ -1266,6 +1268,100 @@ def api_media():
         return {"error": str(e)}, 500
 
 
+# ---- database browser (the file manager's DB tab): read-only SQLite, see dbview.py -------------------------------
+def _db_call(op, args):
+    """Map ``args['path']`` through the user's own view of the filesystem and run ``op`` in the limited reader."""
+    if "username" not in session:
+        return {"error": "unauthorized"}, 401
+    path = str(args.get("path") or "")
+    if not path:
+        return {"error": "missing path"}, 400
+    if path.rsplit(".", 1)[-1].lower() not in dbview.DB_EXTS:
+        return {"error": "not a database file"}, 415
+    view, err = _fs_view()
+    if err:
+        return err
+    try:
+        p = _map(view, path)
+        if not p.is_file():
+            return {"error": "not a regular file" if p.exists() else f"no such file: {view.virt(p)}"}, 404
+        _need(p)
+    except (OSError, sandbox.SandboxError) as e:
+        return {"error": str(e)}, 500
+    status, data = dbview.run(op, p, {k: v for k, v in args.items() if k != "path"})
+    resp = jsonify(data)
+    resp.status_code = status
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.get("/api/db/info")
+def api_db_info():
+    return _db_call("info", {"path": request.args.get("path", "")})
+
+
+@app.get("/api/db/table")
+def api_db_table():
+    a = request.args
+    return _db_call("table", {"path": a.get("path", ""), "table": a.get("table", ""), "offset": a.get("offset", 0),
+                              "limit": a.get("limit", dbview.PAGE_ROWS), "order": a.get("order") or None,
+                              "desc": a.get("dir") == "desc", "q": a.get("q", "")})
+
+
+@app.post("/api/db/query")
+def api_db_query():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return {"error": "bad request"}, 400
+    return _db_call("query", {"path": data.get("path", ""), "sql": data.get("sql", ""), "limit": data.get("limit", 200)})
+
+
+# ---- Active Ports: a VM's listening TCP ports and the "Open in Proxy" switch (any signed-in user, their own VMs) ----
+def _ports_owner(data=None):
+    """``(owner, error)``: the signed-in user, or (admins only) another user named by ``owner``."""
+    who = session.get("username")
+    if not who:
+        return None, ({"error": "unauthorized"}, 401)
+    owner = ((data or request.args).get("owner") or who)
+    if owner != who and not auth.is_admin(who):
+        return None, ({"error": "not allowed"}, 403)
+    return owner, None
+
+
+@app.get("/api/vm/ports")
+def api_vm_ports():
+    owner, err = _ports_owner()
+    if err:
+        return err
+    vms = sandbox.installed_vms(owner)
+    want = request.args.get("vm")
+    if want:
+        vms = [v for v in vms if v == want]
+    out = []
+    for vm in vms:
+        if sandbox.install_state(owner, vm)["state"] != "ready":
+            continue
+        out.append({"vm": vm, "ports": vmports.cached_scan(owner, vm)})
+    return {"owner": owner, "systems": out, "base": request.host_url.rstrip("/")}
+
+
+@app.post("/api/vm/ports")
+def api_vm_ports_toggle():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return {"ok": False, "error": "bad request"}, 400
+    owner, err = _ports_owner(data)
+    if err:
+        return err
+    vm, port = data.get("vm"), data.get("port")
+    if not isinstance(vm, str) or vm not in sandbox.installed_vms(owner):
+        return {"ok": False, "error": "no such system"}, 404
+    ok, msg, name = vmports.toggle(owner, vm, port, bool(data.get("on")), data.get("name"))
+    dashboard.audit(session["username"], "ports.open" if data.get("on") else "ports.close", f"{owner}/{vm}:{port}",
+                    msg, ip=request.remote_addr or "", ok=ok)
+    return {"ok": ok, "message": msg, "name": name}, (200 if ok else 400)
+
+
 def _upload_target(view, folder, rel):
     """Virtual path for ``rel`` (``a/b/c.txt``) under ``folder``; ``None`` if unsafe."""
     rel = rel or ""
@@ -1674,6 +1770,9 @@ def start_background_tasks():
             started.append("repo-storage")
         if vmupdate.recover_background():
             started.append("vm-update-recovery")
+        import vmsnap
+        if vmsnap.sweep_leftovers():
+            started.append("vm-copy-cleanup")
         if sandbox.restore_vms_background():
             started.append("vm-rebuild")
         if services.start_background():
