@@ -138,7 +138,7 @@ runtime):
 
 * Build command: `pip install -r requirements.txt`
 * Start command: `gunicorn -c gunicorn.conf.py app:app`
-* Environment: `PYTHON_VERSION` = a 3.14 release, plus the variables above.
+* Environment: `PYTHON_VERSION` = a 3.15 release (3.14 also works), plus the variables above.
 
 **Custom domain:** *Settings → Custom Domains*, add the CNAME at your DNS host.
 The new hostname is picked up from `X-Forwarded-Host`; if you still get a 403 after
@@ -341,7 +341,7 @@ Never set `replicas` above 1, and do not use an autoscaler.
     quick public HTTPS URL, or a named tunnel for your own domain. Add the public
     hostname to `RCONSOLE_ALLOWED_ORIGINS` and set `RCONSOLE_COOKIE_SECURE=1`.
 * **Android (Termux, untested):** `pkg install python git proot`, clone the repo, `pip install -r requirements.txt`,
-  run `python main.py`. Rconsole needs **Python 3.14+**: check `python --version` first. Android may kill background
+  run `python main.py`. Rconsole needs **Python 3.14+** (3.15 recommended): check `python --version` first. Android may kill background
   processes, which stops service supervision. This is for local use. Use Tailscale or a
   tunnel to open it from other devices.
 

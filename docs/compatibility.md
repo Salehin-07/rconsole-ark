@@ -7,7 +7,7 @@ platforms themselves are not tested in CI.
 
 | Requirement | Value |
 |---|---|
-| Python | **3.14 or newer** (`requires-python` in `pyproject.toml`, the `python:3.14-slim` Docker image, CI) |
+| Python | **3.14 or newer**, **3.15 recommended** (`requires-python` in `pyproject.toml`, the `python:3.15-slim` Docker image, CI tests both) |
 | Dependencies | [`uv`](https://docs.astral.sh/uv/) (`uv sync`), or `pip install -r requirements.txt` |
 | Browser | Any current browser with WebSocket support; installable as an app on phones |
 

@@ -32,7 +32,7 @@ atomically while keeping a rollback copy, and restarts in place. A failure befor
 * **What it cannot change.** Anything in the image: the `Dockerfile`, system packages, the Python base image. When a
   release changes those, the update tells you to redeploy.
 * **Git checkouts and read-only installs** are refused. Use `git pull`, or add `--force`.
-* **Forks and rate limits.** Set `RCONSOLE_UPDATE_REPO` to your fork and `RCONSOLE_UPDATE_TOKEN` for private forks.
+* **Forks and rate limits.** Set `RCONSOLE_UPDATE_REPO` to your fork. A public repo needs **no token**: if GitHub's anonymous API limit (60 requests an hour per IP, easily used up on shared hosts) is reached, `rconsole update` reads the public release feed, the raw `CHANGELOG.md` and the plain download links instead. Only a private fork needs `RCONSOLE_UPDATE_TOKEN`. Versions before 1.5.11 stop with HTTP 403 in that situation: update once by redeploying, or set a token.
 
 ## Updating by redeploy
 

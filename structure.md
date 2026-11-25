@@ -389,7 +389,7 @@ Set `RCONSOLE_DATA_DIR` to put it on a persistent disk.
 **`pyproject.toml` / `uv.lock`** — Dependencies: `flask`, `flask-sock`,
 `requests`, and `pywinpty` (Windows only). Managed with `uv`.
 
-**`.python-version`** — Pinned Python (>= 3.14).
+**`.python-version`** — Pinned Python (3.15; the floor is 3.14).
 
 
 **`gitstore.py`** — Repo storage. Keeps the workspace and each system's `/home`, `/srv`, `/data` in the backup repo

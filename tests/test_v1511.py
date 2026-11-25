@@ -12,6 +12,7 @@ from unittest import mock
 import helpers  # noqa: F401
 
 import auth
+import config
 import dbview
 import exposure
 import sandbox
@@ -471,3 +472,50 @@ class DbApi(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UpdaterPublicFallback(unittest.TestCase):
+    """`rconsole update` must work on a public repo even when GitHub's anonymous API quota is used up."""
+    FEED = (b'<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry><updated>2026-11-25T10:00:00Z</updated>'
+            b'<link rel="alternate" href="https://github.com/o/r/releases/tag/v9.9.9"/></entry></feed>')
+    LOG = b"# Changelog\n\n## 9.9.9 - x\n\n### Added\n- thing\n\n## 9.9.8\n- old\n"
+
+    def fake(self, url, accept="", limit=0):
+        import updater
+        if url.startswith(updater.API):
+            raise updater.UpdateError("GitHub refused the request (HTTP 403)", 403)
+        if url.endswith("releases.atom"):
+            return self.FEED
+        if url.endswith("CHANGELOG.md"):
+            return self.LOG
+        raise AssertionError(url)
+
+    def test_falls_back_when_rate_limited(self):
+        import updater
+        with mock.patch.object(updater, "_get_bytes", side_effect=self.fake), \
+                mock.patch.object(config, "UPDATE_TOKEN", ""):
+            info = updater.check()
+        self.assertEqual(info["latest"], "9.9.9")
+        self.assertEqual(info["published"], "2026-11-25")
+        self.assertIn("thing", info["notes"])
+        self.assertNotIn("old", info["notes"])
+        self.assertTrue(info["tar"]["browser_download_url"].endswith("/releases/download/v9.9.9/rconsole-9.9.9.tar.gz"))
+        self.assertEqual(info["sums"]["name"], "SHA256SUMS")
+
+    def test_no_fallback_for_other_errors_or_with_a_token(self):
+        import updater
+
+        def boom(*a, **k):
+            raise updater.UpdateError("nothing found", 404)
+        with mock.patch.object(updater, "_get_bytes", side_effect=boom):
+            with self.assertRaises(updater.UpdateError):
+                updater.check()
+        with mock.patch.object(updater, "_get_bytes", side_effect=self.fake), \
+                mock.patch.object(config, "UPDATE_TOKEN", "tok"):
+            with self.assertRaises(updater.UpdateError):
+                updater.check()
+
+    def test_changelog_section(self):
+        import updater
+        self.assertEqual(updater._changelog_section(self.LOG.decode(), "9.9.8"), "- old")
+        self.assertEqual(updater._changelog_section(self.LOG.decode(), "1.0.0"), "")

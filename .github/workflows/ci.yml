@@ -16,9 +16,14 @@ concurrency:
 
 jobs:
   test:
-    name: Lint + tests (Python 3.14)
+    # 3.15 is what the Docker image and `.python-version` use; 3.14 is the oldest supported (requires-python).
+    name: Lint + tests (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.15", "3.14"]
     steps:
       - uses: actions/checkout@v7
 
@@ -27,7 +32,7 @@ jobs:
           enable-cache: true
 
       - name: Install Python and dependencies
-        run: uv sync --frozen --python 3.14
+        run: uv sync --frozen --python ${{ matrix.python }}
 
       # proot + a static busybox enable the real-VM end-to-end tests; without
       # them those tests skip and the rest still run.

@@ -128,8 +128,13 @@ class FactsTests(unittest.TestCase):
 
     def test_python_version(self):
         req = re.search(r'requires-python = ">=(\d+\.\d+)"', read("pyproject.toml")).group(1)
-        self.assertEqual(read(".python-version").strip().rsplit(".", 0)[0][:len(req)], req)
-        self.assertIn(f"python:{req}", read("Dockerfile"))
+        # The floor (requires-python) is what we promise; the pin is what the Docker image, CI and `uv` use.
+        pin = read(".python-version").strip()
+        as_tuple = lambda v: tuple(int(x) for x in v.split(".")[:2])  # noqa: E731
+        self.assertGreaterEqual(as_tuple(pin), as_tuple(req))
+        self.assertIn(f"python:{pin}", read("Dockerfile"))
+        self.assertIn(f'"{pin}"', read(".github/workflows/ci.yml"))
+        self.assertIn(f'"{req}"', read(".github/workflows/ci.yml"))
         self.assertIn(f">= {req}", read("README.md"))
         self.assertIn(req, read("docs/compatibility.md"))
         for rel in ("README.md", "FEATURES.md", "docs/compatibility.md"):

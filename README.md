@@ -39,7 +39,7 @@ uv run python main.py        # http://127.0.0.1:5000
 ```
 
 Log in as **`ark` / `ark`**, then change the password at once (**Dashboard → Account** or `sudo cpass`), or set
-`RCONSOLE_ADMIN_PASSWORD` before the first start. Requires Python **>= 3.14** and [`uv`](https://docs.astral.sh/uv/)
+`RCONSOLE_ADMIN_PASSWORD` before the first start. Requires Python **>= 3.14** (3.15 recommended) and [`uv`](https://docs.astral.sh/uv/)
 (or `pip install -r requirements.txt`); the Linux systems need Linux (proot is fetched automatically on x86-64).
 Production server, Docker, Windows notes and the one-command VPS setup: [docs/quick-start.md](docs/quick-start.md),
 [docs/about.md](docs/about.md#requirements) and [DEPLOY.md](DEPLOY.md).

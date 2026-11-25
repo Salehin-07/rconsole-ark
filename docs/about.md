@@ -93,7 +93,7 @@ Commands run on one of two **targets**:
 
 ## Requirements
 
-- Python **>= 3.14** (see `.python-version`). Older versions are not supported. See [docs/compatibility.md](compatibility.md).
+- Python **>= 3.14**, 3.15 recommended (see `.python-version`). Older versions are not supported. See [docs/compatibility.md](compatibility.md).
 - [`uv`](https://docs.astral.sh/uv/) for dependency management (or `pip install -r requirements.txt`).
 - **VM**: Linux. `proot` is fetched automatically on x86-64 (checksum-verified);
   on other CPUs install **proot 5.5.0 or newer** yourself (`apt install proot` / `apk add proot` may be older: check

@@ -4,7 +4,7 @@
 # container you cannot install system packages into. With your own image you
 # bake in the tools you want (git, curl, proot, ...) at build time, and the
 # per-user VM (`vm install`) works out of the box because proot is preinstalled.
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -57,6 +57,8 @@ RELEASES_DIR = UPDATE_DIR / "releases"
 WORK_DIR = UPDATE_DIR / "work"
 
 API = config.UPDATE_API
+WEB = "https://github.com"
+RAW = "https://raw.githubusercontent.com"
 USER_AGENT = "rconsole-updater"
 MAX_DOWNLOAD = 150 * 1024 * 1024        # bytes: the whole source archive
 MAX_UNPACKED = 300 * 1024 * 1024
@@ -78,6 +80,10 @@ VERSION_LINE = re.compile(r'^__version__\s*=\s*"(\d+\.\d+\.\d+)"', re.M)
 
 class UpdateError(Exception):
     """An update step failed; the message is meant for the person who typed the command."""
+
+    def __init__(self, message, code=None):
+        super().__init__(message)
+        self.code = code            # the HTTP status when GitHub refused the request
 
 
 # --------------------------------------------------------------------------- versions
@@ -237,7 +243,7 @@ def _request(url, accept="application/vnd.github+json", timeout=20):
                               f"{config.UPDATE_REPO} right, and does it have a release?)") from None
         if e.code in (401, 403, 429):
             raise UpdateError(f"GitHub refused the request (HTTP {e.code}) — probably the anonymous rate "
-                              "limit or a private repo; set RCONSOLE_UPDATE_TOKEN") from None
+                              "limit or a private repo; set RCONSOLE_UPDATE_TOKEN", e.code) from None
         raise UpdateError(f"GitHub answered HTTP {e.code}") from None
     except (urllib.error.URLError, OSError, TimeoutError) as e:
         raise UpdateError(f"cannot reach GitHub: {getattr(e, 'reason', e)}") from None
@@ -256,10 +262,59 @@ def check_repo_name():
         raise UpdateError(f"RCONSOLE_UPDATE_REPO must look like owner/repo, not {config.UPDATE_REPO!r}")
 
 
+def _changelog_section(text, version):
+    """The ``## <version>`` section of a CHANGELOG.md (without its heading), or ``""``."""
+    out, on = [], False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if on:
+                break
+            on = bool(re.match(rf"##\s+v?{re.escape(version)}(\s|$)", line))
+            continue
+        if on:
+            out.append(line)
+    return "\n".join(out).strip()
+
+
+def _public_release():
+    """The latest release of a *public* repository without the GitHub API (whose anonymous quota is 60
+    requests an hour per IP address, which a shared host such as Render uses up). The release feed, the raw
+    CHANGELOG and the plain download URLs are not part of that quota. Same shape as the API's answer."""
+    import xml.etree.ElementTree as ET
+    repo = config.UPDATE_REPO
+    feed = ET.fromstring(_get_bytes(f"{WEB}/{repo}/releases.atom", "application/atom+xml"))
+    ns = {"a": "http://www.w3.org/2005/Atom"}
+    for entry in feed.findall("a:entry", ns):
+        link = entry.find("a:link", ns)
+        tag = (link.get("href") if link is not None else "").rsplit("/", 1)[-1]
+        if not parse_version(tag):
+            continue
+        ver = ".".join(map(str, parse_version(tag)))
+        notes = ""
+        try:
+            notes = _changelog_section(_get_bytes(f"{RAW}/{repo}/{tag}/CHANGELOG.md", "text/plain").decode("utf-8", "replace"), ver)
+        except UpdateError:
+            pass
+        base = f"{WEB}/{repo}/releases/download/{tag}"
+        return {"tag_name": tag, "body": notes, "published_at": (entry.findtext("a:updated", "", ns) or ""),
+                "html_url": f"{WEB}/{repo}/releases/tag/{tag}",
+                "assets": [{"name": f"rconsole-{ver}.tar.gz", "browser_download_url": f"{base}/rconsole-{ver}.tar.gz"},
+                           {"name": "SHA256SUMS", "browser_download_url": f"{base}/SHA256SUMS"}]}
+    raise UpdateError(f"{repo} has no release with a vX.Y.Z tag")
+
+
 def check():
     """Ask GitHub for the latest release. Returns a dict (see keys below) or raises UpdateError."""
     check_repo_name()
-    data = json.loads(_get_bytes(f"{API}/repos/{config.UPDATE_REPO}/releases/latest"))
+    try:
+        data = json.loads(_get_bytes(f"{API}/repos/{config.UPDATE_REPO}/releases/latest"))
+    except UpdateError as e:
+        if e.code not in (403, 429) or config.UPDATE_TOKEN or API != "https://api.github.com":
+            raise
+        try:                                           # rate-limited: a public repo needs no API
+            data = _public_release()
+        except UpdateError as e2:
+            raise UpdateError(f"{e} (the public fallback failed too: {e2})", e.code) from None
     tag = str(data.get("tag_name") or "")
     ver = parse_version(tag)
     if not ver:

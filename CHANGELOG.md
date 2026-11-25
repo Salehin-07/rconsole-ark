@@ -21,7 +21,19 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
   (`/api/vm/ports`; same registry as `expose`). Ports are attributed to a VM through its own processes.
 - The README title now reads "a fully free, web-based Linux development environment".
 
+### Fixed
+- **`rconsole update` no longer needs a token for a public repo.** It stopped with "GitHub refused the request (HTTP 403)" because GitHub's
+  anonymous API allows only 60 requests an hour per IP address, which a shared host such as Render uses up. On HTTP 403/429 (no token set)
+  the updater now reads the public release feed (`releases.atom`), the raw `CHANGELOG.md` of the tag and the plain
+  `releases/download/<tag>/` links, none of which count against that quota; checksums are verified exactly as before. Installations older than
+  1.5.11 still need one redeploy (or a token) to get this fix.
+
 ### Changed
+- **Python 3.15 is now the default**: `python:3.15-slim` in the Dockerfile, `.python-version`, and CI runs the whole suite on 3.15 and on 3.14
+  (the supported floor, `requires-python >= 3.14`, is unchanged). The suite passes unchanged on both.
+- **Dependencies updated** to their latest releases: gunicorn 27.0.1 (stricter HTTP parsing: a request whose `Transfer-Encoding` does not end in
+  `chunked` is now refused; fixes dropped keep-alive requests on the threaded worker we use), certifi 2026.11.20, charset-normalizer 3.5.3, ruff
+  0.17.6; `pyproject.toml` now requires `gunicorn>=27.0.1`. `requirements.txt` and `uv.lock` are regenerated.
 - `vm doctor` checks the mirror of a clone's base distro; `vm status` shows snapshot counts and the last copy job.
 - A new locked state, `working`, is shown while a snapshot, restore or clone runs.
 

@@ -54,8 +54,8 @@ Environment variables
 ``RCONSOLE_VM_PROOT``          Path to a proot binary (default: auto-detect).
 ``RCONSOLE_UPDATE_REPO``       GitHub ``owner/repo`` that ``rconsole update`` reads releases from
                                (default ``Salehin-07/rconsole-ark``; point it at your fork).
-``RCONSOLE_UPDATE_TOKEN``      Optional GitHub token for ``rconsole update`` (private forks, or to
-                               avoid the anonymous API rate limit). Never passed to user commands.
+``RCONSOLE_UPDATE_TOKEN``      Optional GitHub token for ``rconsole update`` (private forks only: a
+                               public repo needs no token, see updater.py). Never passed to user commands.
 """
 import os
 import secrets

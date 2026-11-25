@@ -24,6 +24,6 @@
 | `expose` link gives 502 | Nothing is listening on that port yet (`expose list` shows `[down]`) — start your app. |
 | Hosted app not reachable | Is it running (`service list`) and exposed (`expose list`)? Open `/<name>/`. |
 | `rconsole update` says "this is a git checkout" | Update that install with `git pull` (or `git checkout vX.Y.Z`); `--force` overwrites its files from the release archive. |
-| `rconsole update`: "GitHub refused the request" | Anonymous API limit or a private repo: set `RCONSOLE_UPDATE_TOKEN` (and `RCONSOLE_UPDATE_REPO` for a fork). |
+| `rconsole update`: "GitHub refused the request" | A **public** repo needs no token: when GitHub's anonymous API limit is hit, the updater falls back to the release feed and plain download links by itself (1.5.11+). On older versions, or for a **private** fork, set `RCONSOLE_UPDATE_TOKEN` (and `RCONSOLE_UPDATE_REPO` for a fork). |
 | After a redeploy the version went back | The image was rebuilt from older code and no saved release could be re-applied (no persistent disk or backups): redeploy from the new release, or run `rconsole update` again. |
 | Changes not taking effect | No auto-reload; restart the server. Hard-refresh for static assets. |
