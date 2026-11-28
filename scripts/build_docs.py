@@ -237,6 +237,7 @@ def rewrite_links(pages):
             return f'href="{html.escape(fix(html.unescape(m.group(1)), slug), quote=True)}"'
         p["body"] = re.sub(r'href="([^"]*)"', repl, p["body"])
         p["body"] = re.sub(r'src="(?:\.\./)?static/([^"]+)"', r'src="assets/\1"', p["body"])
+        p["body"] = re.sub(r'src="(?:\.\./|docs/)?img/([^"]+)"', r'src="assets/img/\1"', p["body"])
     return broken
 
 
@@ -445,6 +446,8 @@ def build_site(outdir, strict=False):
     (out / "assets" / "style.css").write_text(CSS.strip() + "\n", encoding="utf-8")
     (out / "assets" / "app.js").write_text(JS.strip() + "\n", encoding="utf-8")
     shutil.copy(ROOT / "static" / "logo.png", out / "assets" / "logo.png")
+    if (ROOT / "docs" / "img").is_dir():
+        shutil.copytree(ROOT / "docs" / "img", out / "assets" / "img")
     (out / ".nojekyll").write_text("", encoding="utf-8")
 
     order = [p[0] for p in PAGES]

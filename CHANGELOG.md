@@ -3,6 +3,34 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.12 — 2026-11-28
+
+### Added
+- **A much better Node.js, npm and browser experience** (`vm setup`):
+  - `node` now installs the **current LTS from nodejs.org** (checksum-verified; the distro's package is only the fallback,
+    because Debian/Ubuntu ship Node 12-18), tunes npm for a small host (global packages in `/root/.npm-global` so a
+    restore keeps them, no progress bar, no install-time audit or funding noise, fewer parallel sockets, more retries)
+    and installs **pnpm**.
+  - `bun`: **Bun**, a JavaScript runtime and very fast package manager (the closest thing Node has to what `uv` did for
+    pip). `pnpm` and `bun` are both offered because neither is guaranteed to behave under PRoot on every package.
+  - `chromium`: Node.js plus a **headless Chromium that starts inside a VM**. The `chromium` command is a launcher that
+    adds the flags a VM needs (`--no-sandbox`, `--disable-dev-shm-usage`, `--no-zygote`; extra ones via
+    `CHROMIUM_EXTRA_FLAGS`); `PUPPETEER_EXECUTABLE_PATH`, `CHROME_PATH` and the skip-download variables are set in
+    `~/.profile`; the setup ends with a launch self-test. Ubuntu, whose `chromium` is a snap stub, gets Chrome for Testing
+    instead (x86-64 only; use a Debian VM on ARM).
+  - `video`: `chromium` plus ffmpeg and fonts, for **Remotion** and similar tools (the failure that started this:
+    `npx remotion render` found no Chromium). The finishing message shows the exact render command
+    (`--browser-executable=/usr/local/bin/chromium --concurrency=1`).
+- **Screenshots in the README and the docs site**: a hero image of the terminal, file manager and editor (phone
+  screenshots, cropped and framed) and an animated tour, in `docs/img/`.
+
+### Changed
+- **One start command in every document: `uv run python serve.py`.** The README said `main.py` while the quick start said
+  `serve.py`. `main.py` stays as a plain development entry point; a test now fails if a document recommends it again.
+- The tagline and wording say **Linux environments (PRoot)** instead of "virtual machines" (README, docs, code comments,
+  the GitHub description and topics): they are not real VMs.
+- The README gained a no-Python route: `docker build` straight from the GitHub URL.
+
 ## 1.5.11 — 2026-11-25
 
 ### Added

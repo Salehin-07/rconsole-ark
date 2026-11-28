@@ -11,7 +11,16 @@
 > 🧾 **What's new** → [CHANGELOG.md](CHANGELOG.md) ·
 > ⬇️ **Self-host from a release** → [Releases](../../releases)
 
-**Version 1.5.11** · MIT licensed · made by Md Abu Salehin
+**Version 1.5.12** · MIT licensed · made by Md Abu Salehin
+
+**Free to host. Linux environments (PRoot) with a terminal, a file manager and a code editor, in any browser, phone included.**
+
+<p align="center"><img src="docs/img/hero.png" alt="Rconsole on a phone: the terminal, the file manager and the code editor" width="920"></p>
+
+<details>
+<summary><b>▶ Animated tour</b> (terminal → file manager → editor)</summary>
+<p align="center"><img src="docs/img/demo.gif" alt="Animated tour of the Rconsole terminal, file manager and editor on a phone" width="300"></p>
+</details>
 
 Rconsole is a Linux console in your browser that you can host for **free**. Put it on one small web service (Render's
 free tier is the reference setup) and you get a terminal, your own Linux systems, a process supervisor and a way to
@@ -35,8 +44,10 @@ separate PID namespaces where the host allows it). Designed for one person or a 
 
 ```bash
 uv sync                      # create the environment
-uv run python main.py        # http://127.0.0.1:5000
+uv run python serve.py       # http://127.0.0.1:5000   (the one start command, everywhere)
 ```
+
+No Python or `uv`? Docker is enough: `docker build -t rconsole https://github.com/Salehin-07/rconsole-ark.git && docker run -p 5000:5000 rconsole`.
 
 Log in as **`ark` / `ark`**, then change the password at once (**Dashboard → Account** or `sudo cpass`), or set
 `RCONSOLE_ADMIN_PASSWORD` before the first start. Requires Python **>= 3.14** (3.15 recommended) and [`uv`](https://docs.astral.sh/uv/)

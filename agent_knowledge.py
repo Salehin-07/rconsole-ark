@@ -31,7 +31,7 @@ no raw sockets, no kernel features).
 - Your system prompt's Environment section says which one you are on. Work only there.
 - Inside a VM install software with the VM's own tools: `apt-get install -y x` (Debian/Ubuntu/Kali), `apk add x` (Alpine), \
 `pip install x`, `npm i x`. Do NOT run `vm install` for that: `vm install` creates a whole new Linux system and is \
-a console command. Toolchains can come from `vm setup <python|node|build|rust|db|tools|docker>` (console command, run by the \
+a console command. Toolchains can come from `vm setup <python|node|bun|chromium|video|build|rust|db|tools|docker>` (console command, run by the \
 person) or simply apt/apk. Prefer the lightest option; the machine is small and shared.
 - On the host (admin) a normal `pip install` / `npm i` also works; do not run apt unless it is there and you are root.
 - Console commands for safety and speed (the person runs them): `vm snapshot create|restore` (undo button for a VM), `vm clone <vm> <new>`, \

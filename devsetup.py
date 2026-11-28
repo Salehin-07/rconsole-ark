@@ -9,13 +9,16 @@ right set for each:
     build   compilers and build systems (gcc, make, cmake, autotools, pkg-config)
     python  Python 3 + pip + venv + build tools + headers for the usual suspects
             (PostgreSQL, MySQL/MariaDB, SQLite, libffi, OpenSSL, XML, JPEG/PNG, …)
-    node    Node.js + npm
+    node    Node.js (current LTS) + npm tuned for small hosts + pnpm
+    bun     Bun: an all-in-one JavaScript runtime and a very fast package manager
+    chromium  Node.js + a headless Chromium that works inside a VM (Puppeteer, Playwright, Remotion, PDFs)
+    video   Render videos from code (Remotion): Node.js, Chromium, ffmpeg and fonts
     rust    Rust + cargo (for wheels that compile from source)
     db      database command-line clients (psql, mysql, redis-cli, sqlite3)
     docker  `docker run` without a daemon (udocker + a docker shim) + the real client for DOCKER_HOST
     udocker the same without the real Docker client
     kali    the command-line Kali toolset (``kali-linux-headless``) — Kali VMs only
-    all     tools, build, python, node, rust and db (not docker, not kali)
+    all     tools, build, python, node, rust and db (not bun, chromium, video, docker or kali)
 
 On Arch (``pacman``) the install is always preceded by a full ``pacman -Syu``: Arch does not support
 installing against a stale package list. Its ``docker`` profile fetches Docker's static client (Arch
@@ -40,7 +43,10 @@ PROFILES = {
     "build":  "Compilers and build systems: gcc, g++, make, cmake, autotools, pkg-config",
     "python": "Python 3, pip, venv + build tools + headers for psycopg2, mysqlclient, "
               "Pillow, lxml, cryptography, …",
-    "node":   "Node.js and npm",
+    "node":   "Node.js (current LTS), npm tuned for small hosts, and pnpm",
+    "bun":    "Bun: JavaScript runtime and a very fast package manager (npm/pnpm alternative)",
+    "chromium": "Node.js + headless Chromium that runs inside a VM (Puppeteer, Playwright, Remotion, PDFs)",
+    "video":  "Render videos from code (Remotion): Node.js, Chromium, ffmpeg, fonts",
     "rust":   "Rust and cargo",
     "db":     "Database clients: psql, mysql, redis-cli, sqlite3",
     "docker": "`docker run` without a daemon (udocker + a docker shim; static images only on the host shell), "
@@ -48,7 +54,7 @@ PROFILES = {
     "udocker": "Same as docker, without installing the real Docker client",
     "kali":   "Kali VM only: the command-line Kali toolset (kali-linux-headless — several GB, "
               "a long install)",
-    "all":    "tools, build, python, node, rust and db (not docker or kali)",
+    "all":    "tools, build, python, node, rust and db (not bun, chromium, video, docker or kali)",
 }
 ORDER = ["tools", "build", "python", "node", "rust", "db"]
 # Profiles that only make sense on one system (profile -> distro id); anything else is refused.
@@ -65,7 +71,12 @@ _DEBIAN = {
               "libffi-dev libssl-dev libxml2-dev libxslt1-dev zlib1g-dev libjpeg-dev "
               "libpng-dev libfreetype6-dev libwebp-dev libyaml-dev libldap2-dev "
               "libsasl2-dev libcurl4-openssl-dev libbz2-dev liblzma-dev libreadline-dev",
-    "node":   "nodejs npm",
+    # Node itself comes from nodejs.org (the distro's is years old, Ubuntu 22.04 ships Node 12); the
+    # distro package is only the fallback inside the script. xz-utils unpacks the official tarball.
+    "node":   "ca-certificates curl xz-utils",
+    "bun":    "bash curl unzip ca-certificates",
+    "chromium": "fonts-liberation fonts-noto-color-emoji unzip",
+    "video":  "ffmpeg fonts-liberation fonts-noto-color-emoji",
     "rust":   "rustc cargo",
     "db":     "postgresql-client default-mysql-client redis-tools sqlite3",
     # Real client only (never docker.io / docker-engine: they pull in dockerd, containerd, runc and
@@ -85,6 +96,9 @@ _ALPINE = {
               "zlib-dev jpeg-dev libpng-dev freetype-dev libwebp-dev yaml-dev "
               "openldap-dev cyrus-sasl-dev curl-dev bzip2-dev xz-dev readline-dev",
     "node":   "nodejs npm",
+    "bun":    "bash curl unzip libgcc libstdc++ ca-certificates",
+    "chromium": "chromium nss freetype harfbuzz font-noto font-noto-emoji ttf-freefont",
+    "video":  "ffmpeg font-noto font-noto-emoji",
     "rust":   "rust cargo",
     "db":     "postgresql-client mariadb-client redis sqlite",
     # findutils: udocker's layer fix-up needs GNU find; busybox find fails with "while modifying attributes of image layer"
@@ -100,6 +114,9 @@ _ARCH = {
               "sqlite libffi openssl libxml2 libxslt zlib libjpeg-turbo libpng freetype2 "
               "libwebp libyaml libldap libsasl curl bzip2 xz readline",
     "node":   "nodejs npm",
+    "bun":    "bash curl unzip",
+    "chromium": "chromium noto-fonts noto-fonts-emoji ttf-liberation",
+    "video":  "ffmpeg noto-fonts noto-fonts-emoji",
     "rust":   "rust",
     "db":     "postgresql mariadb-clients redis sqlite",
     # No client-only Docker package exists on Arch (`docker` includes dockerd, containerd, runc):
@@ -113,7 +130,7 @@ KALI_METAPACKAGE = "kali-linux-headless"
 KALI_FALLBACK = "kali-tools-top10"
 
 # Profiles whose script needs the build tools too.
-_NEEDS = {"python": ("build",), "rust": ("build",)}
+_NEEDS = {"python": ("build",), "rust": ("build",), "chromium": ("node",), "video": ("chromium",)}
 
 
 def expand(profile):
@@ -122,7 +139,9 @@ def expand(profile):
         return list(ORDER)
     out = []
     for dep in _NEEDS.get(profile, ()):
-        out.append(dep)
+        for part in expand(dep):
+            if part not in out:
+                out.append(part)
     out.append(profile)
     return out
 
@@ -187,7 +206,13 @@ def script(profile, family):
     if "build" in parts:
         checks += ["gcc --version | head -n 1", "make --version | head -n 1"]
     if "node" in parts:
-        checks += ["node --version", "npm --version"]
+        checks += ["node --version", "npm --version", "pnpm --version"]
+    if "bun" in parts:
+        checks += ["bun --version"]
+    if "chromium" in parts:
+        checks += ["chromium --version"]
+    if "video" in parts:
+        checks += ["ffmpeg -version | head -n 1"]
     if "rust" in parts:
         checks += ["rustc --version", "cargo --version"]
     if "db" in parts:
@@ -197,11 +222,21 @@ def script(profile, family):
     check_lines = "\n".join(
         f'{c} 2>/dev/null || echo "(not available: {c.split()[0]})"' for c in checks)
     extra = ""
+    for part in parts:
+        if part == "node":
+            extra += _node_setup(family)
+        elif part == "bun":
+            extra += _BUN_SETUP
+        elif part == "chromium":
+            extra += _CHROMIUM_SETUP
+        elif part == "video":
+            extra += _VIDEO_SETUP
     if profile in ("docker", "udocker"):
         closing = _DOCKER_NOTE
         extra = (_DOCKER_REAL_CLIENT if profile == "docker" else "") + _udocker_setup()
     else:
-        closing = 'echo "==> Done. Try: pip install psycopg2   (builds from source with the headers installed)"'
+        closing = _CLOSING.get(
+            profile, 'echo "==> Done. Try: pip install psycopg2   (builds from source with the headers installed)"')
     return f"""#!/bin/sh
 # Generated by `vm setup {profile}` for a {family} system.
 export DEBIAN_FRONTEND=noninteractive
@@ -215,6 +250,169 @@ echo "==> Installed. Versions:"
 echo
 {closing}
 """
+
+
+# ---- Node.js, pnpm, Bun, Chromium, video -------------------------------------------------------
+NODE_MAJOR = 24                       # the LTS line fetched from nodejs.org on Debian-family systems
+NODE_MIN = 20                         # anything older is replaced (Remotion, Vite, Next.js need 20+)
+
+_NODE_TARBALL = r"""
+# Node.js: the official build from nodejs.org (verified against its SHASUMS256.txt). The distro's
+# package is years behind (Ubuntu 22.04: Node 12, Debian 12: Node 18) and is only the fallback.
+NEED_NODE=1
+if command -v node >/dev/null 2>&1; then
+  NV=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+  [ "${NV:-0}" -ge __MIN__ ] && NEED_NODE=0
+fi
+if [ "$NEED_NODE" = 1 ]; then
+  case "$(uname -m)" in
+    x86_64|amd64) NA=x64 ;; aarch64|arm64) NA=arm64 ;; armv7l|armhf) NA=armv7l ;; *) NA="" ;;
+  esac
+  NODE_OK=0
+  if [ -n "$NA" ]; then
+    NB="https://nodejs.org/dist/latest-v__MAJOR__.x"
+    NL=$(curl -fsSL "$NB/SHASUMS256.txt" | grep "linux-$NA.tar.xz" | head -n 1)
+    NF=${NL##* }; NS=${NL%% *}
+    if [ -n "$NF" ] && curl -fsSL -o "/tmp/$NF" "$NB/$NF" && echo "$NS  /tmp/$NF" | sha256sum -c - >/dev/null 2>&1; then
+      tar -xJf "/tmp/$NF" -C /usr/local --strip-components=1 --no-same-owner \
+        --exclude='*/CHANGELOG.md' --exclude='*/LICENSE' --exclude='*/README.md' && NODE_OK=1
+    else
+      echo "!! could not download or verify Node.js from nodejs.org"
+    fi
+    [ -n "$NF" ] && rm -f "/tmp/$NF"
+  fi
+  if [ "$NODE_OK" != 1 ]; then
+    echo "==> falling back to the distro's nodejs package"
+    inst nodejs npm
+  fi
+fi
+"""
+
+_NODE_TUNE = r"""
+# npm for small hosts: global packages live in /root (so they survive a restore), no progress bar,
+# no install-time audit or funding chatter, fewer parallel sockets (less RAM), more retries.
+if command -v npm >/dev/null 2>&1; then
+  mkdir -p /root/.npm-global
+  touch /root/.npmrc
+  for kv in "prefix=/root/.npm-global" "fund=false" "audit=false" "update-notifier=false" \
+            "progress=false" "fetch-retries=5" "fetch-retry-maxtimeout=60000" "maxsockets=4"; do
+    k=${kv%%=*}
+    grep -q "^$k=" /root/.npmrc || echo "$kv" >> /root/.npmrc
+  done
+  echo "==> Installing pnpm (a fast, disk-saving package manager)"
+  npm install -g pnpm >/dev/null 2>&1 || echo "!! pnpm could not be installed (try: npm install -g pnpm)"
+else
+  echo "!! npm is not available after the install"
+fi
+"""
+
+
+def _node_setup(family):
+    """Shell that makes sure a current Node.js + npm exist, then tunes npm and adds pnpm."""
+    head = ""
+    if family not in ("alpine", "arch"):        # those distros package a current Node themselves
+        head = _NODE_TARBALL.replace("__MIN__", str(NODE_MIN)).replace("__MAJOR__", str(NODE_MAJOR))
+    return head + _NODE_TUNE
+
+
+_BUN_SETUP = r"""
+echo "==> Installing Bun (runtime + package manager: 'bun install' is several times faster than npm)"
+export BUN_INSTALL=/root/.bun
+if [ ! -x /root/.bun/bin/bun ]; then
+  curl -fsSL https://bun.sh/install | bash || echo "!! Bun could not be installed (needs a network connection)"
+fi
+"""
+
+# Chromium cannot use its own sandbox inside a VM (no user namespaces under proot) and /dev/shm is tiny,
+# so the `chromium` command in /usr/local/bin is a small launcher that adds the flags a VM needs.
+_CHROMIUM_WRAPPER = """#!/bin/sh
+# Managed by rconsole (vm setup chromium): Chromium with the flags a VM needs.
+# Add your own with: CHROMIUM_EXTRA_FLAGS="--window-size=1280,720"
+for c in /usr/local/lib/rconsole-chromium/chrome /usr/bin/chromium /usr/bin/chromium-browser /usr/lib/chromium/chromium; do
+  [ -x "$c" ] && exec "$c" --no-sandbox --disable-dev-shm-usage --no-zygote $CHROMIUM_EXTRA_FLAGS "$@"
+done
+echo "chromium: no browser found (run: vm setup chromium)" >&2
+exit 127
+"""
+
+_CHROMIUM_SETUP = r"""
+. /etc/os-release 2>/dev/null
+if [ "${ID:-}" = ubuntu ]; then
+  # On Ubuntu `chromium` is a snap stub that cannot run here: use Google's "Chrome for Testing"
+  # build (x86-64 only) plus the libraries it links against.
+  echo "==> Ubuntu: fetching Chrome for Testing (Ubuntu's own chromium package is snap-only)"
+  inst libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 libxkbcommon0 libxcomposite1 \
+       libxdamage1 libxfixes3 libxrandr2 libasound2t64 libasound2 libpango-1.0-0 libcairo2 libx11-6 \
+       libxext6 libxcb1 libdbus-1-3 libexpat1 libglib2.0-0 libnspr4
+  if [ "$(uname -m)" = x86_64 ]; then
+    CB=$(npx --yes @puppeteer/browsers install chrome@stable --path /root/.cache/rconsole-chrome 2>&1 | tail -n 1)
+    CB=${CB#* }
+    if [ -x "$CB" ]; then
+      mkdir -p /usr/local/lib/rconsole-chromium
+      ln -sf "$CB" /usr/local/lib/rconsole-chromium/chrome
+    else
+      echo "!! could not download Chrome for Testing; use a Debian VM for browsers (vm install debian)"
+    fi
+  else
+    echo "!! Chrome for Testing has no build for this CPU; use a Debian VM for browsers (vm install debian)"
+  fi
+elif command -v apt-get >/dev/null 2>&1; then
+  inst chromium
+fi
+cat > /usr/local/bin/chromium <<'CHROMIUM_WRAPPER_EOF'
+""" + _CHROMIUM_WRAPPER + r"""CHROMIUM_WRAPPER_EOF
+chmod 0755 /usr/local/bin/chromium
+touch /root/.profile
+if ! grep -q "rconsole chromium" /root/.profile; then
+  cat >> /root/.profile <<'PROFILE_BLOCK_EOF'
+# >>> rconsole chromium >>>
+export CHROME_PATH=/usr/local/bin/chromium
+export PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/chromium
+export PUPPETEER_SKIP_DOWNLOAD=1
+export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+# <<< rconsole chromium <<<
+PROFILE_BLOCK_EOF
+fi
+if timeout 90 /usr/local/bin/chromium --headless --disable-gpu --dump-dom about:blank 2>/dev/null | grep -q "<html"; then
+  echo "==> Chromium launches fine (headless)"
+else
+  echo "!! Chromium did not start. Run it by hand to see why:  chromium --headless --dump-dom about:blank"
+fi
+"""
+
+_VIDEO_SETUP = r"""
+echo "==> Video tools ready: ffmpeg, fonts, Node.js and Chromium."
+"""
+
+_NODE_NOTE = """echo "==> Done. Node.js, npm and pnpm are ready:"
+echo "      pnpm install        # faster and lighter than npm install; or: npm install"
+echo "      npm install -g <pkg>  # lands in /root/.npm-global, which a backup restore keeps"
+echo "      Tight on memory?  NODE_OPTIONS=--max-old-space-size=384 npm run build"
+echo "      Want something faster still?  vm setup bun"
+"""
+
+_BUN_NOTE = """echo "==> Done. Bun is in /root/.bun/bin (already on your PATH):"
+echo "      bun install         # drop-in for npm install, usually several times faster"
+echo "      bun run dev         # run a package.json script; bun file.ts runs TypeScript directly"
+echo "      If a package misbehaves under bun, pnpm/npm are still there (vm setup node)."
+"""
+
+_CHROMIUM_NOTE = """echo "==> Done. The 'chromium' command works in this VM (sandbox off, small /dev/shm handled)."
+echo "      chromium --headless --screenshot=/root/page.png --window-size=1280,720 https://example.com"
+echo "      Puppeteer / Playwright: no browser download needed; PUPPETEER_EXECUTABLE_PATH and CHROME_PATH are set."
+echo "      Playwright: chromium.launch({ executablePath: '/usr/local/bin/chromium' })"
+"""
+
+_VIDEO_NOTE = """echo "==> Done. Remotion (and anything else that renders with Chromium + ffmpeg) can run here:"
+echo "      npx create-video@latest            # then, inside the project:"
+echo "      npx remotion render src/index.ts MyComp out.mp4 \\\\"
+echo "          --browser-executable=/usr/local/bin/chromium --concurrency=1"
+echo "      (or Config.setBrowserExecutable('/usr/local/bin/chromium') in remotion.config.ts)"
+echo "      A free host has about 512 MB RAM: keep --concurrency=1, short clips and small frames; a render"
+echo "      that gets 'Killed' ran out of memory and needs a bigger instance."
+"""
+
+_CLOSING = {"node": _NODE_NOTE, "bun": _BUN_NOTE, "chromium": _CHROMIUM_NOTE, "video": _VIDEO_NOTE}
 
 
 # The *real* Docker client (for DOCKER_HOST). Some releases (Debian 12, Ubuntu LTS) have no docker-cli

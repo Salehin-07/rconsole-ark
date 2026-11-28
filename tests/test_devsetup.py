@@ -143,3 +143,88 @@ class ProfileTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NodeAndBrowserProfileTests(unittest.TestCase):
+    """Node.js, Bun, Chromium and video (Remotion) profiles."""
+
+    def test_new_profiles_are_known_and_expand_in_order(self):
+        for name in ("node", "bun", "chromium", "video"):
+            self.assertIn(name, devsetup.PROFILES)
+        self.assertEqual(devsetup.expand("video"), ["node", "chromium", "video"])
+        self.assertEqual(devsetup.expand("chromium"), ["node", "chromium"])
+        self.assertNotIn("chromium", devsetup.expand("all"))       # heavy: never part of `all`
+
+    def test_node_is_a_current_lts_from_nodejs_org_with_a_distro_fallback(self):
+        text = devsetup.script("node", "debian")
+        self.assertIn(f"latest-v{devsetup.NODE_MAJOR}.x", text)
+        self.assertIn("sha256sum -c", text)                 # the download is verified
+        self.assertIn("inst nodejs npm", text)              # fallback if nodejs.org is unreachable
+        self.assertIn(f'-ge {devsetup.NODE_MIN}', text)
+        self.assertNotIn("nodejs", devsetup.packages("node", "debian"))   # never the stale apt Node first
+        for fam in ("alpine", "arch"):                      # these package a current Node themselves
+            self.assertIn("nodejs", devsetup.packages("node", fam))
+            self.assertNotIn("nodejs.org/dist", devsetup.script("node", fam))
+
+    def test_npm_is_tuned_for_small_hosts_and_pnpm_is_installed(self):
+        for fam in ("debian", "alpine", "arch"):
+            text = devsetup.script("node", fam)
+            for setting in ("prefix=/root/.npm-global", "fund=false", "progress=false", "maxsockets=4"):
+                self.assertIn(setting, text)
+            self.assertIn("npm install -g pnpm", text)
+            self.assertIn("pnpm --version", text)
+
+    def test_bun_profile(self):
+        for fam in ("debian", "alpine", "arch"):
+            self.assertIn("bash", devsetup.packages("bun", fam))        # bun's installer needs bash
+            self.assertIn("https://bun.sh/install", devsetup.script("bun", fam))
+        self.assertIn("libstdc++", devsetup.packages("bun", "alpine"))   # musl build needs it
+
+    def test_chromium_wrapper_adds_the_flags_a_vm_needs(self):
+        text = devsetup.script("chromium", "debian")
+        self.assertIn("> /usr/local/bin/chromium <<'CHROMIUM_WRAPPER_EOF'", text)
+        for flag in ("--no-sandbox", "--disable-dev-shm-usage", "--no-zygote"):
+            self.assertIn(flag, text)
+        self.assertIn("CHROMIUM_EXTRA_FLAGS", text)
+        for var in ("PUPPETEER_EXECUTABLE_PATH", "CHROME_PATH", "PUPPETEER_SKIP_DOWNLOAD",
+                    "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD"):
+            self.assertIn(var, text)
+        self.assertIn("--dump-dom about:blank", text)                  # a launch self-test
+
+    def test_chromium_on_ubuntu_avoids_the_snap_stub(self):
+        text = devsetup.script("chromium", "debian")
+        self.assertIn('[ "${ID:-}" = ubuntu ]', text)
+        self.assertIn("@puppeteer/browsers install chrome@stable", text)
+        self.assertIn("inst chromium", text)                           # Debian / Kali use the real package
+        self.assertNotIn("chromium", devsetup.packages("chromium", "debian"))   # only fonts in the package list
+
+    def test_chromium_packages_on_alpine_and_arch(self):
+        self.assertIn("chromium", devsetup.packages("chromium", "alpine"))
+        self.assertIn("chromium", devsetup.packages("chromium", "arch"))
+
+    def test_video_has_ffmpeg_chromium_node_and_remotion_hint(self):
+        for fam in ("debian", "alpine", "arch"):
+            self.assertIn("ffmpeg", devsetup.packages("video", fam))
+            text = devsetup.script("video", fam)
+            self.assertIn("/usr/local/bin/chromium", text)
+            self.assertIn("--browser-executable=/usr/local/bin/chromium", text)
+            self.assertIn("--concurrency=1", text)
+
+    def test_wrapper_script_is_valid_sh_and_finds_a_browser(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = f"{d}/chromium"
+            with open(path, "w") as f:
+                f.write(devsetup._CHROMIUM_WRAPPER)
+            self.assertEqual(subprocess.run(["sh", "-n", path]).returncode, 0)
+            r = subprocess.run(["sh", path, "--version"], capture_output=True, text=True)
+            self.assertIn(r.returncode, (0, 127))                      # 127 only when no browser is installed
+
+    def test_new_profiles_are_documented(self):
+        from pathlib import Path
+        root = Path(devsetup.__file__).resolve().parent
+        commands = (root / "COMMANDS.md").read_text(encoding="utf-8")
+        features = (root / "FEATURES.md").read_text(encoding="utf-8")
+        for name in devsetup.PROFILES:
+            self.assertIn(f"| `{name}` |", commands, name)
+            self.assertIn(f"`{name}`", features, name)
+

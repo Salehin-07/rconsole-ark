@@ -51,7 +51,7 @@ Commands run on one of two **targets**:
 
 - Browser terminal powered by **xterm.js** + a real PTY (ConPTY on Windows,
   `pty`/`select` on Linux/macOS).
-- **Several virtual machines per user** (`vm`): **Alpine, Debian, Ubuntu, Kali** —
+- **Several Linux environments (PRoot) per user** (`vm`): **Alpine, Debian, Ubuntu, Kali** —
   one, some or all, each with its own root filesystem and persistent `/root`. Be
   root inside, install any package, no host privileges needed; switch with a
   dropdown (see [The VM](vm.md#the-vm-vm)).

@@ -124,7 +124,7 @@ history
 Prints your username.
 
 ### `version`
-Prints the rconsole version, e.g. `rconsole 1.5.11` (also in the first line of `help` and at `/healthz`).
+Prints the rconsole version, e.g. `rconsole 1.5.12` (also in the first line of `help` and at `/healthz`).
 `rconsole version` prints more (where it is installed, the last update).
 
 ### `cd`
@@ -391,14 +391,17 @@ Installs a ready-made toolchain **inside a VM** as a background job with live pr
 |---|---|
 | `python` | Python 3, pip, venv, compiler **and headers** for psycopg2, mysqlclient, Pillow, lxml, cryptography … |
 | `build` | gcc, g++, make, cmake, autotools, pkg-config |
-| `node` | Node.js, npm |
+| `node` | **Current Node.js LTS** from nodejs.org (verified; the distro package is the fallback), npm tuned for small hosts (global packages in `/root/.npm-global`, no progress bar, no install-time audit, fewer sockets) and **pnpm** |
+| `bun` | **Bun**: JavaScript runtime and a very fast package manager (`bun install`), in `/root/.bun/bin` (already on `PATH`) |
+| `chromium` | `node` plus a **headless Chromium that works in a VM**: a `chromium` launcher that adds the flags a VM needs (`--no-sandbox`, `--disable-dev-shm-usage`, `--no-zygote`), and `PUPPETEER_EXECUTABLE_PATH`, `CHROME_PATH` and the skip-download variables set for Puppeteer / Playwright. Ubuntu (snap-only `chromium`) gets Chrome for Testing instead, x86-64 only |
+| `video` | `chromium` plus ffmpeg and fonts: what **Remotion** and other video-from-code tools need |
 | `rust` | Rust, cargo |
 | `db` | psql, mysql, redis-cli, sqlite3 |
 | `tools` | nano, vim, wget, curl, git, ps, htop, zip, jq, ssh … |
 | `docker` | `docker run ...` **without a daemon**: installs udocker, a `docker` command and `drun` (see [`docker`](#docker-containers-without-a-daemon)), plus the real Docker client for `DOCKER_HOST`. Runs in userspace, so no `-d`, `-p`, exec, build or compose; in a VM static images such as hello-world can't run (use the host shell) |
 | `udocker` | the same as `docker`, without the real Docker client |
 | `kali` | **Kali VMs only.** The command-line Kali toolset (`kali-linux-headless`, no desktop) plus the basics it needs. Several GB and a long install; refused on any other system. Want more: `apt install kali-linux-large` |
-| `all` | `tools`, `build`, `python`, `node`, `rust`, `db` (not `docker` or `kali`) |
+| `all` | `tools`, `build`, `python`, `node`, `rust`, `db` (not `bun`, `chromium`, `video`, `docker` or `kali`) |
 
 ```text
 vm setup                  # list profiles
@@ -406,7 +409,18 @@ vm setup python           # then: pip install psycopg2 mysqlclient Pillow
 vm setup python kali      # a specific VM
 vm setup docker           # Docker client + compose
 vm setup kali             # in a Kali VM: the Kali toolset (`vm install kali` first)
+vm setup node             # current Node.js + npm + pnpm;  vm setup bun  for Bun
+vm setup video            # Node + Chromium + ffmpeg: render videos with Remotion
 ```
+
+**Node.js, Bun, browsers and video.** `node` always gives a current LTS (the distro's Node is often years old) and sets
+npm up for a small host. `pnpm install` or `bun install` are much faster and lighter than `npm install`; pick one per
+project. `chromium` fixes the usual "Chromium is not available / cannot start as root" failures: use the `chromium`
+command directly (`chromium --headless --screenshot=/root/a.png https://example.com`), or let Puppeteer/Playwright find
+it through the variables the profile sets in `~/.profile`. For **Remotion** run
+`npx remotion render src/index.ts MyComp out.mp4 --browser-executable=/usr/local/bin/chromium --concurrency=1`.
+A free host has about 512 MB RAM, so keep renders short and small; a render that ends with `Killed` ran out of memory.
+Extra browser flags: `CHROMIUM_EXTRA_FLAGS="--window-size=1280,720" chromium ...`.
 
 ### `neofetch` / `fetch` / `rfetch`
 System summary that **fits your screen** (logo beside, above, or hidden on phones).

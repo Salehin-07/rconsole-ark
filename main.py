@@ -1,8 +1,7 @@
 """rconsole entry point.
 
-Run with:
-    uv run python main.py
-    uv run python app.py        # equivalent
+Kept for compatibility. The documented start command is ``uv run python serve.py`` (gunicorn where it
+exists, a built-in server where it does not, e.g. Windows); this file starts the plain development server.
 """
 from app import main
 

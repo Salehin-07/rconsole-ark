@@ -1,4 +1,4 @@
-"""``vm`` — manage and enter your virtual machines.
+"""``vm`` — manage and enter your Linux environments (PRoot, not true virtual machines).
 
 You can have **several** systems installed at once (Alpine, Debian, Ubuntu,
 Kali, ...). Each one has its own root filesystem and its own ``/root``; nothing

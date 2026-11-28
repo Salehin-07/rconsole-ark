@@ -57,6 +57,8 @@ job with live progress (it keeps going if you close the tab; `jobs`, `fg %n`):
 $ vm setup python            # (add a name if you have several: vm setup python kali)
 $ pip install psycopg2 mysqlclient Pillow lxml      # builds from source, no flags needed
 $ vm setup docker            # Docker client + compose
+$ vm setup node              # current Node.js, tuned npm, pnpm  (vm setup bun: Bun)
+$ vm setup video             # Node + Chromium + ffmpeg: render videos with Remotion
 $ vm setup kali              # in a Kali VM (vm install kali first): the Kali tools
 ```
 

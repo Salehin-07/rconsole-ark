@@ -2,6 +2,8 @@
 
 <p><img src="../static/logo.png" alt="Rconsole logo" width="120"></p>
 
+<p><img src="img/hero.png" alt="Rconsole on a phone: the terminal, the file manager and the code editor" width="920"></p>
+
 **Rconsole is a Linux console in your browser that you can host for free.** You put it on one small web service
 (Render's free tier is the reference setup) and get a terminal, your own Linux systems, a process supervisor and a way
 to publish what you run, all usable from a phone.

@@ -179,10 +179,30 @@ class FactsTests(unittest.TestCase):
         self.assertIn("env.example", read("docs/configuration.md"))
         self.assertTrue((ROOT / "deploy" / ".env.example").is_file())
 
+    def test_one_start_command_everywhere(self):
+        """README, quick start and deploy guide all start Rconsole the same way (serve.py), never main.py."""
+        for rel in DOC_FILES:
+            if rel == "CHANGELOG.md":
+                continue
+            text = read(rel)
+            self.assertNotRegex(text, r"(uv run |\bpython3? )main\.py\s*(#|$)(?![^\n]*&)", rel)   # `python main.py &` is a user's app
+        for rel in ("README.md", "docs/quick-start.md"):
+            self.assertIn("uv run python serve.py", read(rel), rel)
+
+    def test_readme_shows_the_product_and_says_proot(self):
+        readme = read("README.md")
+        top = readme[:readme.index("## What you get")]
+        for img in ("docs/img/hero.png", "docs/img/demo.gif"):
+            self.assertIn(img, top, f"{img} should be near the top of the README")
+            self.assertTrue((ROOT / img).is_file(), img)
+        self.assertIn("Linux environments (PRoot)", top)
+        for rel in ("docs/index.md",):
+            self.assertIn("img/hero.png", read(rel))
+
     def test_no_overpromises_survive(self):
         banned = ["never sleeps", "always-on server", "as many as you like", "shared PID namespace",
                   "share the server's uid and PID", "Alpine rootfs", "Services survive redeploys",
-                  "doesn't fall asleep", "Open terminals reconnect"]
+                  "doesn't fall asleep", "Open terminals reconnect", "private and public VMs"]
         for rel in DOC_FILES:
             if rel == "CHANGELOG.md":
                 continue

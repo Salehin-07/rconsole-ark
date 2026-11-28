@@ -11,7 +11,7 @@ Targets
 -------
 ``host``      The machine rconsole runs on, with the privileges of the server
               process. Admin-only (``RCONSOLE_ALLOW_USER_HOST=1`` relaxes it).
-``vm:<id>``   One of the user's **virtual machines** — a Linux root filesystem
+``vm:<id>``   One of the user's **Linux environments** (PRoot, not true virtual machines) — a Linux root filesystem
               (alpine, debian, ubuntu, kali, ...) run under
               `proot <https://proot-me.github.io/>`_. Inside it the user is
               ``root`` and may install any package — no host privileges
